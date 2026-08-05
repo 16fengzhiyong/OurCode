@@ -206,10 +206,10 @@ export default function TitleBar() {
       label: t('menu.help'),
       items: [
         { label: t('menu.help.reportIssue'), action: () => {
-          window.open('https://github.com/anthropics/claude-code/issues', '_blank')
+          window.open('https://github.com/16fengzhiyong/OurCode/issues', '_blank')
         }},
         { label: t('menu.help.featureRequest'), action: () => {
-          window.open('https://github.com/anthropics/claude-code/issues', '_blank')
+          window.open('https://github.com/16fengzhiyong/OurCode/issues', '_blank')
         }},
         { separator: true, label: '' },
         { label: t('menu.help.exportData'), action: async () => {
@@ -303,7 +303,7 @@ export default function TitleBar() {
           style={{ background: 'radial-gradient(circle, #7c5cbf 0%, #007acc 100%)', boxShadow: '0 0 6px #7c5cbf88' }}
         />
         <span className="text-xs text-[#8d8d8d]">
-          星云智码 IDE
+          OurCode
         </span>
       </div>
 

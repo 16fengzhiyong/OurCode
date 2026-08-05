@@ -13,7 +13,9 @@ import { useUIStore } from '@/stores/uiStore'
 export default function ChatPanel() {
   const activeSession = useChatStore((s) => s.getActiveSession())
   const createSession = useChatStore((s) => s.createSession)
-  const { activeConfigGroupId, configGroups } = useConfigStore()
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const updateSessionModel = useChatStore((s) => s.updateSessionModel)
+  const { activeConfigGroupId, configGroups, models, isLoadingModels } = useConfigStore()
   const { openSettings } = useUIStore()
   const [showHistory, setShowHistory] = useState(true)
   const [showSessionList, setShowSessionList] = useState(false)
@@ -28,8 +30,6 @@ export default function ChatPanel() {
       openSettings()
     }
   }
-
-  const currentModel = activeSession?.model || '未选择模型'
 
   return (
     <div className="h-full flex" style={{ background: '#1a1a2e' }}>
@@ -68,8 +68,8 @@ export default function ChatPanel() {
                 <span style={{ color: '#fff', fontSize: 14 }}>✦</span>
               </div>
               <div>
-                <strong className="text-nova-text-primary text-sm block">星云 AI 助手</strong>
-                <span className="text-[10px] text-nova-text-muted">NebulaCode Copilot · 已连接</span>
+                <strong className="text-nova-text-primary text-sm block">OurCode AI 助手</strong>
+                <span className="text-[10px] text-nova-text-muted">OurCode Copilot · 已连接</span>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -127,9 +127,17 @@ export default function ChatPanel() {
             </select>
             <select
               className="text-[11px] bg-nova-input-bg text-nova-text-primary border border-nova-border rounded px-1.5 py-0.5 outline-none flex-1"
-              defaultValue={currentModel}
+              value={activeSession?.model || ''}
+              onChange={(e) => {
+                if (activeSessionId) updateSessionModel(activeSessionId, e.target.value)
+              }}
+              disabled={isLoadingModels}
+              title="选择模型"
             >
-              <option value={currentModel}>{currentModel}</option>
+              <option value="">选择模型</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>{m.alias || m.id}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -152,7 +160,7 @@ export default function ChatPanel() {
                     WebkitTextFillColor: 'transparent',
                   }}
                 >
-                  星云 AI 助手
+                  OurCode AI 助手
                 </div>
                 <div className="text-sm text-nova-text-muted mb-2">
                   AI 编程助手

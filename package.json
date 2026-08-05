@@ -102,8 +102,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "OurCode",
-      "repo": "OurCode-ide"
+      "owner": "16fengzhiyong",
+      "repo": "OurCode"
     }
   }
 }

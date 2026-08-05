@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
-import ModelSelector from './ModelSelector'
 import { filterSlashCommands, buildSlashPrompt, getEditorSlashContext, SlashCommand } from '@/services/commands/slashCommands'
 import { takePendingVibeReplace } from '@/services/vibeReplace'
 import { AUTO_CONTINUE_KEY } from '@shared/constants'
@@ -486,9 +485,6 @@ export default function ChatInput() {
             )}
           </div>
         </div>
-
-        {/* Model Selector */}
-        <ModelSelector />
       </div>
     </div>
   )
