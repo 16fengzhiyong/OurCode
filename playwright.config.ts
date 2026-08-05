@@ -7,6 +7,8 @@ export default defineConfig({
   // Electron instances are heavy; launching several at once is flaky on CI
   // (debug-port/GPU contention), so run spec files serially.
   workers: 1,
+  // Kill stray Electron processes left by tests that failed before app.close()
+  globalTeardown: './e2e/teardown.ts',
   use: {
     headless: true,
     viewport: { width: 1400, height: 900 },
