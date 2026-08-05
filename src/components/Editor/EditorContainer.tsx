@@ -103,6 +103,26 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   // AI inline completion (ghost text, Tab to accept / Esc to reject)
   const { triggerCompletion } = useInlineCompletion(editor)
 
+  // Reload open models when a file changes on disk (tool edits / checkpoint reverts)
+  useEffect(() => {
+    const reloadModel = (path: string) => {
+      const model = getModel(path)
+      if (!model || model.isDisposed()) return
+      window.electronAPI.readFile(path).then(({ content }) => {
+        if (!model.isDisposed() && model.getValue() !== content) {
+          model.setValue(content)
+        }
+      }).catch(() => { /* file may have been deleted */ })
+    }
+    const unsubFs = window.electronAPI.onFileChanged((path) => reloadModel(path))
+    const onLocal = (e: Event) => reloadModel((e as CustomEvent).detail)
+    window.addEventListener('ourcode:file-changed', onLocal)
+    return () => {
+      unsubFs()
+      window.removeEventListener('ourcode:file-changed', onLocal)
+    }
+  }, [])
+
   // Initialize Monaco
   useEffect(() => {
     if (!editorRef.current) return
@@ -175,6 +195,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
           { label: '--- AI 操作 ---', disabled: true },
           { label: 'AI: 解释这段代码', icon: '🤖', action: () => sendToAI('请解释以下代码的含义和功能：\n\n```' + ext + '\n' + selectedText + '\n```') },
           { label: 'AI: 重构建议', icon: '🔧', action: () => sendToAI('请对以下代码提供重构建议，优化其可读性和性能：\n\n```' + ext + '\n' + selectedText + '\n```') },
+          { label: '✨ Vibe 替换: 重写所选内容', icon: '✨', action: () => vibeReplace(selectedText, ext) },
           { label: 'AI: 生成单元测试', icon: '🧪', action: () => sendToAI('请为以下代码生成单元测试：\n\n```' + ext + '\n' + selectedText + '\n```') },
           { label: 'AI: 生成文档注释', icon: '📝', action: () => sendToAI('请为以下代码生成详细的文档注释（JSDoc/Docstring）：\n\n```' + ext + '\n' + selectedText + '\n```') },
           { label: 'AI: 修复问题', icon: '🩹', action: () => sendToAI('请检查以下代码中的问题并提供修复方案：\n\n```' + ext + '\n' + selectedText + '\n```') },
@@ -208,6 +229,25 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     chatStore.sendMessage(prompt)
     useUIStore.getState().toggleChat()
   }, [])
+
+  // Vibe and Replace (Windsurf-style): rewrite the current selection from a
+  // natural-language description. The prompt includes the selected text; the
+  // assistant's reply carries the new code, which can be applied back via the
+  // "应用到编辑器" button on the message.
+  const vibeReplace = useCallback((selectedText: string, ext: string) => {
+    const filePath = useEditorStore.getState().panels[panelId]?.activeFilePath || ''
+    sendToAI(
+      `（Vibe 替换）我将告诉你如何改写下面选中代码，请直接输出替换后的完整新代码（单个代码块，不要解释）：\n\n` +
+      `请描述你希望的改法：\n\n` +
+      `--- 当前选中代码 (${filePath}) ---\n` +
+      `\`\`\`${ext}\n${selectedText}\n\`\`\``
+    )
+    // Ask for the rewrite goal after opening the chat
+    setTimeout(() => {
+      const input = document.querySelector('textarea[placeholder*="输入消息"]') as HTMLTextAreaElement | null
+      input?.focus()
+    }, 300)
+  }, [panelId, sendToAI])
 
   // Keep editor options in sync with preferences and the active file's size
   // (large files get a reduced-feature preset). Depends on the file size as a

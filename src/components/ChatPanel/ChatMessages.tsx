@@ -2,6 +2,11 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import ChatMessage from './ChatMessage'
 import ThinkingBlock from './ThinkingBlock'
+import { TodoPanel, PlanCard } from './AgentPanel'
+
+// Marker set by the agent loop when the tool-call budget is exhausted;
+// the ChatMessage renders a "继续" button for messages starting with it.
+export const EXHAUSTED_MARKER = '[已达到最大工具调用轮数'
 
 // Common model context windows (in tokens)
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
@@ -13,7 +18,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
 export default function ChatMessages() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const activeSession = useChatStore((s) => s.getActiveSession())
-  const { isLoading, streamingContent, streamingThinking, reorderMessages, undoStack, undoDelete, switchBranch } = useChatStore()
+  const { isLoading, streamingContent, streamingThinking, reorderMessages, undoStack, undoDelete, switchBranch, queuedMessages, clearQueue } = useChatStore()
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [showUndoToast, setShowUndoToast] = useState(false)
@@ -141,6 +146,18 @@ export default function ChatMessages() {
           <span className="text-[10px] text-nova-text-muted">
             共 {activeSession.branches.length} 个分支
           </span>
+        </div>
+      )}
+
+      {/* Agent todo list + pending plan (Windsurf Cascade-style) */}
+      <TodoPanel sessionId={activeSession.id} />
+      <PlanCard sessionId={activeSession.id} />
+
+      {/* Queued messages while the agent is working */}
+      {queuedMessages.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-nova-accent/10 border border-nova-accent/25 text-xs text-nova-accent">
+          <span>⏳ {queuedMessages.length} 条消息已排队，将在当前生成完成后发送</span>
+          <button onClick={clearQueue} className="ml-auto hover:text-nova-text-primary transition-colors">取消</button>
         </div>
       )}
 

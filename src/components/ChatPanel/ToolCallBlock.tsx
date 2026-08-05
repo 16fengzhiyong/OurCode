@@ -16,6 +16,11 @@ const TOOL_ICONS: Record<string, string> = {
   create_directory: '📂',
   delete_file: '🗑️',
   run_command: '⚡',
+  manage_todo: '✅',
+  submit_plan: '📋',
+  ask_user_question: '❓',
+  web_search: '🌐',
+  read_url: '🔗',
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -29,6 +34,11 @@ const TOOL_LABELS: Record<string, string> = {
   create_directory: '创建目录',
   delete_file: '删除',
   run_command: '执行命令',
+  manage_todo: '任务列表',
+  submit_plan: '提交计划',
+  ask_user_question: '询问用户',
+  web_search: '网络搜索',
+  read_url: '读取网页',
 }
 
 export default function ToolCallBlock({ toolCalls, toolResults }: ToolCallBlockProps) {
@@ -132,7 +142,18 @@ function getToolSummary(name: string, args: Record<string, any>): string {
       return args.path?.split(/[/\\]/).pop() || args.path
     case 'run_command':
       return args.command?.slice(0, 50) || ''
+    case 'manage_todo':
+      return `${Array.isArray(args.todos) ? args.todos.length : 0} 项任务`
+    case 'submit_plan':
+      return args.title || ''
+    case 'ask_user_question':
+      return args.question?.slice(0, 50) || ''
+    case 'web_search':
+      return args.query || ''
+    case 'read_url':
+      return args.url || ''
     default:
+      if (name.startsWith('mcp__')) return name.slice('mcp__'.length).split('__').pop() || name
       return JSON.stringify(args).slice(0, 50)
   }
 }

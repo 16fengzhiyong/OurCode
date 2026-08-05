@@ -174,6 +174,112 @@ export function createToolRegistry(): Tool[] {
       },
       requiresApproval: true,
     },
+
+    // ──────────────── Agent-control tools (handled by the chat store) ────────────────
+    {
+      name: 'manage_todo',
+      description:
+        'Maintain the session task list shown to the user. Call with the full updated list of todos. ' +
+        'Each todo: { id (optional), content, status: "pending" | "in_progress" | "completed" | "failed" }. ' +
+        'Use this at the start of a multi-step task and update it as steps progress.',
+      parameters: {
+        type: 'object',
+        properties: {
+          todos: {
+            type: 'array',
+            description: 'The complete updated todo list',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'Existing todo id (omit for new items)' },
+                content: { type: 'string', description: 'Task description' },
+                status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'failed'] },
+              },
+              required: ['content', 'status'],
+            },
+          },
+        },
+        required: ['todos'],
+      },
+      execute: async (args) => `Todo list updated (${Array.isArray(args.todos) ? args.todos.length : 0} items)`,
+    },
+    {
+      name: 'submit_plan',
+      description:
+        'In plan mode: submit a step-by-step plan for the user to approve before any file changes are made. ' +
+        'The plan should break the task into ordered, concrete steps. Do not use this tool in execute mode.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Short plan title' },
+          steps: {
+            type: 'array',
+            description: 'Ordered implementation steps',
+            items: {
+              type: 'object',
+              properties: {
+                summary: { type: 'string', description: 'One-line step summary' },
+                detail: { type: 'string', description: 'Optional longer explanation' },
+              },
+              required: ['summary'],
+            },
+          },
+        },
+        required: ['title', 'steps'],
+      },
+      execute: async () => 'Plan submitted (awaiting user approval)',
+    },
+    {
+      name: 'ask_user_question',
+      description:
+        'Ask the user a clarifying question with optional predefined choices. ' +
+        'Use this when the task is ambiguous and you need user input to proceed. The user\'s answer is returned.',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: 'The question to ask' },
+          options: { type: 'array', items: { type: 'string' }, description: 'Optional predefined answer choices' },
+        },
+        required: ['question'],
+      },
+      execute: async () => 'Awaiting user answer',
+    },
+
+    // ──────────────── Web tools (read-only network access) ────────────────
+    {
+      name: 'web_search',
+      description:
+        'Search the web for up-to-date information (docs, error messages, APIs, news). ' +
+        'Returns a list of result titles, URLs and snippets.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The search query' },
+        },
+        required: ['query'],
+      },
+      execute: async (args) => {
+        const { webSearch } = await import('@/services/tools/helpers')
+        return webSearch(args.query)
+      },
+    },
+    {
+      name: 'read_url',
+      description:
+        'Fetch and read the text content of a URL (http/https). ' +
+        'Useful for reading documentation pages, API references or the web-search result pages.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'The URL to fetch' },
+        },
+        required: ['url'],
+      },
+      execute: async (args) => {
+        const { readUrl } = await import('@/services/tools/helpers')
+        return readUrl(args.url)
+      },
+    },
   ]
 }
 

@@ -1,5 +1,8 @@
 import { useMemo } from 'react'
 import { useProblemsStore, Problem, ProblemSeverity } from '@/stores/problemsStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useConfigStore } from '@/stores/configStore'
+import { useUIStore } from '@/stores/uiStore'
 
 const SEVERITY_STYLE: Record<ProblemSeverity, { icon: string; color: string }> = {
   error: { icon: '✕', color: '#f48771' },
@@ -19,6 +22,26 @@ export default function ProblemsPanel() {
   const problems = useProblemsStore((s) => s.problems)
   const openProblem = useProblemsStore((s) => s.openProblem)
   const toggle = useProblemsStore((s) => s.toggle)
+
+  /** Windsurf-style "Explain and Fix": send the diagnostic to the chat agent */
+  const explainAndFix = () => {
+    const target = problems.find((p) => p.severity === 'error') || problems[0]
+    if (!target) return
+    const chatStore = useChatStore.getState()
+    if (!chatStore.activeSessionId) {
+      const configStore = useConfigStore.getState()
+      if (configStore.activeConfigGroupId) {
+        chatStore.createSession(configStore.activeConfigGroupId)
+      }
+    }
+    const label = SEVERITY_LABEL[target.severity]
+    chatStore.sendMessage(
+      `（解释并修复）文件 ${target.filePath} 第 ${target.line} 行有${label}:\n\n` +
+      `> ${target.message}\n\n` +
+      `请解释原因并给出修复方案。如果有修复后的代码，请用代码块输出。`
+    )
+    useUIStore.getState().toggleChat()
+  }
 
   // Group by file, preserving sort (errors first, then by line)
   const groups = useMemo(() => {
@@ -42,6 +65,13 @@ export default function ProblemsPanel() {
         <span className="px-1.5 rounded text-[10px] text-yellow-400 bg-yellow-500/10" title="警告">{count('warning')}</span>
         <span className="px-1.5 rounded text-[10px] text-sky-400 bg-sky-500/10" title="信息">{count('info')}</span>
         <span className="flex-1" />
+        <button
+          onClick={explainAndFix}
+          className="px-2 py-0.5 text-[10px] text-nova-accent hover:bg-nova-accent/15 rounded transition-colors"
+          title="把诊断发送给 AI 解释并修复"
+        >
+          ✨ 解释并修复
+        </button>
         <button
           onClick={toggle}
           className="p-0.5 text-nova-text-muted hover:text-white rounded"

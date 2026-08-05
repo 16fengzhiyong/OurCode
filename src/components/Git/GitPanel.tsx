@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useConfigStore } from '@/stores/configStore'
+import { sendLLMRequest } from '@/services/llm/LLMClient'
 import DiffView from '../Editor/DiffView'
 
 interface GitStatus {
@@ -26,6 +28,7 @@ export default function GitPanel() {
   const [diffContent, setDiffContent] = useState<string | null>(null)
   const [diffFile, setDiffFile] = useState<string | null>(null)
   const [monacoDiff, setMonacoDiff] = useState<{ original: string; modified: string; language: string } | null>(null)
+  const [generatingCommit, setGeneratingCommit] = useState(false)
 
   const { openFile } = useEditorStore()
 
@@ -210,10 +213,48 @@ export default function GitPanel() {
   }
 
   const handleGenerateCommitMessage = async () => {
-    const diffResult = await runGitCommand(['diff', '--cached', '--stat'])
-    if (diffResult.success && diffResult.output) {
-      // Simple auto-generated commit message based on changes
-      const lines = diffResult.output.split('\n').filter(Boolean)
+    const diffResult = await runGitCommand(['diff', '--cached'])
+    const diffText = diffResult.success ? diffResult.output : ''
+
+    // Prefer the AI-generated message (Windsurf-style) when a model is configured
+    const configGroup = useConfigStore.getState().getActiveConfigGroup()
+    if (configGroup && configGroup.defaultModel && (diffText || gitStatus.length)) {
+      setGeneratingCommit(true)
+      try {
+        const diff = diffText || gitStatus.map((s) => `${s.status === 'untracked' ? '新文件' : s.status} ${s.file}`).join('\n')
+        const prompt = `请根据以下 git 变更生成一条简洁的提交信息（一行，中文，不要引号，不要前缀 emoji）：\n\n${diff.slice(0, 12000)}`
+        const req = {
+          model: configGroup.defaultModel,
+          messages: [
+            { role: 'system' as const, content: '你是一个 git 提交信息生成器，只输出一行提交信息。' },
+            { role: 'user' as const, content: prompt },
+          ],
+          stream: false,
+          temperature: 0.3,
+          maxTokens: 80,
+          topP: 1,
+          frequencyPenalty: 0,
+          presencePenalty: 0,
+        }
+        let msg = ''
+        for await (const chunk of sendLLMRequest(req, configGroup)) {
+          if (chunk.content) msg += chunk.content
+          if (chunk.done) break
+        }
+        const cleaned = msg.trim().split('\n')[0].replace(/^[#\-*`"\s]+/, '').trim()
+        if (cleaned) setCommitMessage(cleaned)
+      } catch (error: any) {
+        console.error('AI 生成提交信息失败:', error.message)
+      } finally {
+        setGeneratingCommit(false)
+      }
+      return
+    }
+
+    // Fallback: heuristic summary from the diff stat
+    const statResult = await runGitCommand(['diff', '--cached', '--stat'])
+    if (statResult.success && statResult.output) {
+      const lines = statResult.output.split('\n').filter(Boolean)
       const summary = lines[lines.length - 1] || '更新文件'
       setCommitMessage(summary.trim())
     }
@@ -296,10 +337,11 @@ export default function GitPanel() {
         </div>
         <button
           onClick={handleGenerateCommitMessage}
-          className="mt-1 text-[10px] text-nova-text-muted hover:text-nova-accent transition-colors"
+          disabled={generatingCommit}
+          className="mt-1 text-[10px] text-nova-text-muted hover:text-nova-accent transition-colors disabled:opacity-40"
           title="基于暂存的更改自动生成提交消息"
         >
-          AI 生成提交消息
+          {generatingCommit ? '🤖 生成中...' : '🤖 AI 生成提交消息'}
         </button>
       </div>
 

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { ChatMessage as ChatMessageType } from '@/types'
 import { useChatStore } from '@/stores/chatStore'
+import { useMemoryStore } from '@/stores/memoryStore'
+import { EXHAUSTED_MARKER } from './ChatMessages'
 import ThinkingBlock from './ThinkingBlock'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
 import ToolCallBlock from './ToolCallBlock'
@@ -13,11 +15,35 @@ interface ChatMessageProps {
   onToggleSelect?: (id: string) => void
 }
 
+/** Extract the last fenced code block from a message (for "应用到编辑器") */
+function extractLastCodeBlock(content: string): string | null {
+  const matches = [...content.matchAll(/```[\w-]*\n?([\s\S]*?)```/g)]
+  if (matches.length === 0) return null
+  return matches[matches.length - 1][1]
+}
+
+/** Apply the last code block to the current editor selection */
+function applyToEditor(code: string): boolean {
+  try {
+    const editor = (window as any).__monacoEditor
+    if (!editor?.getSelection || !editor?.getModel) return false
+    const selection = editor.getSelection()
+    if (!selection) return false
+    editor.executeEdits('ai-apply', [{ range: selection, text: code }])
+    return true
+  } catch {
+    return false
+  }
+}
+
 export default function ChatMessage({ message, sessionId, isSelectMode, isSelected, onToggleSelect }: ChatMessageProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
+  const [applied, setApplied] = useState(false)
+  const [remembered, setRemembered] = useState(false)
 
-  const { editMessage, regenerateFromMessage, createBranchFromMessage } = useChatStore()
+  const { editMessage, regenerateFromMessage, createBranchFromMessage, continueGeneration, checkpoints, revertCheckpoint } = useChatStore()
+  const addMemory = useMemoryStore((s) => s.addMemory)
 
   const handleSaveEdit = () => {
     editMessage(sessionId, message.id, editContent)
@@ -37,9 +63,34 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
     navigator.clipboard.writeText(message.content)
   }
 
+  const handleApplyToEditor = () => {
+    const code = extractLastCodeBlock(message.content)
+    if (code && applyToEditor(code)) setApplied(true)
+  }
+
+  const handleRemember = () => {
+    const snippet = message.content.trim().slice(0, 500)
+    if (snippet) {
+      addMemory(`用户偏好/经验: ${snippet}`)
+      setRemembered(true)
+      setTimeout(() => setRemembered(false), 2000)
+    }
+  }
+
   const isUser = message.role === 'user'
   const isAssistant = message.role === 'assistant'
   const isTool = message.role === 'tool'
+  const isExhausted = isAssistant && message.content.startsWith(EXHAUSTED_MARKER)
+  const codeBlock = isAssistant ? extractLastCodeBlock(message.content) : null
+
+  // Checkpoints tied to this assistant message → "回滚修改"
+  const msgCheckpoints = checkpoints.filter((c) => c.messageId === message.id)
+
+  const handleRevertMessage = async () => {
+    for (const cp of msgCheckpoints) {
+      await revertCheckpoint(cp.id)
+    }
+  }
 
   // Tool result messages - compact display
   if (isTool) {
@@ -95,6 +146,8 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
             <path d="M8.5 8.5v.01" />
             <path d="M16 15.5v.01" />
             <path d="M12 12v.01" />
+            <path d="M12 16v.01" />
+            <path d="M7 14v.01" />
           </svg>
         )}
       </div>
@@ -162,7 +215,32 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
 
         {/* Actions */}
         {!isEditing && (
-          <div className="flex items-center gap-2 mt-1.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex flex-wrap items-center gap-2 mt-1.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+            {isExhausted && (
+              <button
+                onClick={() => continueGeneration()}
+                className="text-xs text-nova-accent hover:text-white transition-colors flex items-center gap-1 bg-nova-accent/15 px-2 py-0.5 rounded"
+              >
+                ▶ 继续执行
+              </button>
+            )}
+            {isAssistant && codeBlock && (
+              <button
+                onClick={handleApplyToEditor}
+                className="text-xs text-nova-accent hover:text-white transition-colors flex items-center gap-1 bg-nova-accent/15 px-2 py-0.5 rounded"
+              >
+                {applied ? '✓ 已应用' : '⤓ 应用到编辑器'}
+              </button>
+            )}
+            {isAssistant && msgCheckpoints.length > 0 && (
+              <button
+                onClick={handleRevertMessage}
+                className="text-xs text-red-400 hover:text-red-300 transition-colors flex items-center gap-1 bg-red-500/10 px-2 py-0.5 rounded"
+                title="回滚这条消息产生的文件修改"
+              >
+                ↩ 回滚修改
+              </button>
+            )}
             <button
               onClick={() => setIsEditing(true)}
               className="text-xs text-text-muted hover:text-accent-blue transition-colors flex items-center gap-1"
@@ -183,6 +261,15 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
                   <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
                 </svg>
                 重新生成
+              </button>
+            )}
+            {isAssistant && !isExhausted && (
+              <button
+                onClick={handleRemember}
+                className="text-xs text-text-muted hover:text-accent-blue transition-colors flex items-center gap-1"
+                title="记住这条回复中的偏好/经验"
+              >
+                {remembered ? '✓ 已记住' : '🧠 记住'}
               </button>
             )}
             <button

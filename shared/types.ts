@@ -48,6 +48,55 @@ export interface ChatSession {
   branches?: ChatBranch[] // all branches except the main one
   pinnedAt?: number
   archivedAt?: number
+  // Agent mode (Windsurf-style): 'chat' answers freely, 'plan' produces a plan first
+  agentMode?: 'chat' | 'plan'
+  // Agent-managed todo list shown in the chat panel
+  todos?: TodoItem[]
+  // Plan awaiting approval (set by submit_plan)
+  planContent?: string
+  planStatus?: 'none' | 'pending_approval' | 'approved'
+}
+
+// Agent todo list item (managed via the manage_todo tool)
+export interface TodoItem {
+  id: string
+  content: string
+  status: 'pending' | 'in_progress' | 'completed' | 'failed'
+  order: number
+}
+
+// One file's content snapshot inside a checkpoint
+export interface CheckpointFile {
+  path: string
+  content: string
+  existed: boolean
+}
+
+// Checkpoint: file snapshots taken right before a write tool ran, so the user
+// can revert the AI's edits (Windsurf-style checkpoints)
+export interface Checkpoint {
+  id: string
+  sessionId: string
+  createdAt: number
+  label: string // e.g. "edit_file → src/foo.ts"
+  messageId?: string // assistant message that triggered the tool call
+  files: CheckpointFile[]
+}
+
+// Persistent user memory (injected into the system prompt)
+export interface Memory {
+  id: string
+  content: string
+  scope: 'global' | 'project'
+  createdAt: number
+  updatedAt: number
+}
+
+// Ask-user-question interaction (asked by the agent during the loop)
+export interface UserQuestion {
+  id: string
+  question: string
+  options?: string[]
 }
 
 // Chat Message

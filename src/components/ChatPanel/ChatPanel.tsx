@@ -3,6 +3,7 @@ import ChatMessages from './ChatMessages'
 import ChatInput from './ChatInput'
 import HistoryEditor from './HistoryEditor'
 import ChatSidebar from './ChatSidebar'
+import MemoryModal from './MemoryModal'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -14,6 +15,7 @@ export default function ChatPanel() {
   const { openSettings } = useUIStore()
   const [showHistory, setShowHistory] = useState(true)
   const [showSessionList, setShowSessionList] = useState(false)
+  const [showMemories, setShowMemories] = useState(false)
 
   const handleNewSession = () => {
     if (activeConfigGroupId) {
@@ -31,6 +33,9 @@ export default function ChatPanel() {
       {showSessionList && (
         <ChatSidebar onClose={() => setShowSessionList(false)} />
       )}
+
+      {/* Memory manager */}
+      {showMemories && <MemoryModal onClose={() => setShowMemories(false)} />}
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* AI Header */}
@@ -58,6 +63,13 @@ export default function ChatPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowMemories(true)}
+                className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary transition-colors"
+                title="记忆管理"
+              >
+                <span className="text-sm">🧠</span>
+              </button>
               <button
                 onClick={handleNewSession}
                 className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary transition-colors"

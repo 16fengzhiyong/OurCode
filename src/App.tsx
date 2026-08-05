@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import MainLayout from './components/Layout/MainLayout'
 import ErrorBoundary from './components/Common/ErrorBoundary'
 import ToolApprovalDialog from './components/ChatPanel/ToolApprovalDialog'
+import QuestionDialog from './components/ChatPanel/QuestionDialog'
 import OnboardingModal from './components/Onboarding/OnboardingModal'
 import RestoreBackupsModal from './components/Editor/RestoreBackupsModal'
 import type { BackupEntry } from '@shared/types'
@@ -9,6 +10,7 @@ import { useConfigStore } from './stores/configStore'
 import { useChatStore, refreshGitBranch } from './stores/chatStore'
 import { useEditorStore } from './stores/editorStore'
 import { useUIStore } from './stores/uiStore'
+import { useMemoryStore } from './stores/memoryStore'
 import { useAICommandsStore } from './stores/aiCommandsStore'
 import { useShortcutStore } from './stores/shortcutStore'
 import { ensureProblemsSubscription, useProblemsStore } from './stores/problemsStore'
@@ -21,6 +23,7 @@ export default function App() {
   const loadPreferences = useEditorStore((s) => s.loadPreferences)
   const { initTheme } = useUIStore()
   const loadCommands = useAICommandsStore((s) => s.loadCommands)
+  const loadMemories = useMemoryStore((s) => s.loadMemories)
 
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [ready, setReady] = useState(false)
@@ -38,6 +41,8 @@ export default function App() {
       // Restore the persisted theme (initTheme used to hardcode 'dark' on startup)
       initTheme(useEditorStore.getState().preferences.theme)
       loadCommands()
+      // Load persistent user memories (injected into the agent prompt)
+      loadMemories()
       // Load persisted shortcut presets/custom bindings before the first keystroke
       useShortcutStore.getState().loadShortcuts()
       refreshGitBranch()
@@ -73,6 +78,7 @@ export default function App() {
     <ErrorBoundary>
       <MainLayout />
       <ToolApprovalDialog />
+      <QuestionDialog />
       {ready && showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
       {ready && pendingBackups.length > 0 && (
         <RestoreBackupsModal backups={pendingBackups} onClose={() => setPendingBackups([])} />

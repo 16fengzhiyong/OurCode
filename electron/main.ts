@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, type WebContents, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, type WebContents, type IpcMainInvokeEvent } from 'electron'
 import { join, resolve, dirname, sep } from 'path'
+import { existsSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import { exec, execFile } from 'child_process'
 import * as pty from 'node-pty'
@@ -8,6 +9,7 @@ import { autoUpdater, UpdateInfo } from 'electron-updater'
 import { FileSystemService } from './services/file-system'
 import { SQLiteStore } from './services/sqlite-store'
 import { BackupService } from './services/backup'
+import { MCPManager, extractMcpText, toMcpToolDefinition } from './services/mcp-manager'
 
 const DEFAULT_EXCLUDE_FOLDERS = ['node_modules', '.git', 'dist', 'build', 'out']
 
@@ -73,6 +75,7 @@ const allWindows: Set<BrowserWindow> = new Set()
 let fileSystem: FileSystemService
 let store: SQLiteStore
 let backup: BackupService
+let mcp: MCPManager
 
 interface TerminalSession {
   pty: pty.IPty
@@ -270,6 +273,12 @@ function registerIpcHandlers(): void {
       // Notify all windows watching this project
       broadcast('fs:fileChanged', changedPath)
     })
+    // Loading a workspace also (re)loads its MCP servers
+    try {
+      await mcp.loadConfig(path)
+    } catch (error: any) {
+      console.error('MCP 配置加载失败:', error.message)
+    }
   })
 
   ipcMain.handle('fs:unwatch', async (_event, path: string) => {
@@ -587,6 +596,143 @@ function registerIpcHandlers(): void {
     return process.env[name] || ''
   })
 
+  // ───────────────────── Web fetch (web_search / read_url tools) ─────────────────────
+  // Only http(s) URLs may be fetched (no file://, no arbitrary schemes), with a
+  // hard size cap so a hostile endpoint cannot balloon main-process memory.
+  const MAX_WEB_BYTES = 2 * 1024 * 1024
+
+  ipcMain.handle('web:fetch', async (_event, url: string, options?: { timeoutMs?: number; maxBytes?: number }) => {
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      return { ok: false, error: '无效的 URL' }
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return { ok: false, error: '仅支持 http/https URL' }
+    }
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), options?.timeoutMs || 15000)
+    try {
+      const res = await net.fetch(parsed.toString(), {
+        signal: controller.signal,
+        redirect: 'follow',
+        headers: { 'user-agent': 'OurCode-ide/0.1', 'accept': 'text/html,text/plain,*/*' },
+      })
+      const sizeLimit = options?.maxBytes || MAX_WEB_BYTES
+      const contentLength = Number(res.headers.get('content-length') || 0)
+      if (contentLength > sizeLimit) {
+        return { ok: false, status: res.status, error: `响应超过大小上限 (${sizeLimit} bytes)` }
+      }
+      const buf = Buffer.from(await res.arrayBuffer())
+      if (buf.length > sizeLimit) {
+        return { ok: false, status: res.status, error: `响应超过大小上限 (${sizeLimit} bytes)` }
+      }
+      return {
+        ok: res.ok,
+        status: res.status,
+        contentType: res.headers.get('content-type') || '',
+        finalUrl: res.url || parsed.toString(),
+        text: buf.toString('utf-8').slice(0, sizeLimit),
+      }
+    } catch (error: any) {
+      const aborted = controller.signal.aborted
+      return { ok: false, error: aborted ? '请求超时' : (error.message || '网络请求失败') }
+    } finally {
+      clearTimeout(timer)
+    }
+  })
+
+  // ───────────────────── Memories ─────────────────────
+  ipcMain.handle('memory:list', async () => {
+    return store.getMemories()
+  })
+
+  ipcMain.handle('memory:add', async (_event, content: string, scope: string) => {
+    const trimmed = (content || '').trim()
+    if (!trimmed) throw new Error('记忆内容不能为空')
+    return store.addMemory(trimmed, scope === 'project' ? 'project' : 'global')
+  })
+
+  ipcMain.handle('memory:delete', async (_event, id: string) => {
+    store.deleteMemory(id)
+  })
+
+  // ───────────────────── Checkpoints (AI edit snapshots) ─────────────────────
+  ipcMain.handle('checkpoint:list', async (_event, sessionId: string) => {
+    return store.getCheckpoints(sessionId)
+  })
+
+  ipcMain.handle('checkpoint:create', async (_event, checkpoint: any) => {
+    if (!checkpoint?.id || !checkpoint?.sessionId) throw new Error('检查点参数不完整')
+    return store.addCheckpoint(checkpoint)
+  })
+
+  ipcMain.handle('checkpoint:delete', async (_event, sessionId: string) => {
+    store.deleteCheckpoints(sessionId)
+  })
+
+  // Revert a checkpoint: restore every snapshotted file (or delete it if it
+  // didn't exist at snapshot time), then broadcast so open editors reload.
+  ipcMain.handle('checkpoint:revert', async (_event, checkpointId: string) => {
+    const allSessions = store.getSessions()
+    let target: import('../shared/types').Checkpoint | null = null
+    for (const session of allSessions) {
+      const list = store.getCheckpoints(session.id)
+      const found = list.find((c) => c.id === checkpointId)
+      if (found) { target = found; break }
+    }
+    if (!target) return { ok: false, error: '检查点不存在' }
+
+    let restored = 0
+    for (const file of target.files) {
+      try {
+        if (file.existed) {
+          await fileSystem.writeFile(file.path, file.content, 'utf-8', false)
+        } else if (existsSync(file.path)) {
+          await fileSystem.delete(file.path)
+        }
+        restored++
+      } catch (error: any) {
+        console.error(`回滚 ${file.path} 失败:`, error.message)
+      }
+    }
+    // Notify open editors to reload the changed files
+    for (const file of target.files) {
+      broadcast('fs:fileChanged', file.path)
+    }
+    return { ok: true, restored }
+  })
+
+  // ───────────────────── MCP (Model Context Protocol) ─────────────────────
+  ipcMain.handle('mcp:listTools', async () => {
+    return mcp.listTools()
+  })
+
+  ipcMain.handle('mcp:callTool', async (_event, server: string, toolName: string, args: Record<string, any>) => {
+    try {
+      const result = await mcp.callTool(server, toolName, args || {})
+      return { ok: true, result: extractMcpText(result) }
+    } catch (error: any) {
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('mcp:reload', async (_event, rootPath: string) => {
+    try {
+      await mcp.loadConfig(rootPath)
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, error: error.message }
+    }
+  })
+
+  // Used by the renderer to build tool definitions for the LLM
+  ipcMain.handle('mcp:toolDefinitions', async () => {
+    const tools = await mcp.listTools()
+    return tools.map((t) => toMcpToolDefinition(t))
+  })
+
   // Git handler
   ipcMain.handle('git:exec', async (_event, cwd: string, args: string[]) => {
     try {
@@ -732,6 +878,7 @@ app.whenReady().then(() => {
   fileSystem = new FileSystemService()
   store = new SQLiteStore(userDataPath)
   backup = new BackupService(join(userDataPath, 'backups'))
+  mcp = new MCPManager()
 
   registerIpcHandlers()
   createWindow()
@@ -744,6 +891,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  mcp?.stopAll()
   store.close()
   if (process.platform !== 'darwin') {
     app.quit()

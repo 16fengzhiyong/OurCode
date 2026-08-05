@@ -81,6 +81,28 @@ export interface ElectronAPI {
   // Shell
   shellExec: (command: string, cwd?: string) => Promise<{ success: boolean; output: string; error?: string }>
 
+  // Web fetch (web_search / read_url tools)
+  webFetch: (url: string, options?: { timeoutMs?: number; maxBytes?: number }) => Promise<{
+    ok: boolean; status?: number; contentType?: string; finalUrl?: string; text?: string; error?: string
+  }>
+
+  // Memories
+  memoryList: () => Promise<import('@shared/types').Memory[]>
+  memoryAdd: (content: string, scope?: string) => Promise<import('@shared/types').Memory>
+  memoryDelete: (id: string) => Promise<void>
+
+  // Checkpoints (AI edit snapshots)
+  checkpointList: (sessionId: string) => Promise<import('@shared/types').Checkpoint[]>
+  checkpointCreate: (checkpoint: import('@shared/types').Checkpoint) => Promise<import('@shared/types').Checkpoint>
+  checkpointDelete: (sessionId: string) => Promise<void>
+  checkpointRevert: (checkpointId: string) => Promise<{ ok: boolean; restored: number; error?: string }>
+
+  // MCP (Model Context Protocol)
+  mcpListTools: () => Promise<Array<{ server: string; name: string; description?: string; inputSchema?: Record<string, any> }>>
+  mcpCallTool: (server: string, toolName: string, args: Record<string, any>) => Promise<{ ok: boolean; result?: string; error?: string }>
+  mcpReload: (rootPath: string) => Promise<{ ok: boolean; error?: string }>
+  mcpToolDefinitions: () => Promise<import('@shared/types').ToolDefinition[]>
+
   // App
   getPath: (name: string) => Promise<string>
   getPlatform: () => Promise<string>

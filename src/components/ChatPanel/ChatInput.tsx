@@ -13,12 +13,16 @@ export default function ChatInput() {
   const [showSlashMenu, setShowSlashMenu] = useState(false)
   const [slashQuery, setSlashQuery] = useState('')
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0)
+  const [queuedHint, setQueuedHint] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileSearchRef = useRef<HTMLDivElement>(null)
 
-  const { sendMessage, isLoading, stopGeneration } = useChatStore()
+  const { sendMessage, isLoading, stopGeneration, queueMessage, sessions, activeSessionId, setAgentMode } = useChatStore()
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId)
+  const agentMode = activeSession?.agentMode || 'chat'
 
   // Auto-resize textarea
   useEffect(() => {
@@ -111,9 +115,20 @@ export default function ChatInput() {
   }, [])
 
   const handleSubmit = async () => {
-    if (!input.trim() || isLoading) return
+    if (!input.trim()) return
 
     const content = input.trim()
+
+    // While the agent is working, Enter queues the message (Windsurf-style type-ahead)
+    if (isLoading) {
+      queueMessage(content)
+      setInput('')
+      setContextFiles([])
+      setQueuedHint(true)
+      setTimeout(() => setQueuedHint(false), 2000)
+      return
+    }
+
     setInput('')
     setContextFiles([])
 
@@ -307,6 +322,27 @@ export default function ChatInput() {
         >
           {/* Toolbar */}
           <div className="flex items-center gap-1 px-2.5 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            {/* Agent mode toggle: chat / plan (Windsurf Cascade-style) */}
+            {activeSessionId && (
+              <div className="flex items-center mr-1 rounded-md overflow-hidden border border-nova-border/60 text-[11px]">
+                <button
+                  onClick={() => setAgentMode(activeSessionId, 'chat')}
+                  className={`px-2 py-0.5 transition-colors ${agentMode === 'chat' ? 'text-white font-medium' : 'text-nova-text-muted hover:text-nova-text-secondary'}`}
+                  style={agentMode === 'chat' ? { background: 'linear-gradient(135deg, #533483, #007acc)' } : undefined}
+                  title="对话模式：直接回答（Windsurf Code 模式）"
+                >
+                  💬 对话
+                </button>
+                <button
+                  onClick={() => setAgentMode(activeSessionId, 'plan')}
+                  className={`px-2 py-0.5 transition-colors ${agentMode === 'plan' ? 'text-white font-medium' : 'text-nova-text-muted hover:text-nova-text-secondary'}`}
+                  style={agentMode === 'plan' ? { background: 'linear-gradient(135deg, #533483, #007acc)' } : undefined}
+                  title="计划模式：先制定计划，批准后执行（Windsurf Plan 模式）"
+                >
+                  📋 计划
+                </button>
+              </div>
+            )}
             <button
               className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors text-xs"
               title="插入代码块"
@@ -348,8 +384,9 @@ export default function ChatInput() {
           {/* Footer */}
           <div className="flex items-center gap-1.5 px-2.5 py-1.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
             <span className="text-[11px] flex-1" style={{ color: '#5a5a7a' }}>
-              {currentModelName} · Ctrl + Enter 发送
+              {currentModelName} · {isLoading ? '生成中，Enter 可排队' : 'Ctrl + Enter 发送'}
             </span>
+            {queuedHint && <span className="text-[11px] text-nova-accent">已排队，完成后自动发送</span>}
             {isLoading ? (
               <button
                 onClick={stopGeneration}

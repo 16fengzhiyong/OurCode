@@ -124,6 +124,63 @@ export async function runCommand(command: string, cwd?: string): Promise<string>
   return `Error: ${result.error}${result.output ? '\n' + result.output : ''}`
 }
 
+/** Web search via DuckDuckGo HTML (no API key required) */
+export async function webSearch(query: string): Promise<string> {
+  const url = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query)
+  const res = await window.electronAPI.webFetch(url, { timeoutMs: 20000 })
+  if (!res.ok || !res.text) {
+    return `Web search failed: ${res.error || `HTTP ${res.status}`}`
+  }
+  const blocks = res.text.split(/<div[^>]*class="[^"]*result[^"]*"/i)
+  const results: string[] = []
+  for (const block of blocks.slice(1, 9)) {
+    const hrefMatch = /href="([^"]+)"/.exec(block)
+    const titleMatch = /class="result__a"[^>]*>([\s\S]*?)<\/a>/i.exec(block)
+    const snippetMatch = /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i.exec(block)
+    const href = hrefMatch ? stripHtml(decodeEntities(hrefMatch[1])) : ''
+    const title = titleMatch ? stripHtml(titleMatch[1]) : ''
+    const snippet = snippetMatch ? stripHtml(snippetMatch[1]) : ''
+    if (title) {
+      results.push(`- ${title}${href ? `\n  URL: ${href}` : ''}${snippet ? `\n  ${snippet}` : ''}`)
+    }
+  }
+  return results.length > 0
+    ? `Web search results for "${query}":\n${results.join('\n')}`
+    : `No results found for "${query}"`
+}
+
+/** Fetch a URL and return its readable text content */
+export async function readUrl(url: string): Promise<string> {
+  const res = await window.electronAPI.webFetch(url, { timeoutMs: 20000, maxBytes: 2 * 1024 * 1024 })
+  if (!res.ok || !res.text) {
+    return `Failed to fetch ${url}: ${res.error || `HTTP ${res.status}`}`
+  }
+  const text = stripHtml(res.text)
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return `Content of ${url}:\n\n${text.slice(0, 8000)}`
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'")
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`

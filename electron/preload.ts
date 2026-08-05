@@ -105,6 +105,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Shell
   shellExec: (command: string, cwd?: string) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_EXEC, command, cwd),
 
+  // Web fetch (web_search / read_url tools)
+  webFetch: (url: string, options?: { timeoutMs?: number; maxBytes?: number }) =>
+    ipcRenderer.invoke('web:fetch', url, options),
+
+  // Memories
+  memoryList: () => ipcRenderer.invoke('memory:list'),
+  memoryAdd: (content: string, scope?: string) => ipcRenderer.invoke('memory:add', content, scope),
+  memoryDelete: (id: string) => ipcRenderer.invoke('memory:delete', id),
+
+  // Checkpoints
+  checkpointList: (sessionId: string) => ipcRenderer.invoke('checkpoint:list', sessionId),
+  checkpointCreate: (checkpoint: any) => ipcRenderer.invoke('checkpoint:create', checkpoint),
+  checkpointDelete: (sessionId: string) => ipcRenderer.invoke('checkpoint:delete', sessionId),
+  checkpointRevert: (checkpointId: string) => ipcRenderer.invoke('checkpoint:revert', checkpointId),
+
+  // MCP
+  mcpListTools: () => ipcRenderer.invoke('mcp:listTools'),
+  mcpCallTool: (server: string, toolName: string, args: Record<string, any>) =>
+    ipcRenderer.invoke('mcp:callTool', server, toolName, args),
+  mcpReload: (rootPath: string) => ipcRenderer.invoke('mcp:reload', rootPath),
+  mcpToolDefinitions: () => ipcRenderer.invoke('mcp:toolDefinitions'),
+
   // App
   getPath: (name: string) => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_PATH, name),
   getPlatform: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_PLATFORM),

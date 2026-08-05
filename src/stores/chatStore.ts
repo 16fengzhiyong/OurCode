@@ -1,11 +1,19 @@
 import { create } from 'zustand'
-import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS } from '@/types'
+import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion } from '@/types'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
+import { useMemoryStore } from './memoryStore'
 import { getFileContent } from '@/editor/modelRegistry'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { ToolExecutor } from '@/services/tools'
 import { ToolCall, ToolResult } from '@/services/tools/types'
+import {
+  extractKeywords,
+  scoreAgainstKeywords,
+  loadWorkspaceKnowledge,
+  retrieveRelevantContext,
+  getEditorSelectionContext,
+} from '@/services/tools/context'
 import { v4 as uuidv4 } from 'uuid'
 
 // Cached git branch (refreshed via refreshGitBranch)
@@ -13,7 +21,7 @@ let _cachedGitBranch = ''
 let _gitBranchFetchedAt = 0
 
 export async function refreshGitBranch(): Promise<void> {
-  const rootPath = document.getElementById('file-tree-root')?.getAttribute('data-root-path')
+  const rootPath = getWorkspaceRoot()
   if (!rootPath) return
   try {
     const res = await (window as any).electronAPI?.gitExec(rootPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
@@ -36,9 +44,13 @@ export function stopGitBranchPolling(): void {
   }
 }
 
+function getWorkspaceRoot(): string {
+  return document.getElementById('file-tree-root')?.getAttribute('data-root-path') || ''
+}
+
 /** Build enhanced system prompt with workspace context */
 function buildEnhancedSystemPrompt(basePrompt: string): string {
-  const rootPath = document.getElementById('file-tree-root')?.getAttribute('data-root-path') || ''
+  const rootPath = getWorkspaceRoot()
   const editorState = useEditorStore.getState()
   const activeFile = editorState.openFiles.find((f) => f.path === editorState.activeFilePath)
 
@@ -96,6 +108,73 @@ Git 分支: ${_cachedGitBranch || '未知'}
   return enhanced
 }
 
+/** Inject matching persistent memories into the system prompt */
+async function buildMemoriesBlock(userContent: string): Promise<string> {
+  const memories = useMemoryStore.getState().memories
+  if (!memories.length) return ''
+  const keywords = extractKeywords(userContent)
+  const activeFile = useEditorStore.getState().openFiles.find((f) => f.path === useEditorStore.getState().activeFilePath)
+  if (activeFile) {
+    const name = activeFile.path.split(/[/\\]/).pop() || ''
+    if (name) keywords.push(name.toLowerCase())
+  }
+  const scored = memories
+    .map((m) => ({ m, s: scoreAgainstKeywords(m.content, keywords) }))
+    .filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 5)
+  if (scored.length === 0) return ''
+  return `\n\n<user_memories>\n关于用户的长期记忆（请在实际编码时遵循）：\n${scored.map((x) => `- ${x.m.content}`).join('\n')}\n</user_memories>`
+}
+
+/** Assemble the full system prompt: base + env + selection + memories + knowledge + retrieved context */
+async function buildSystemPrompt(
+  basePrompt: string,
+  userContent: string,
+  contextFiles: string[],
+): Promise<string> {
+  let enhanced = buildEnhancedSystemPrompt(basePrompt)
+
+  // Current editor selection (Vibe-and-Replace style selected-text context)
+  enhanced += getEditorSelectionContext()
+
+  // Persistent memories (keyword-matched)
+  enhanced += await buildMemoriesBlock(userContent)
+
+  // Workspace rules + skills (.ourcoderules, .claude/skills, .ourcode/skills)
+  enhanced += await loadWorkspaceKnowledge(getWorkspaceRoot())
+
+  // Auto-retrieved relevant files
+  const activeFile = useEditorStore.getState().openFiles.find((f) => f.path === useEditorStore.getState().activeFilePath)
+  enhanced += await retrieveRelevantContext(userContent, contextFiles, getWorkspaceRoot(), activeFile?.path)
+
+  return enhanced
+}
+
+// Plan-mode prompt: explore + produce a plan, no mutations
+const PLAN_MODE_INSTRUCTION = `
+
+你当前处于「计划模式」。在做出任何修改之前，你必须先制定并提交一份清晰的实施计划。
+规则：
+- 你可以使用只读工具（读取文件、列出目录、搜索文件、搜索内容、Web 搜索、读取 URL）来调研代码库。
+- 不要调用任何会修改文件、删除文件、创建目录或执行命令的工具。
+- 调研完成后，调用 submit_plan 提交你的分步实施计划。
+- 如果信息不足或任务有歧义，可以调用 ask_user_question 向用户提问。
+- 也可以调用 manage_todo 维护任务列表。`
+
+const PLAN_APPROVED_PREFIX = `用户已批准以下计划，现在开始执行。请严格按计划逐步完成，并在执行过程中用 manage_todo 维护任务列表。计划内容：\n`
+
+// Tools allowed in plan mode (read-only + agent-control)
+const PLAN_TOOLS = new Set([
+  'read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files',
+  'web_search', 'read_url', 'manage_todo', 'submit_plan', 'ask_user_question',
+])
+
+// Write tools get a checkpoint snapshot before they run
+const CHECKPOINT_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory'])
+
+const MAX_AGENT_ITERATIONS = 20
+
 // Undo stack for message deletion
 interface UndoEntry {
   sessionId: string
@@ -124,6 +203,20 @@ interface ChatState {
   approveToolCall: () => void
   rejectToolCall: () => void
 
+  // Ask-user-question state
+  pendingQuestion: UserQuestion | null
+  answerQuestion: (answer: string) => void
+
+  // Queued messages (type while the agent is working)
+  queuedMessages: string[]
+  queueMessage: (content: string) => void
+  clearQueue: () => void
+
+  // Checkpoints (AI edit snapshots) for the active session
+  checkpoints: Checkpoint[]
+  loadCheckpoints: (sessionId: string) => Promise<void>
+  revertCheckpoint: (checkpointId: string) => Promise<void>
+
   // Session management
   loadSessions: () => Promise<void>
   createSession: (configGroupId: string) => string
@@ -131,6 +224,13 @@ interface ChatState {
   renameSession: (sessionId: string, title: string) => void
   setActiveSession: (sessionId: string) => void
   getActiveSession: () => ChatSession | undefined
+
+  // Agent mode (chat / plan) + plan approval
+  setAgentMode: (sessionId: string, mode: 'chat' | 'plan') => void
+  approvePlan: (sessionId: string) => Promise<void>
+  dismissPlan: (sessionId: string) => void
+  setTodos: (sessionId: string, todos: TodoItem[]) => void
+  continueGeneration: () => Promise<void>
 
   // Message operations
   addMessage: (sessionId: string, msg: Partial<ChatMessage>) => void
@@ -191,11 +291,25 @@ function toRawToolCalls(toolCalls?: ChatMessage['toolCalls']): LLMToolCall[] | u
   }))
 }
 
+/** Format a stored plan back into readable text for the approved-plan prompt */
+function formatPlanText(planContent: string): string {
+  try {
+    const plan = JSON.parse(planContent)
+    const steps = Array.isArray(plan.steps) ? plan.steps : []
+    const lines = steps.map((s: any, i: number) => `${i + 1}. ${s.summary || ''}${s.detail ? ` — ${s.detail}` : ''}`)
+    return `${plan.title || '执行计划'}\n${lines.join('\n')}`
+  } catch {
+    return planContent
+  }
+}
+
 // Singleton tool executor
 const toolExecutor = new ToolExecutor()
 
 // Pending approval resolve
 let _approvalResolve: ((approved: boolean) => void) | null = null
+// Pending ask-user-question resolve
+let _questionResolve: ((answer: string) => void) | null = null
 
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
@@ -206,6 +320,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   abortController: null,
   undoStack: [],
   pendingApproval: null,
+  pendingQuestion: null,
+  queuedMessages: [],
+  checkpoints: [],
 
   approveToolCall: () => {
     const { pendingApproval } = get()
@@ -222,6 +339,38 @@ export const useChatStore = create<ChatState>((set, get) => ({
       _approvalResolve(false)
       _approvalResolve = null
       set({ pendingApproval: null })
+    }
+  },
+
+  answerQuestion: (answer) => {
+    if (_questionResolve) {
+      _questionResolve(answer)
+      _questionResolve = null
+    }
+    set({ pendingQuestion: null })
+  },
+
+  queueMessage: (content) => {
+    const trimmed = content.trim()
+    if (!trimmed) return
+    set((s) => ({ queuedMessages: [...s.queuedMessages, trimmed] }))
+  },
+
+  clearQueue: () => set({ queuedMessages: [] }),
+
+  loadCheckpoints: async (sessionId) => {
+    try {
+      const checkpoints = await window.electronAPI.checkpointList(sessionId)
+      set({ checkpoints })
+    } catch {
+      set({ checkpoints: [] })
+    }
+  },
+
+  revertCheckpoint: async (checkpointId) => {
+    const res = await window.electronAPI.checkpointRevert(checkpointId)
+    if (res?.ok) {
+      set((s) => ({ checkpoints: s.checkpoints.filter((c) => c.id !== checkpointId) }))
     }
   },
 
@@ -248,6 +397,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      agentMode: 'chat',
+      todos: [],
+      planStatus: 'none',
     }
 
     set((s) => ({
@@ -268,9 +420,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeSessionId: s.activeSessionId === sessionId
           ? newSessions[0]?.id || null
           : s.activeSessionId,
+        checkpoints: s.activeSessionId === sessionId ? [] : s.checkpoints,
       }
     })
     window.electronAPI.deleteSession(sessionId)
+    window.electronAPI.checkpointDelete(sessionId)
   },
 
   renameSession: (sessionId, title) => {
@@ -284,11 +438,67 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setActiveSession: (sessionId) => {
     set({ activeSessionId: sessionId })
+    get().loadCheckpoints(sessionId)
   },
 
   getActiveSession: () => {
     const { sessions, activeSessionId } = get()
     return sessions.find((s) => s.id === activeSessionId)
+  },
+
+  // ───────────── Agent mode / plan / todo ─────────────
+
+  setAgentMode: (sessionId, mode) => {
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === sessionId ? { ...sess, agentMode: mode, updatedAt: Date.now() } : sess
+      ),
+    }))
+    get().saveSession(sessionId)
+  },
+
+  approvePlan: async (sessionId) => {
+    const session = get().sessions.find((s) => s.id === sessionId)
+    if (!session || !session.planContent || session.planStatus !== 'pending_approval') return
+
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === sessionId ? { ...sess, planStatus: 'approved', updatedAt: Date.now() } : sess
+      ),
+    }))
+    get().saveSession(sessionId)
+
+    const planText = formatPlanText(session.planContent)
+    await runAgentLoop(sessionId, {
+      agentModeOverride: 'chat',
+      extraSystemText: PLAN_APPROVED_PREFIX + planText,
+    })
+  },
+
+  dismissPlan: (sessionId) => {
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === sessionId
+          ? { ...sess, planStatus: 'none', planContent: undefined, updatedAt: Date.now() }
+          : sess
+      ),
+    }))
+    get().saveSession(sessionId)
+  },
+
+  setTodos: (sessionId, todos) => {
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === sessionId ? { ...sess, todos, updatedAt: Date.now() } : sess
+      ),
+    }))
+    get().saveSession(sessionId)
+  },
+
+  continueGeneration: async () => {
+    const { activeSessionId, isLoading } = get()
+    if (!activeSessionId || isLoading) return
+    await runAgentLoop(activeSessionId)
   },
 
   addMessage: (sessionId, msg) => {
@@ -437,240 +647,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (content, contextFiles = []) => {
-    const { activeSessionId, sessions } = get()
-    const session = sessions.find((s) => s.id === activeSessionId)
-    if (!session) return
-
-    const configGroup = useConfigStore.getState().configGroups.find((g) => g.id === session.configGroupId)
-    if (!configGroup) return
+    const { activeSessionId } = get()
+    if (!activeSessionId) return
 
     // Add user message
-    get().addMessage(activeSessionId!, {
+    get().addMessage(activeSessionId, {
       role: 'user',
       content,
       contextFiles,
     })
 
-    // Prepare messages for API
-    const currentSession = get().sessions.find((s) => s.id === activeSessionId)
-    if (!currentSession) return
-
-    // Build messages array with system prompt
-    const baseSystemPrompt = configGroup.systemPrompt || 'You are a helpful AI coding assistant.'
-    const systemPrompt = buildEnhancedSystemPrompt(baseSystemPrompt)
-
-    // Add context files to the last user message content
-    let userContent = content
-    if (contextFiles.length > 0) {
-      const contextContent = contextFiles.map((f) => `@file: ${f}`).join('\n')
-      userContent = `${contextContent}\n\n${content}`
+    // Auto-title on first message
+    const session = get().sessions.find((s) => s.id === activeSessionId)
+    if (session && session.messages.length === 1) {
+      const title = content.slice(0, 50) + (content.length > 50 ? '...' : '')
+      get().renameSession(activeSessionId, title)
     }
 
-    const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; toolCalls?: LLMToolCall[]; toolCallId?: string }> = [
-      { role: 'system', content: systemPrompt },
-      ...currentSession.messages.slice(0, -1).map((m) => ({
-        role: m.role as 'system' | 'user' | 'assistant' | 'tool',
-        content: m.content,
-        toolCalls: toRawToolCalls(m.toolCalls),
-        toolCallId: m.toolCallId,
-      })),
-      { role: 'user', content: userContent },
-    ]
-
-    set({ isLoading: true, streamingContent: '', streamingThinking: '' })
-
-    const abortController = new AbortController()
-    set({ abortController })
-
-    try {
-      const model = session.model || configGroup.defaultModel
-      const toolDefinitions = toolExecutor.getToolDefinitions()
-
-      // Agent Loop
-      let maxIterations = 20
-      while (maxIterations-- > 0) {
-        if (abortController.signal.aborted) break
-        const req = {
-          model,
-          messages: messages.map((m) => ({
-            role: m.role,
-            content: m.content,
-            toolCalls: m.toolCalls,
-            toolCallId: m.toolCallId,
-          })),
-          stream: true,
-          temperature: session.modelParams.temperature,
-          maxTokens: session.modelParams.maxTokens,
-          topP: session.modelParams.topP,
-          frequencyPenalty: session.modelParams.frequencyPenalty,
-          presencePenalty: session.modelParams.presencePenalty,
-          tools: toolDefinitions,
-        }
-
-        let fullContent = ''
-        let fullThinking = ''
-        let toolCalls: any[] = []
-
-        for await (const chunk of sendLLMRequest(req, configGroup)) {
-          if (abortController.signal.aborted) break
-
-          if (chunk.thinking) {
-            fullThinking += chunk.thinking
-            set({ streamingThinking: fullThinking })
-          }
-
-          if (chunk.content) {
-            fullContent += chunk.content
-            set({ streamingContent: fullContent })
-          }
-
-          if (chunk.toolCalls) {
-            toolCalls = chunk.toolCalls
-          }
-
-          if (chunk.done) break
-        }
-
-        // No tool calls - we're done
-        if (toolCalls.length === 0) {
-          get().addMessage(activeSessionId!, {
-            role: 'assistant',
-            content: fullContent,
-            thinking: fullThinking || undefined,
-          })
-          break
-        }
-
-        // Has tool calls - show them and execute
-        const parsedToolCalls: ToolCall[] = toolCalls.map((tc) => ({
-          id: tc.id,
-          name: tc.function.name,
-          arguments: JSON.parse(tc.function.arguments || '{}'),
-        }))
-
-        // Add assistant message with tool calls
-        get().addMessage(activeSessionId!, {
-          role: 'assistant',
-          content: fullContent,
-          thinking: fullThinking || undefined,
-          toolCalls: parsedToolCalls,
-        })
-
-        // Add assistant message to messages array for next iteration
-        messages.push({
-          role: 'assistant',
-          content: fullContent,
-          toolCalls: toolCalls,
-          toolCallId: undefined,
-        })
-
-        // Execute each tool call
-        for (const tc of parsedToolCalls) {
-          if (abortController.signal.aborted) break
-
-          // Check if tool requires approval
-          if (toolExecutor.requiresApproval(tc.name)) {
-            const preview = toolExecutor.getPreview(tc)
-            set({ pendingApproval: { toolCall: tc, preview } })
-
-            // Reject any previous pending approval to prevent dangling promises
-            if (_approvalResolve) {
-              _approvalResolve(false)
-              _approvalResolve = null
-            }
-
-            const approved = await new Promise<boolean>((resolve) => {
-              _approvalResolve = resolve
-              // Auto-reject if the user never responds (60s), so the agent loop
-              // doesn't hang forever on a dangling approval dialog
-              setTimeout(() => {
-                if (_approvalResolve === resolve) {
-                  _approvalResolve = null
-                  resolve(false)
-                }
-              }, 60000)
-            })
-
-            if (!approved) {
-              const result: ToolResult = {
-                toolCallId: tc.id,
-                name: tc.name,
-                result: '用户拒绝了此操作',
-                isError: true,
-              }
-              get().addMessage(activeSessionId!, {
-                role: 'tool',
-                content: result.result,
-                toolResults: [result],
-                toolCallId: tc.id,
-              })
-              messages.push({
-                role: 'tool',
-                content: result.result,
-                toolCallId: tc.id,
-                toolCalls: undefined,
-              })
-              continue
-            }
-          }
-
-          // Execute the tool
-          const result = await toolExecutor.execute(tc)
-
-          get().addMessage(activeSessionId!, {
-            role: 'tool',
-            content: result.result,
-            toolResults: [result],
-            toolCallId: tc.id,
-          })
-
-          messages.push({
-            role: 'tool',
-            content: result.result,
-            toolCallId: tc.id,
-            toolCalls: undefined,
-          })
-        }
-
-        // Reset streaming state for next iteration
-        set({ streamingContent: '', streamingThinking: '' })
-      }
-
-      // Agent loop exhausted without finishing (last iteration still had tool calls).
-      // Notify instead of silently stopping.
-      if (maxIterations <= 0 && !abortController.signal.aborted) {
-        get().addMessage(activeSessionId!, {
-          role: 'assistant',
-          content: '[已达到最大工具调用轮数 (20)，已停止。如需继续请再次发送消息。]',
-        })
-      }
-
-      // Auto-generate title if first message
-      if (session.messages.length === 0) {
-        const title = content.slice(0, 50) + (content.length > 50 ? '...' : '')
-        get().renameSession(activeSessionId!, title)
-      }
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        if (get().streamingContent) {
-          get().addMessage(activeSessionId!, {
-            role: 'assistant',
-            content: get().streamingContent + '\n\n[生成已停止]',
-            thinking: get().streamingThinking || undefined,
-          })
-        }
-      } else {
-        console.error('发送消息失败:', error instanceof Error ? error.message : 'Unknown error')
-        get().addMessage(activeSessionId!, {
-          role: 'assistant',
-          content: `错误: ${error.message}`,
-        })
-      }
-    } finally {
-      set({ isLoading: false, streamingContent: '', streamingThinking: '', abortController: null, pendingApproval: null })
-      _approvalResolve = null
-      get().saveSession(activeSessionId!)
-    }
+    await runAgentLoop(activeSessionId)
   },
 
   regenerateFromMessage: async (sessionId, msgId) => {
@@ -900,6 +894,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeBranchId,
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        agentMode: 'chat',
+        todos: [],
+        planStatus: 'none',
       }
 
       set((s) => ({
@@ -951,7 +948,383 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isLoading: false,
       streamingContent: '',
       pendingApproval: null,
+      pendingQuestion: null,
+      queuedMessages: [],
+      checkpoints: [],
       undoStack: [],
     })
   },
 }))
+
+// ─────────────────────────── Agent loop ───────────────────────────
+
+/**
+ * Core agent loop: streams the LLM response, executes tool calls with approval,
+ * handles plan-mode / todos / questions / checkpoints, and saves the session.
+ *
+ * `opts.agentModeOverride` lets a plan approval resume in execute mode even
+ * though the session is still flagged as plan mode.
+ */
+async function runAgentLoop(
+  sessionId: string,
+  opts?: { agentModeOverride?: 'chat' | 'plan'; extraSystemText?: string },
+): Promise<void> {
+  const chatStore = useChatStore.getState()
+  const session = chatStore.sessions.find((s) => s.id === sessionId)
+  if (!session) return
+
+  const configGroup = useConfigStore.getState().configGroups.find((g) => g.id === session.configGroupId)
+  if (!configGroup) return
+
+  const agentMode = opts?.agentModeOverride || (session.agentMode === 'plan' ? 'plan' : 'chat')
+
+  // Refresh dynamic tools (MCP servers) before building the tool list
+  await toolExecutor.refreshMcpTools()
+
+  // Build the system prompt with memories / rules / skills / retrieved context
+  const lastUserMessage = [...session.messages].reverse().find((m) => m.role === 'user')
+  const userContent = lastUserMessage?.content || ''
+  const baseSystemPrompt = configGroup.systemPrompt || 'You are a helpful AI coding assistant.'
+  let systemPrompt = await buildSystemPrompt(baseSystemPrompt, userContent, lastUserMessage?.contextFiles || [])
+  if (agentMode === 'plan') {
+    systemPrompt += PLAN_MODE_INSTRUCTION
+  }
+  if (opts?.extraSystemText) {
+    systemPrompt += '\n\n' + opts.extraSystemText
+  }
+
+  // Build messages from full history (system + all session messages)
+  const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; toolCalls?: LLMToolCall[]; toolCallId?: string }> = [
+    { role: 'system', content: systemPrompt },
+    ...session.messages.map((m) => ({
+      role: m.role as 'system' | 'user' | 'assistant' | 'tool',
+      content: m.content,
+      toolCalls: toRawToolCalls(m.toolCalls),
+      toolCallId: m.toolCallId,
+    })),
+  ]
+
+  // Plan mode exposes only read-only + agent-control tools
+  const toolDefinitions = agentMode === 'plan'
+    ? toolExecutor.getToolDefinitions((name) => PLAN_TOOLS.has(name))
+    : toolExecutor.getToolDefinitions()
+
+  const set = useChatStore.setState.bind(useChatStore)
+  set({ isLoading: true, streamingContent: '', streamingThinking: '' })
+
+  const abortController = new AbortController()
+  set({ abortController })
+
+  try {
+    const model = session.model || configGroup.defaultModel
+    let iterationsLeft = MAX_AGENT_ITERATIONS
+
+    while (iterationsLeft-- > 0) {
+      if (abortController.signal.aborted) break
+      const req = {
+        model,
+        messages: messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+          toolCalls: m.toolCalls,
+          toolCallId: m.toolCallId,
+        })),
+        stream: true,
+        temperature: session.modelParams.temperature,
+        maxTokens: session.modelParams.maxTokens,
+        topP: session.modelParams.topP,
+        frequencyPenalty: session.modelParams.frequencyPenalty,
+        presencePenalty: session.modelParams.presencePenalty,
+        tools: toolDefinitions,
+      }
+
+      let fullContent = ''
+      let fullThinking = ''
+      let toolCalls: any[] = []
+
+      for await (const chunk of sendLLMRequest(req, configGroup)) {
+        if (abortController.signal.aborted) break
+
+        if (chunk.thinking) {
+          fullThinking += chunk.thinking
+          set({ streamingThinking: fullThinking })
+        }
+
+        if (chunk.content) {
+          fullContent += chunk.content
+          set({ streamingContent: fullContent })
+        }
+
+        if (chunk.toolCalls) {
+          toolCalls = chunk.toolCalls
+        }
+
+        if (chunk.done) break
+      }
+
+      // No tool calls - we're done
+      if (toolCalls.length === 0) {
+        chatStore.addMessage(sessionId, {
+          role: 'assistant',
+          content: fullContent,
+          thinking: fullThinking || undefined,
+        })
+        break
+      }
+
+      // Has tool calls - show them and execute
+      const parsedToolCalls: ToolCall[] = toolCalls.map((tc) => ({
+        id: tc.id,
+        name: tc.function.name,
+        arguments: JSON.parse(tc.function.arguments || '{}'),
+      }))
+
+      // Add assistant message with tool calls
+      chatStore.addMessage(sessionId, {
+        role: 'assistant',
+        content: fullContent,
+        thinking: fullThinking || undefined,
+        toolCalls: parsedToolCalls,
+      })
+
+      // Add assistant message to messages array for next iteration
+      messages.push({
+        role: 'assistant',
+        content: fullContent,
+        toolCalls: toolCalls,
+        toolCallId: undefined,
+      })
+
+      // The message id of the just-added assistant message (used for checkpoints)
+      const assistantMsgId = chatStore.getActiveSession()?.messages.slice(-1)[0]?.id || ''
+
+      let planSubmitted = false
+
+      // Execute each tool call
+      for (const tc of parsedToolCalls) {
+        if (abortController.signal.aborted) break
+
+        // ── manage_todo: update the visible todo list ──
+        if (tc.name === 'manage_todo') {
+          const todos: TodoItem[] = (Array.isArray(tc.arguments.todos) ? tc.arguments.todos : [])
+            .map((t: any, i: number) => ({
+              id: t?.id || uuidv4(),
+              content: String(t?.content || ''),
+              status: (['pending', 'in_progress', 'completed', 'failed'].includes(t?.status) ? t?.status : 'pending') as TodoItem['status'],
+              order: i,
+            }))
+          chatStore.setTodos(sessionId, todos)
+          const result = `任务列表已更新 (${todos.length} 项)`
+          chatStore.addMessage(sessionId, { role: 'tool', content: result, toolResults: [{ toolCallId: tc.id, name: tc.name, result }], toolCallId: tc.id })
+          messages.push({ role: 'tool', content: result, toolCallId: tc.id })
+          continue
+        }
+
+        // ── submit_plan: save the plan and pause for approval ──
+        if (tc.name === 'submit_plan') {
+          const plan = {
+            title: String(tc.arguments.title || '执行计划'),
+            steps: Array.isArray(tc.arguments.steps) ? tc.arguments.steps : [],
+          }
+          useChatStore.setState((s) => ({
+            sessions: s.sessions.map((sess) =>
+              sess.id === sessionId
+                ? { ...sess, planContent: JSON.stringify(plan), planStatus: 'pending_approval' as const, updatedAt: Date.now() }
+                : sess
+            ),
+          }))
+          const result = '计划已提交，等待用户批准。'
+          chatStore.addMessage(sessionId, { role: 'tool', content: result, toolResults: [{ toolCallId: tc.id, name: tc.name, result }], toolCallId: tc.id })
+          messages.push({ role: 'tool', content: result, toolCallId: tc.id })
+          planSubmitted = true
+          break
+        }
+
+        // ── ask_user_question: prompt the user, feed the answer back ──
+        if (tc.name === 'ask_user_question') {
+          const answer = await new Promise<string>((resolve) => {
+            if (_questionResolve) { _questionResolve('（用户取消了上一次提问）'); _questionResolve = null }
+            _questionResolve = resolve
+            useChatStore.setState({
+              pendingQuestion: {
+                id: tc.id,
+                question: String(tc.arguments.question || '请确认'),
+                options: Array.isArray(tc.arguments.options) ? tc.arguments.options.map(String) : undefined,
+              },
+            })
+          })
+          const result = `用户回答: ${answer}`
+          chatStore.addMessage(sessionId, { role: 'tool', content: result, toolResults: [{ toolCallId: tc.id, name: tc.name, result }], toolCallId: tc.id })
+          messages.push({ role: 'tool', content: result, toolCallId: tc.id })
+          continue
+        }
+
+        // ── Checkpoint write tools before execution (revertable edits) ──
+        if (CHECKPOINT_TOOLS.has(tc.name)) {
+          await captureCheckpoint(sessionId, tc, assistantMsgId)
+        }
+
+        // Check if tool requires approval
+        if (toolExecutor.requiresApproval(tc.name)) {
+          const preview = toolExecutor.getPreview(tc)
+          useChatStore.setState({ pendingApproval: { toolCall: tc, preview } })
+
+          // Reject any previous pending approval to prevent dangling promises
+          if (_approvalResolve) {
+            _approvalResolve(false)
+            _approvalResolve = null
+          }
+
+          const approved = await new Promise<boolean>((resolve) => {
+            _approvalResolve = resolve
+            // Auto-reject if the user never responds (60s), so the agent loop
+            // doesn't hang forever on a dangling approval dialog
+            setTimeout(() => {
+              if (_approvalResolve === resolve) {
+                _approvalResolve = null
+                resolve(false)
+              }
+            }, 60000)
+          })
+
+          if (!approved) {
+            const result: ToolResult = {
+              toolCallId: tc.id,
+              name: tc.name,
+              result: '用户拒绝了此操作',
+              isError: true,
+            }
+            chatStore.addMessage(sessionId, {
+              role: 'tool',
+              content: result.result,
+              toolResults: [result],
+              toolCallId: tc.id,
+            })
+            messages.push({
+              role: 'tool',
+              content: result.result,
+              toolCallId: tc.id,
+              toolCalls: undefined,
+            })
+            continue
+          }
+        }
+
+        // Execute the tool
+        const result = await toolExecutor.execute(tc)
+
+        chatStore.addMessage(sessionId, {
+          role: 'tool',
+          content: result.result,
+          toolResults: [result],
+          toolCallId: tc.id,
+        })
+
+        messages.push({
+          role: 'tool',
+          content: result.result,
+          toolCallId: tc.id,
+          toolCalls: undefined,
+        })
+
+        // Write tools changed files on disk — notify open editors to reload
+        if (CHECKPOINT_TOOLS.has(tc.name) && tc.arguments?.path) {
+          notifyFileChanged(tc.arguments.path)
+        }
+      }
+
+      // Plan submitted — pause the loop until the user approves
+      if (planSubmitted) break
+
+      // Reset streaming state for next iteration
+      set({ streamingContent: '', streamingThinking: '' })
+    }
+
+    // Agent loop exhausted without finishing (last iteration still had tool calls).
+    // Notify instead of silently stopping — the UI shows a Continue button.
+    if (iterationsLeft <= 0 && !abortController.signal.aborted && !planWasSubmitted(sessionId)) {
+      chatStore.addMessage(sessionId, {
+        role: 'assistant',
+        content: '[已达到最大工具调用轮数 (20)。点击下方"继续"按钮可继续执行。]',
+      })
+    }
+  } catch (error: any) {
+    if (error.name === 'AbortError') {
+      if (useChatStore.getState().streamingContent) {
+        chatStore.addMessage(sessionId, {
+          role: 'assistant',
+          content: useChatStore.getState().streamingContent + '\n\n[生成已停止]',
+          thinking: useChatStore.getState().streamingThinking || undefined,
+        })
+      }
+    } else {
+      console.error('发送消息失败:', error instanceof Error ? error.message : 'Unknown error')
+      chatStore.addMessage(sessionId, {
+        role: 'assistant',
+        content: `错误: ${error.message}`,
+      })
+    }
+  } finally {
+    set({ isLoading: false, streamingContent: '', streamingThinking: '', abortController: null, pendingApproval: null })
+    _approvalResolve = null
+    _questionResolve = null
+    chatStore.saveSession(sessionId)
+
+    // Process queued messages (type-ahead while the agent was working)
+    const queued = useChatStore.getState().queuedMessages
+    if (queued.length > 0) {
+      const next = queued[0]
+      useChatStore.setState({ queuedMessages: queued.slice(1) })
+      setTimeout(() => { useChatStore.getState().sendMessage(next) }, 50)
+    }
+  }
+}
+
+/** Check whether the current session just submitted a plan (avoid double exhausted-message) */
+function planWasSubmitted(sessionId: string): boolean {
+  const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+  return session?.planStatus === 'pending_approval'
+}
+
+/**
+ * Snapshot the file(s) a write tool is about to touch so the user can revert.
+ * Stored in SQLite via IPC; also mirrored into the renderer's checkpoint list.
+ */
+async function captureCheckpoint(sessionId: string, tc: ToolCall, messageId: string): Promise<void> {
+  const target = tc.arguments?.path
+  if (typeof target !== 'string' || !target) return
+
+  const files: Array<{ path: string; content: string; existed: boolean }> = []
+  if (tc.name !== 'create_directory') {
+    try {
+      const { content } = await window.electronAPI.readFile(target)
+      files.push({ path: target, content, existed: true })
+    } catch {
+      // File doesn't exist yet (write_file creating a new file)
+      files.push({ path: target, content: '', existed: false })
+    }
+  }
+
+  if (files.length === 0) return
+
+  const checkpoint: Checkpoint = {
+    id: uuidv4(),
+    sessionId,
+    createdAt: Date.now(),
+    label: `${tc.name} → ${target.split(/[/\\]/).pop() || target}`,
+    messageId: messageId || undefined,
+    files,
+  }
+
+  try {
+    await window.electronAPI.checkpointCreate(checkpoint)
+    useChatStore.setState((s) => ({ checkpoints: [checkpoint, ...s.checkpoints] }))
+  } catch (error) {
+    console.error('创建检查点失败:', error)
+  }
+}
+
+/** Notify open editors that a file changed on disk (via tool execution) */
+function notifyFileChanged(path: string): void {
+  window.dispatchEvent(new CustomEvent('ourcode:file-changed', { detail: path }))
+}

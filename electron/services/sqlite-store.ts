@@ -3,7 +3,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { CryptoService } from './crypto'
-import { ApiConfigGroup, ChatSession, ChatMessage, ChatBranch, UserPreferences } from '../../shared/types'
+import { ApiConfigGroup, ChatSession, ChatMessage, ChatBranch, UserPreferences, Memory, Checkpoint, TodoItem } from '../../shared/types'
 import { DEFAULT_PREFERENCES } from '../../shared/constants'
 
 /** Parse a JSON column safely ('' / null / invalid → fallback) */
@@ -96,6 +96,19 @@ export class SQLiteStore {
     if (!sessColumns.some((c: any) => c.name === 'archived_at')) {
       this.db.exec("ALTER TABLE chat_sessions ADD COLUMN archived_at INTEGER DEFAULT 0")
     }
+    // Add agent-mode / todo / plan columns to chat_sessions if missing
+    if (!sessColumns.some((c: any) => c.name === 'agent_mode')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN agent_mode TEXT DEFAULT 'chat'")
+    }
+    if (!sessColumns.some((c: any) => c.name === 'todos')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN todos TEXT DEFAULT '[]'")
+    }
+    if (!sessColumns.some((c: any) => c.name === 'plan_content')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN plan_content TEXT DEFAULT ''")
+    }
+    if (!sessColumns.some((c: any) => c.name === 'plan_status')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN plan_status TEXT DEFAULT 'none'")
+    }
   }
 
   private initTables(): void {
@@ -146,8 +159,27 @@ export class SQLiteStore {
         value TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS memories (
+        id TEXT PRIMARY KEY,
+        content TEXT NOT NULL,
+        scope TEXT DEFAULT 'global',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS checkpoints (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        label TEXT DEFAULT '',
+        message_id TEXT DEFAULT '',
+        files TEXT DEFAULT '[]',
+        FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+      );
+
       CREATE INDEX IF NOT EXISTS idx_messages_session ON chat_messages(session_id, sort_order);
       CREATE INDEX IF NOT EXISTS idx_sessions_config ON chat_sessions(config_group_id);
+      CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id, created_at);
     `)
   }
 
@@ -296,6 +328,10 @@ export class SQLiteStore {
         branches: branches.length > 0 ? branches : undefined,
         pinnedAt: session.pinned_at || undefined,
         archivedAt: session.archived_at || undefined,
+        agentMode: (session.agent_mode || 'chat') as 'chat' | 'plan',
+        todos: parseJsonField<TodoItem[]>(session.todos, []),
+        planContent: session.plan_content || undefined,
+        planStatus: (session.plan_status || 'none') as 'none' | 'pending_approval' | 'approved',
       }
     })
   }
@@ -310,7 +346,8 @@ export class SQLiteStore {
       this.db.prepare(`
         UPDATE chat_sessions
         SET title = ?, config_group_id = ?, model = ?, model_params = ?, updated_at = ?,
-            active_branch_id = ?, branches = ?, pinned_at = ?, archived_at = ?
+            active_branch_id = ?, branches = ?, pinned_at = ?, archived_at = ?,
+            agent_mode = ?, todos = ?, plan_content = ?, plan_status = ?
         WHERE id = ?
       `).run(
         session.title,
@@ -322,6 +359,10 @@ export class SQLiteStore {
         JSON.stringify((session as any).branches || []),
         (session as any).pinnedAt || 0,
         (session as any).archivedAt || 0,
+        (session as any).agentMode || 'chat',
+        JSON.stringify((session as any).todos || []),
+        (session as any).planContent || '',
+        (session as any).planStatus || 'none',
         id
       )
 
@@ -330,8 +371,8 @@ export class SQLiteStore {
     } else {
       this.db.prepare(`
         INSERT INTO chat_sessions (id, title, config_group_id, model, model_params, created_at, updated_at,
-          active_branch_id, branches, pinned_at, archived_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          active_branch_id, branches, pinned_at, archived_at, agent_mode, todos, plan_content, plan_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         session.title,
@@ -343,7 +384,11 @@ export class SQLiteStore {
         (session as any).activeBranchId || '',
         JSON.stringify((session as any).branches || []),
         (session as any).pinnedAt || 0,
-        (session as any).archivedAt || 0
+        (session as any).archivedAt || 0,
+        (session as any).agentMode || 'chat',
+        JSON.stringify((session as any).todos || []),
+        (session as any).planContent || '',
+        (session as any).planStatus || 'none'
       )
     }
 
@@ -434,11 +479,72 @@ export class SQLiteStore {
     return text
   }
 
+  // ───────────────────── Memories (persistent user context) ─────────────────────
+  getMemories(): Memory[] {
+    const rows = this.db.prepare('SELECT * FROM memories ORDER BY updated_at DESC').all() as any[]
+    return rows.map((row) => ({
+      id: row.id,
+      content: this.maybeDecrypt(row.content),
+      scope: (row.scope || 'global') as Memory['scope'],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
+  }
+
+  addMemory(content: string, scope: Memory['scope']): Memory {
+    const id = uuidv4()
+    const now = Date.now()
+    this.db.prepare('INSERT INTO memories (id, content, scope, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .run(id, this.maybeEncrypt(content), scope || 'global', now, now)
+    return { id, content, scope: scope || 'global', createdAt: now, updatedAt: now }
+  }
+
+  deleteMemory(id: string): void {
+    this.db.prepare('DELETE FROM memories WHERE id = ?').run(id)
+  }
+
+  // ───────────────────── Checkpoints (AI edit snapshots) ─────────────────────
+  getCheckpoints(sessionId: string): Checkpoint[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM checkpoints WHERE session_id = ? ORDER BY created_at ASC'
+    ).all(sessionId) as any[]
+    return rows.map((row) => ({
+      id: row.id,
+      sessionId: row.session_id,
+      createdAt: row.created_at,
+      label: row.label || '',
+      messageId: row.message_id || undefined,
+      files: parseJsonField<Checkpoint['files']>(row.files, []),
+    }))
+  }
+
+  addCheckpoint(checkpoint: Omit<Checkpoint, 'createdAt'> & { createdAt?: number }): Checkpoint {
+    const now = checkpoint.createdAt || Date.now()
+    this.db.prepare(`
+      INSERT INTO checkpoints (id, session_id, created_at, label, message_id, files)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      checkpoint.id,
+      checkpoint.sessionId,
+      now,
+      checkpoint.label || '',
+      checkpoint.messageId || '',
+      JSON.stringify(checkpoint.files || [])
+    )
+    return { ...checkpoint, createdAt: now }
+  }
+
+  deleteCheckpoints(sessionId: string): void {
+    this.db.prepare('DELETE FROM checkpoints WHERE session_id = ?').run(sessionId)
+  }
+
   resetAll(): void {
     this.db.exec('DELETE FROM chat_messages')
     this.db.exec('DELETE FROM chat_sessions')
     this.db.exec('DELETE FROM api_config_groups')
     this.db.exec('DELETE FROM user_preferences')
+    this.db.exec('DELETE FROM memories')
+    this.db.exec('DELETE FROM checkpoints')
   }
 
   close(): void {
