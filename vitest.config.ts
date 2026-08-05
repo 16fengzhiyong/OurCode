@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    setupFiles: ['./vitest.setup.ts'],
     include: ['src/__tests__/**/*.test.ts', 'electron/__tests__/**/*.test.ts'],
     coverage: {
       provider: 'v8',
