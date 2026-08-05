@@ -6,6 +6,7 @@ import { EXHAUSTED_MARKER } from '@shared/constants'
 import ThinkingBlock from './ThinkingBlock'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
 import ToolCallBlock from './ToolCallBlock'
+import WaveLogo from './WaveLogo'
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -34,6 +35,33 @@ function applyToEditor(code: string): boolean {
   } catch {
     return false
   }
+}
+
+/** Ghost icon/label button (Windsurf hover action toolbar) */
+function GhostButton({
+  onClick,
+  title,
+  danger,
+  accent,
+  children,
+}: {
+  onClick: () => void
+  title: string
+  danger?: boolean
+  accent?: boolean
+  children: React.ReactNode
+}) {
+  const base = 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-colors'
+  const tone = danger
+    ? 'text-[#F48771] hover:bg-[#F48771]/15'
+    : accent
+      ? 'text-nova-accent hover:bg-nova-accent/15'
+      : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'
+  return (
+    <button onClick={onClick} title={title} className={`${base} ${tone}`}>
+      {children}
+    </button>
+  )
 }
 
 export default function ChatMessage({ message, sessionId, isSelectMode, isSelected, onToggleSelect }: ChatMessageProps) {
@@ -92,31 +120,26 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
     }
   }
 
-  // Tool result messages - compact display
+  // Tool result messages - compact card aligned under the assistant avatar
   if (isTool) {
     return (
-      <div className="flex gap-3 group animate-fade-in">
-        <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0 bg-nova-badge-bg">
-          <span className="text-xs">🔧</span>
-        </div>
-        <div className="rounded-[18px] px-3.5 py-2.5 max-w-[80%] bg-nova-surface/50 border border-nova-border/50">
-          {message.toolResults && message.toolResults.length > 0 && (
-            <ToolCallBlock
-              toolCalls={message.toolResults.map((r) => ({
-                id: r.toolCallId,
-                name: r.name,
-                arguments: {},
-              }))}
-              toolResults={message.toolResults}
-            />
-          )}
-        </div>
+      <div className="pl-10 group animate-fade-in">
+        {message.toolResults && message.toolResults.length > 0 && (
+          <ToolCallBlock
+            toolCalls={message.toolResults.map((r) => ({
+              id: r.toolCallId,
+              name: r.name,
+              arguments: {},
+            }))}
+            toolResults={message.toolResults}
+          />
+        )}
       </div>
     )
   }
 
   return (
-    <div className={`flex gap-3 group animate-fade-in ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div className={`group animate-fade-in ${isUser ? 'flex justify-end' : 'flex gap-2.5'}`}>
       {/* Batch select checkbox */}
       {isSelectMode && (
         <label className="flex items-start pt-2 cursor-pointer shrink-0">
@@ -128,166 +151,127 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
           />
         </label>
       )}
-      {/* Avatar */}
-      <div
-        className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0"
-        style={{
-          background: isUser ? '#007acc' : 'linear-gradient(135deg, #533483, #007acc)',
-        }}
-      >
-        {isUser ? (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
-        ) : (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5" />
-            <path d="M8.5 8.5v.01" />
-            <path d="M16 15.5v.01" />
-            <path d="M12 12v.01" />
-            <path d="M12 16v.01" />
-            <path d="M7 14v.01" />
-          </svg>
-        )}
-      </div>
 
-      {/* Bubble */}
-      <div
-        className="rounded-[18px] px-3.5 py-2.5 max-w-[80%]"
-        style={{
-          background: isUser ? '#0f3460' : '#16213e',
-          border: isUser ? '1px solid rgba(0,122,204,0.3)' : '1px solid rgba(255,255,255,0.08)',
-          color: '#d0d0e0',
-          borderBottomRightRadius: isUser ? 3 : 18,
-          borderBottomLeftRadius: isUser ? 18 : 3,
-        }}
-      >
-        {/* Thinking block */}
-        {message.thinking && <ThinkingBlock content={message.thinking} />}
+      {/* Assistant avatar */}
+      {!isUser && (
+        <div
+          className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5"
+          style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
+        >
+          <WaveLogo size={14} />
+        </div>
+      )}
 
-        {/* Tool calls */}
-        {isAssistant && message.toolCalls && message.toolCalls.length > 0 && (
-          <ToolCallBlock
-            toolCalls={message.toolCalls}
-            toolResults={message.toolResults}
-          />
-        )}
+      {/* Content column */}
+      <div className={`min-w-0 ${isUser ? 'max-w-[80%]' : 'flex-1'}`}>
+        {/* Bubble — user messages render as a subtle translucent bubble */}
+        <div
+          className={isUser ? 'px-3.5 py-2 rounded-[12px]' : 'px-0.5'}
+          style={isUser ? {
+            background: 'var(--bubble-user)',
+            border: '1px solid var(--border)',
+            color: 'var(--text-primary)',
+            transition: 'background 0.15s',
+          } : undefined}
+          onMouseEnter={(e) => {
+            if (isUser) e.currentTarget.style.background = 'var(--bubble-user-hover)'
+          }}
+          onMouseLeave={(e) => {
+            if (isUser) e.currentTarget.style.background = 'var(--bubble-user)'
+          }}
+        >
+          {/* Thinking block */}
+          {message.thinking && <ThinkingBlock content={message.thinking} />}
 
-        {/* Edited indicator */}
-        {message.editedAt && (
-          <div className="text-[10px] text-text-muted mb-1 italic">已编辑</div>
-        )}
-
-        {/* Content */}
-        {isEditing ? (
-          <div>
-            <textarea
-              value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
-              className="w-full p-2 bg-nova-bg text-text-primary rounded-lg border border-nova-border focus:border-accent-blue focus:outline-none min-h-[80px] font-mono text-sm resize-none"
-              rows={3}
+          {/* Tool calls */}
+          {isAssistant && message.toolCalls && message.toolCalls.length > 0 && (
+            <ToolCallBlock
+              toolCalls={message.toolCalls}
+              toolResults={message.toolResults}
             />
-            <div className="flex justify-end gap-2 mt-2">
-              <button
-                onClick={handleCancelEdit}
-                className="px-3 py-1 text-xs bg-nova-hover rounded-lg hover:bg-nova-border transition-colors text-text-secondary"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                className="px-3 py-1 text-xs bg-accent-btn-primary rounded-lg hover:opacity-90 transition-opacity text-white"
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="text-sm leading-relaxed">
-            {isAssistant ? (
-              <MarkdownRenderer content={message.content} />
-            ) : (
-              <p className="whitespace-pre-wrap">{message.content}</p>
-            )}
-          </div>
-        )}
+          )}
 
-        {/* Actions */}
+          {/* Edited indicator */}
+          {message.editedAt && (
+            <div className="text-[10px] text-nova-text-muted mb-1 italic">已编辑</div>
+          )}
+
+          {/* Content */}
+          {isEditing ? (
+            <div>
+              <textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                className="w-full p-2 bg-nova-bg text-text-primary rounded-lg border border-nova-border focus:border-nova-accent focus:outline-none min-h-[80px] font-mono text-sm resize-none"
+                rows={3}
+              />
+              <div className="flex justify-end gap-2 mt-2">
+                <button
+                  onClick={handleCancelEdit}
+                  className="px-3 py-1 text-xs bg-nova-hover rounded-lg hover:bg-nova-border transition-colors text-nova-text-secondary"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  className="px-3 py-1 text-xs bg-nova-accent rounded-lg hover:opacity-90 transition-opacity text-white"
+                >
+                  保存
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm leading-relaxed">
+              {isAssistant ? (
+                <MarkdownRenderer content={message.content} />
+              ) : (
+                <p className="whitespace-pre-wrap">{message.content}</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Actions — hover-reveal ghost toolbar (Windsurf style) */}
         {!isEditing && (
-          <div className="flex flex-wrap items-center gap-2 mt-1.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className={`flex flex-wrap items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'justify-end' : 'justify-start'}`}>
             {isExhausted && (
-              <button
-                onClick={() => continueGeneration()}
-                className="text-xs text-nova-accent hover:text-white transition-colors flex items-center gap-1 bg-nova-accent/15 px-2 py-0.5 rounded"
-              >
+              <GhostButton onClick={() => continueGeneration()} title="继续执行" accent>
                 ▶ 继续执行
-              </button>
+              </GhostButton>
             )}
             {isAssistant && codeBlock && (
-              <button
-                onClick={handleApplyToEditor}
-                className="text-xs text-nova-accent hover:text-white transition-colors flex items-center gap-1 bg-nova-accent/15 px-2 py-0.5 rounded"
-              >
+              <GhostButton onClick={handleApplyToEditor} title="把代码块应用到编辑器选中区域" accent>
                 {applied ? '✓ 已应用' : '⤓ 应用到编辑器'}
-              </button>
+              </GhostButton>
             )}
             {isAssistant && msgCheckpoints.length > 0 && (
-              <button
-                onClick={handleRevertMessage}
-                className="text-xs text-red-400 hover:text-red-300 transition-colors flex items-center gap-1 bg-red-500/10 px-2 py-0.5 rounded"
-                title="回滚这条消息产生的文件修改"
-              >
+              <GhostButton onClick={handleRevertMessage} title="回滚这条消息产生的文件修改" danger>
                 ↩ 回滚修改
-              </button>
+              </GhostButton>
             )}
-            <button
-              onClick={() => setIsEditing(true)}
-              className="text-xs text-text-muted hover:text-accent-blue transition-colors flex items-center gap-1"
-            >
+            <GhostButton onClick={() => setIsEditing(true)} title="编辑消息">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
-              编辑消息
-            </button>
-            {isUser && (
-              <button
-                onClick={handleRegenerate}
-                className="text-xs text-text-muted hover:text-accent-blue transition-colors flex items-center gap-1"
-                title="编辑后重新生成后续回复"
-              >
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="23 4 23 10 17 10" />
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                </svg>
-                重新生成回复
-              </button>
-            )}
+              编辑
+            </GhostButton>
             {isAssistant && (
-              <button
-                onClick={handleRegenerate}
-                className="text-xs text-text-muted hover:text-accent-blue transition-colors flex items-center gap-1"
-              >
+              <GhostButton onClick={handleRegenerate} title="重新生成">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="23 4 23 10 17 10" />
                   <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
                 </svg>
                 重新生成
-              </button>
+              </GhostButton>
             )}
             {isAssistant && !isExhausted && (
-              <button
-                onClick={handleRemember}
-                className="text-xs text-text-muted hover:text-accent-blue transition-colors flex items-center gap-1"
-                title="记住这条回复中的偏好/经验"
-              >
+              <GhostButton onClick={handleRemember} title="记住这条回复中的偏好/经验">
                 {remembered ? '✓ 已记住' : '🧠 记住'}
-              </button>
+              </GhostButton>
             )}
-            <button
+            <GhostButton
               onClick={() => createBranchFromMessage(sessionId, message.id)}
-              className="text-xs text-text-muted hover:text-accent-blue transition-colors flex items-center gap-1"
               title="从此消息创建分支"
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -297,13 +281,10 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
                 <path d="M18 9a9 9 0 0 1-9 9" />
               </svg>
               分支
-            </button>
-            <button
-              onClick={handleCopy}
-              className="text-xs text-text-muted hover:text-accent-blue transition-colors"
-            >
+            </GhostButton>
+            <GhostButton onClick={handleCopy} title="复制">
               复制
-            </button>
+            </GhostButton>
           </div>
         )}
       </div>

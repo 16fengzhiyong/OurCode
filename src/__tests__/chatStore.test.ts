@@ -21,7 +21,7 @@ const mockApi = {
 }
 vi.stubGlobal('window', { electronAPI: mockApi })
 
-import { useChatStore, stopGitBranchPolling } from '@/stores/chatStore'
+import { useChatStore, stopGitBranchPolling, trimHistoryForContext } from '@/stores/chatStore'
 
 // Capture the pristine initial state so each test starts clean
 const initialState = useChatStore.getState()
@@ -173,5 +173,53 @@ describe('chatStore message management', () => {
     expect(md).toContain('你')
     expect(md).toContain('世界')
     expect(md).toContain('用户') // role markers
+  })
+})
+
+describe('chatStore trimHistoryForContext', () => {
+  it('keeps everything when within the model budget', () => {
+    const messages = [
+      { role: 'system' as const, content: 'sys' },
+      { role: 'user' as const, content: 'hello' },
+      { role: 'assistant' as const, content: 'hi' },
+    ]
+    const result = trimHistoryForContext(messages, 'gpt-4o')
+    expect(result).toHaveLength(3)
+    expect(result.some((m) => m.content.includes('上下文管理'))).toBe(false)
+  })
+
+  it('drops the oldest messages over budget and inserts a notice', () => {
+    const longText = 'x'.repeat(250000) // ≈ 125k tokens (over the 102k gpt-4o budget)
+    const messages = [
+      { role: 'system' as const, content: 'sys' },
+      { role: 'user' as const, content: longText },
+      { role: 'assistant' as const, content: 'a' },
+      { role: 'user' as const, content: 'current question' },
+    ]
+    const result = trimHistoryForContext(messages, 'gpt-4o') // 128k budget, 80% → 102k
+    expect(result.some((m) => m.content === longText)).toBe(false)
+    expect(result.some((m) => m.content.includes('上下文管理'))).toBe(true)
+    expect(result[result.length - 1].content).toBe('current question')
+  })
+
+  it('never drops the system message or the newest message', () => {
+    const big = 'y'.repeat(200000)
+    const messages = [
+      { role: 'system' as const, content: 'sys' },
+      { role: 'user' as const, content: big },
+      { role: 'user' as const, content: big },
+    ]
+    const result = trimHistoryForContext(messages, 'gpt-4o')
+    expect(result[0].role).toBe('system')
+    expect(result[result.length - 1].content).toBe(big)
+  })
+
+  it('uses a large default budget when the model is unknown', () => {
+    const small = 'z'.repeat(10000) // ~5k tokens — far under any default
+    const messages = [
+      { role: 'system' as const, content: 'sys' },
+      { role: 'user' as const, content: small },
+    ]
+    expect(trimHistoryForContext(messages, 'unknown-model-xyz')).toHaveLength(2)
   })
 })

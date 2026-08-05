@@ -44,6 +44,8 @@
   --red: #f48771;
   --yellow: #e5ba7d;
   --info: #57a3f8;
+  --bubble-user: rgba(255, 255, 255, 0.075);
+  --bubble-user-hover: rgba(255, 255, 255, 0.13);
 
   /* Radius / elevation / backdrop (Windsurf 2026 styles.css) */
   --radius-sm: 4px;
@@ -93,6 +95,8 @@
   --red: #d33b2a;
   --yellow: #9a6a00;
   --info: #0069cc;
+  --bubble-user: #eef4fb;
+  --bubble-user-hover: #e6edfa;
   --backdrop-blur: blur(20px) saturate(180%);
 }
 

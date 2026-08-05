@@ -4,6 +4,7 @@ import ChatMessage from './ChatMessage'
 import ThinkingBlock from './ThinkingBlock'
 import BranchTreeModal from './BranchTreeModal'
 import { TodoPanel, PlanCard } from './AgentPanel'
+import WaveLogo from './WaveLogo'
 
 // Common model context windows (in tokens)
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
@@ -11,6 +12,14 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'claude-3-opus': 200000, 'claude-3-sonnet': 200000, 'claude-3-haiku': 200000,
   'deepseek-chat': 64000, 'deepseek-coder': 64000, 'gemini-1.5-pro': 2000000, 'gemini-1.5-flash': 1000000,
 }
+
+// Suggested prompts shown on the welcome view (Windsurf-style)
+const SUGGESTED_PROMPTS = [
+  { icon: '✨', text: '解释当前文件', prompt: '请解释当前文件的功能和关键实现' },
+  { icon: '🧪', text: '生成单元测试', prompt: '请为当前文件生成单元测试' },
+  { icon: '🔍', text: '项目概览', prompt: '请分析当前项目的结构并给出概览' },
+  { icon: '♻️', text: '重构代码', prompt: '请帮我重构当前代码，提高可读性和可维护性' },
+]
 
 export default function ChatMessages() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -183,22 +192,37 @@ export default function ChatMessages() {
       )}
 
       {messages.length === 0 && !isLoading && (
-        <div className="flex gap-3 animate-fade-in">
-          <div className="w-8 h-8 bg-nova-badge-bg rounded-[10px] flex items-center justify-center shrink-0">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7c5cbf" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5" />
-              <path d="M8.5 8.5v.01" />
-              <path d="M16 15.5v.01" />
-              <path d="M12 12v.01" />
-              <path d="M11 17v.01" />
-              <path d="M7 14v.01" />
-            </svg>
+        <div className="flex-1 flex flex-col">
+          {/* Welcome (Windsurf-style: centered icon + title + suggested prompts) */}
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-4 min-h-0">
+            <div
+              className="w-12 h-12 rounded-full flex items-center justify-center mb-3"
+              style={{ background: 'rgba(57,148,188,0.15)' }}
+            >
+              <WaveLogo size={22} color="#3994BC" />
+            </div>
+            <div className="text-[13px] font-semibold text-nova-text-primary">OurCode AI</div>
+            <div className="text-[11px] text-nova-text-muted mt-1 max-w-[280px] leading-relaxed">
+              我是 OurCode 智能体，可以帮你重构代码、生成单元测试、解释项目、修复 Bug。
+              使用 <strong className="text-nova-accent">@文件名</strong> 引用上下文，或用 <strong className="text-nova-accent">/</strong> 查看命令。
+            </div>
           </div>
-          <div className="rounded-[18px] px-3.5 py-3 max-w-[80%] text-sm leading-relaxed text-nova-text-primary" style={{ background: '#16213e', border: '1px solid rgba(255,255,255,0.08)' }}>
-            你好，我是 OurCode 智能体。我可以帮你重构代码、生成单元测试、解释项目、修复 Bug。
-            <br /><br />
-            你可以使用 <strong className="text-nova-accent">@文件名</strong> 引用项目中的文件作为上下文，
-            也可以在编辑器中选中代码后使用右键菜单中的 <strong className="text-nova-accent">AI 操作</strong>。
+
+          {/* Suggested prompts */}
+          <div className="pb-2">
+            <div className="text-[11px] text-nova-text-muted mb-1.5 px-1">建议</div>
+            <div className="flex flex-wrap gap-1.5">
+              {SUGGESTED_PROMPTS.map((p) => (
+                <button
+                  key={p.text}
+                  onClick={() => useChatStore.getState().sendMessage(p.prompt)}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-[11px] text-nova-text-secondary bg-nova-card border border-nova-border hover:bg-nova-hover hover:text-nova-text-primary transition-colors"
+                >
+                  <span>{p.icon}</span>
+                  {p.text}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}

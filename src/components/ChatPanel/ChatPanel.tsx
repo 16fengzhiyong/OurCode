@@ -10,18 +10,44 @@ import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
 
+/** Windsurf Cascade-style wave mark */
+function WaveLogo({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round">
+      <path d="M2 18c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2" />
+      <path d="M2 13c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2" />
+    </svg>
+  )
+}
+
+function IconButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+      title={title}
+    >
+      {children}
+    </button>
+  )
+}
+
 export default function ChatPanel() {
   const activeSession = useChatStore((s) => s.getActiveSession())
   const createSession = useChatStore((s) => s.createSession)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const updateSessionModel = useChatStore((s) => s.updateSessionModel)
-  const { activeConfigGroupId, configGroups, models, isLoadingModels } = useConfigStore()
+  const setAgentMode = useChatStore((s) => s.setAgentMode)
+  const { activeConfigGroupId, models, isLoadingModels } = useConfigStore()
   const { openSettings } = useUIStore()
   const [showHistory, setShowHistory] = useState(true)
   const [showSessionList, setShowSessionList] = useState(false)
   const [showMemories, setShowMemories] = useState(false)
   const [showArena, setShowArena] = useState(false)
   const [showWorkflows, setShowWorkflows] = useState(false)
+
+  const agentMode = activeSession?.agentMode || 'chat'
+  const activeModel = activeSession?.model || ''
 
   const handleNewSession = () => {
     if (activeConfigGroupId) {
@@ -32,7 +58,7 @@ export default function ChatPanel() {
   }
 
   return (
-    <div className="h-full flex" style={{ background: '#1a1a2e' }}>
+    <div className="h-full flex" style={{ background: '#191A1B' }}>
       {/* Session sidebar (collapsible) */}
       {showSessionList && (
         <ChatSidebar onClose={() => setShowSessionList(false)} />
@@ -48,13 +74,14 @@ export default function ChatPanel() {
       {showWorkflows && <WorkflowModal onClose={() => setShowWorkflows(false)} />}
 
       <div className="flex-1 flex flex-col min-w-0">
-        {/* AI Header */}
-        <div className="px-4 py-3 border-b shrink-0" style={{ background: '#16213e', borderColor: '#0f3460' }}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+        {/* Cascade-style header */}
+        <div className="px-3 py-2 border-b shrink-0" style={{ background: '#191A1B', borderColor: '#2A2B2C' }}>
+          <div className="flex items-center justify-between gap-2">
+            {/* Brand */}
+            <div className="flex items-center gap-2 min-w-0">
               <button
                 onClick={() => setShowSessionList(!showSessionList)}
-                className="p-1 rounded hover:bg-nova-hover transition-colors text-nova-text-muted hover:text-nova-text-primary"
+                className="p-1.5 rounded hover:bg-nova-hover transition-colors text-nova-text-muted hover:text-nova-text-primary shrink-0"
                 title="会话列表"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -62,83 +89,81 @@ export default function ChatPanel() {
                 </svg>
               </button>
               <div
-                className="w-7 h-7 rounded-md flex items-center justify-center text-sm shrink-0"
-                style={{ background: 'linear-gradient(135deg, #7c5cbf, #007acc)', boxShadow: '0 2px 8px #7c5cbf44' }}
+                className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
+                style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)', boxShadow: '0 2px 8px #3994bc44' }}
               >
-                <span style={{ color: '#fff', fontSize: 14 }}>✦</span>
+                <WaveLogo />
               </div>
-              <div>
-                <strong className="text-nova-text-primary text-sm block">OurCode AI 助手</strong>
-                <span className="text-[10px] text-nova-text-muted">OurCode Copilot · 已连接</span>
+              <div className="min-w-0">
+                <strong className="text-nova-text-primary text-sm block truncate leading-tight">OurCode AI</strong>
+                <span className="text-[10px] text-nova-text-muted flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+                  已连接
+                </span>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowArena(true)}
-                className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary transition-colors"
-                title="Arena 模型对比"
-              >
-                <span className="text-sm">⚖️</span>
-              </button>
-              <button
-                onClick={() => setShowWorkflows(true)}
-                className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary transition-colors"
-                title="工作流"
-              >
-                <span className="text-sm">🔁</span>
-              </button>
-              <button
-                onClick={() => setShowMemories(true)}
-                className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary transition-colors"
-                title="记忆管理"
-              >
-                <span className="text-sm">🧠</span>
-              </button>
-              <button
-                onClick={handleNewSession}
-                className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary transition-colors"
-                title="新建对话"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-              </button>
-              <button
-                onClick={openSettings}
-                className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary transition-colors"
-                title="设置"
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-                </svg>
-              </button>
+
+            {/* Model pill + mode toggle + actions */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              {activeSession && (
+                <div className="pill-section">
+                  <select
+                    className="pill-btn bg-transparent outline-none cursor-pointer max-w-[130px] text-[11px] appearance-none text-left"
+                    value={activeModel}
+                    onChange={(e) => {
+                      if (activeSessionId) updateSessionModel(activeSessionId, e.target.value)
+                    }}
+                    disabled={isLoadingModels}
+                    title="选择模型"
+                  >
+                    <option value="">选择模型</option>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>{m.alias || m.id}</option>
+                    ))}
+                  </select>
+                  <span className="text-nova-text-muted text-[11px]">▾</span>
+                </div>
+              )}
+              {activeSession && (
+                <div className="pill-section" title="Agent 模式">
+                  <button
+                    onClick={() => setAgentMode(activeSession.id, 'chat')}
+                    className={`pill-btn ${agentMode === 'chat' ? 'active' : ''}`}
+                    title="对话模式：直接回答（Windsurf Code 模式）"
+                  >
+                    💬 对话
+                  </button>
+                  <button
+                    onClick={() => setAgentMode(activeSession.id, 'plan')}
+                    className={`pill-btn ${agentMode === 'plan' ? 'active' : ''}`}
+                    title="计划模式：先制定计划，批准后执行（Windsurf Plan 模式）"
+                  >
+                    📋 计划
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center gap-0.5">
+                <IconButton title="Arena 模型对比" onClick={() => setShowArena(true)}>
+                  <span className="text-sm leading-none">⚖️</span>
+                </IconButton>
+                <IconButton title="工作流" onClick={() => setShowWorkflows(true)}>
+                  <span className="text-sm leading-none">🔁</span>
+                </IconButton>
+                <IconButton title="记忆管理" onClick={() => setShowMemories(true)}>
+                  <span className="text-sm leading-none">🧠</span>
+                </IconButton>
+                <IconButton title="新建对话" onClick={handleNewSession}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </IconButton>
+                <IconButton title="设置" onClick={openSettings}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                  </svg>
+                </IconButton>
+              </div>
             </div>
-          </div>
-          {/* Config row */}
-          <div className="flex items-center gap-2 mt-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
-            <select
-              className="text-[11px] bg-nova-input-bg text-nova-text-primary border border-nova-border rounded px-1.5 py-0.5 outline-none"
-              defaultValue={activeConfigGroupId || ''}
-            >
-              {configGroups.map((g) => (
-                <option key={g.id} value={g.id}>{g.name}</option>
-              ))}
-            </select>
-            <select
-              className="text-[11px] bg-nova-input-bg text-nova-text-primary border border-nova-border rounded px-1.5 py-0.5 outline-none flex-1"
-              value={activeSession?.model || ''}
-              onChange={(e) => {
-                if (activeSessionId) updateSessionModel(activeSessionId, e.target.value)
-              }}
-              disabled={isLoadingModels}
-              title="选择模型"
-            >
-              <option value="">选择模型</option>
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>{m.alias || m.id}</option>
-              ))}
-            </select>
           </div>
         </div>
 
@@ -155,12 +180,12 @@ export default function ChatPanel() {
                 <div
                   className="text-4xl mb-3 font-bold"
                   style={{
-                    background: 'linear-gradient(135deg, #533483, #007acc)',
+                    background: 'linear-gradient(135deg, #57A3F8, #3994BC)',
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',
                   }}
                 >
-                  OurCode AI 助手
+                  OurCode AI
                 </div>
                 <div className="text-sm text-nova-text-muted mb-2">
                   AI 编程助手
@@ -171,7 +196,7 @@ export default function ChatPanel() {
                 <button
                   onClick={handleNewSession}
                   className="px-6 py-2.5 text-white rounded-full text-sm hover:opacity-90 transition-opacity shadow-lg"
-                  style={{ background: 'linear-gradient(135deg, #533483, #007acc)' }}
+                  style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
                 >
                   开始新对话
                 </button>

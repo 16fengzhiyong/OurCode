@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion } from '@/types'
+import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, lookupModelMetadata } from '@/types'
 import { EXHAUSTED_MARKER, AUTO_CONTINUE_KEY } from '@shared/constants'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
@@ -272,6 +272,45 @@ function estimateTokens(text: string): number {
   const englishWords = (text.match(/[a-zA-Z]+/g) || []).length
   const otherChars = text.length - chineseChars
   return Math.ceil(chineseChars * 2 + englishWords * 1.3 + otherChars * 0.5)
+}
+
+type RequestMessage = {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  toolCalls?: LLMToolCall[]
+  toolCallId?: string
+}
+
+/**
+ * Context-window management: if the full history's token estimate exceeds the
+ * model's budget (80% of its context window — headroom for the reply), drop the
+ * oldest messages while always keeping the system prompt and the newest message
+ * (the current user turn). A truncation notice is inserted so the model knows
+ * earlier context was cut. Exported for unit tests.
+ */
+export function trimHistoryForContext(messages: RequestMessage[], modelId: string): RequestMessage[] {
+  const contextWindow = lookupModelMetadata(modelId)?.contextWindow || 128000
+  const budget = Math.floor(contextWindow * 0.8)
+  const total = messages.reduce((sum, m) => sum + estimateTokens(m.content), 0)
+  if (total <= budget) return messages
+
+  const trimmed = [...messages]
+  let removed = 0
+  // Never drop the system message (index 0) or the newest message (current turn)
+  while (
+    trimmed.length > 2
+    && trimmed.reduce((sum, m) => sum + estimateTokens(m.content), 0) > budget
+  ) {
+    trimmed.splice(1, 1)
+    removed++
+  }
+  if (removed > 0) {
+    trimmed.splice(1, 0, {
+      role: 'system',
+      content: `[上下文管理] 为适配模型上下文窗口，较早的 ${removed} 条消息已省略。如需更早的上下文请明确说明。`,
+    })
+  }
+  return trimmed
 }
 
 /**
@@ -1002,7 +1041,7 @@ async function runAgentLoop(
   }
 
   // Build messages from full history (system + all session messages)
-  const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; toolCalls?: LLMToolCall[]; toolCallId?: string }> = [
+  let messages: RequestMessage[] = [
     { role: 'system', content: systemPrompt },
     ...session.messages.map((m) => ({
       role: m.role as 'system' | 'user' | 'assistant' | 'tool',
@@ -1011,6 +1050,10 @@ async function runAgentLoop(
       toolCallId: m.toolCallId,
     })),
   ]
+
+  // Context-window management: trim the oldest history when the estimate
+  // exceeds the model's budget (keeps the current user turn + a notice).
+  messages = trimHistoryForContext(messages, session.model || configGroup.defaultModel)
 
   // Plan mode exposes only read-only + agent-control tools
   const toolDefinitions = agentMode === 'plan'
