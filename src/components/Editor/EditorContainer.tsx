@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import * as monaco from 'monaco-editor'
-import { useEditorStore, PLAINTEXT_THRESHOLD_BYTES } from '@/stores/editorStore'
+import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
@@ -89,7 +89,6 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   const panels = useEditorStore((s) => s.panels)
   const openFiles = useEditorStore((s) => s.openFiles)
   const preferences = useEditorStore((s) => s.preferences)
-  const setActivePanel = useEditorStore((s) => s.setActivePanel)
   const setCursorPosition = useEditorStore((s) => s.setCursorPosition)
 
   const panel = panels[panelId]
@@ -195,6 +194,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
       updateWindowEditor()
       editor.dispose()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: the editor is created once; option changes go through updateOptions below
   }, [])
 
   const sendToAI = useCallback((prompt: string) => {

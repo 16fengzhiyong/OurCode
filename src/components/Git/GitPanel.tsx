@@ -26,7 +26,6 @@ export default function GitPanel() {
   const [diffContent, setDiffContent] = useState<string | null>(null)
   const [diffFile, setDiffFile] = useState<string | null>(null)
   const [monacoDiff, setMonacoDiff] = useState<{ original: string; modified: string; language: string } | null>(null)
-  const [stagedFiles, setStagedFiles] = useState<Set<string>>(new Set())
 
   const { openFile } = useEditorStore()
 

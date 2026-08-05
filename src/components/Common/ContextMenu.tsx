@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useUIStore, ContextMenuItem } from '@/stores/uiStore'
+import { useUIStore } from '@/stores/uiStore'
 
 export default function ContextMenu() {
   const { contextMenu, hideContextMenu } = useUIStore()

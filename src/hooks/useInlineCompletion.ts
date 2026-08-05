@@ -19,6 +19,86 @@ export function useInlineCompletion(
   const currentSuggestionRef = useRef<string>('')
   const decorationRef = useRef<string[]>([])
 
+  const showInlineSuggestion = useCallback((editor: monaco.editor.IStandaloneCodeEditor, suggestion: string) => {
+    const position = editor.getPosition()
+    if (!position) return
+
+    // Use Monaco's inline decoration to show ghost text
+    const model = editor.getModel()
+    if (!model) return
+
+    // Clear previous decorations
+    decorationRef.current = editor.deltaDecorations(decorationRef.current, [
+      {
+        range: new monaco.Range(
+          position.lineNumber,
+          position.column,
+          position.lineNumber,
+          position.column + suggestion.length
+        ),
+        options: {
+          afterContentClassName: 'inline-suggestion',
+          hoverMessage: { value: '按 **Tab** 接受补全\n按 **Esc** 拒绝补全' },
+        },
+      },
+    ])
+
+    // Show the suggestion as inline text via content widget
+    const widgetId = 'inline-completion-widget'
+    const widget: monaco.editor.IContentWidget = {
+      getId: () => widgetId,
+      getDomNode: () => {
+        const node = document.createElement('div')
+        node.textContent = suggestion
+        node.style.cssText = `
+          color: #666;
+          font-family: inherit;
+          font-size: inherit;
+          pointer-events: none;
+          white-space: pre;
+          opacity: 0.5;
+        `
+        return node
+      },
+      getPosition: () => ({
+        position: { lineNumber: position.lineNumber, column: position.column },
+        preference: [monaco.editor.ContentWidgetPositionPreference.EXACT],
+      }),
+    }
+
+    editor.addContentWidget(widget)
+
+    // Tab to accept / Escape to reject — via a temporary keydown listener on the
+    // editor DOM node. Monaco's addCommand has no public removal API (the binding
+    // would linger for the editor's lifetime and re-insert stale text on later
+    // Tab presses), so the listener is attached only while the widget is showing.
+    const domNode = editor.getDomNode()
+    const removeWidget = () => {
+      domNode?.removeEventListener('keydown', keyHandler)
+      editor.removeContentWidget(widget)
+      decorationRef.current = editor.deltaDecorations(decorationRef.current, [])
+    }
+    const keyHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Tab') {
+        e.preventDefault()
+        editor.executeEdits('inline-completion', [
+          { range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: suggestion },
+        ])
+        removeWidget()
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        removeWidget()
+      }
+    }
+    domNode?.addEventListener('keydown', keyHandler)
+
+    // Remove widget on next edit
+    const disposable = editor.onDidChangeModelContent(() => {
+      disposable.dispose()
+      removeWidget()
+    })
+  }, [])
+
   const provideCompletion = useCallback(async () => {
     if (!editor || isGeneratingRef.current) return
 
@@ -36,15 +116,10 @@ export function useInlineCompletion(
     const activeFile = useEditorStore.getState().getActiveFile()
     if (!activeFile) return
 
-    // Get context around cursor (use getValueInRange to avoid a full-buffer copy)
-    const lineCount = model.getLineCount()
+    // Get context before cursor (getValueInRange avoids a full-buffer copy)
     const startLine = Math.max(1, position.lineNumber - 80)
-    const endLine = Math.min(lineCount, position.lineNumber + 20)
     const textBeforeCursor = model.getValueInRange(
       new monaco.Range(startLine, 1, position.lineNumber, position.column)
-    )
-    const textAfterCursor = model.getValueInRange(
-      new monaco.Range(position.lineNumber, position.column, endLine, model.getLineMaxColumn(endLine))
     )
 
     isGeneratingRef.current = true
@@ -99,79 +174,7 @@ Complete the code at the cursor position. Only output the completion, starting f
     } finally {
       isGeneratingRef.current = false
     }
-  }, [editor])
-
-  const showInlineSuggestion = useCallback((editor: monaco.editor.IStandaloneCodeEditor, suggestion: string) => {
-    const position = editor.getPosition()
-    if (!position) return
-
-    // Use Monaco's inline decoration to show ghost text
-    const model = editor.getModel()
-    if (!model) return
-
-    // Clear previous decorations
-    decorationRef.current = editor.deltaDecorations(decorationRef.current, [
-      {
-        range: new monaco.Range(
-          position.lineNumber,
-          position.column,
-          position.lineNumber,
-          position.column + suggestion.length
-        ),
-        options: {
-          afterContentClassName: 'inline-suggestion',
-          hoverMessage: { value: '按 **Tab** 接受补全\n按 **Esc** 拒绝补全' },
-        },
-      },
-    ])
-
-    // Show the suggestion as inline text via content widget
-    const widgetId = 'inline-completion-widget'
-    const widget: monaco.editor.IContentWidget = {
-      getId: () => widgetId,
-      getDomNode: () => {
-        const node = document.createElement('div')
-        node.textContent = suggestion
-        node.style.cssText = `
-          color: #666;
-          font-family: inherit;
-          font-size: inherit;
-          pointer-events: none;
-          white-space: pre;
-          opacity: 0.5;
-        `
-        return node
-      },
-      getPosition: () => ({
-        position: { lineNumber: position.lineNumber, column: position.column },
-        preference: [monaco.editor.ContentWidgetPositionPreference.EXACT],
-      }),
-    }
-
-    editor.addContentWidget(widget)
-
-    // Remove widget on next edit
-    const disposable = editor.onDidChangeModelContent(() => {
-      editor.removeContentWidget(widget)
-      decorationRef.current = editor.deltaDecorations(decorationRef.current, [])
-      disposable.dispose()
-    })
-
-    // Tab to accept
-    const tabHandler = editor.addCommand(monaco.KeyCode.Tab, () => {
-      editor.executeEdits('inline-completion', [
-        { range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text: suggestion },
-      ])
-      editor.removeContentWidget(widget)
-      decorationRef.current = editor.deltaDecorations(decorationRef.current, [])
-    })
-
-    // Escape to reject
-    const escHandler = editor.addCommand(monaco.KeyCode.Escape, () => {
-      editor.removeContentWidget(widget)
-      decorationRef.current = editor.deltaDecorations(decorationRef.current, [])
-    })
-  }, [])
+  }, [editor, showInlineSuggestion])
 
   // Debounced completion trigger
   const triggerCompletion = useCallback(() => {

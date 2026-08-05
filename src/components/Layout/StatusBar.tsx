@@ -19,10 +19,8 @@ export default function StatusBar() {
   const branchMenuRef = useRef<HTMLDivElement>(null)
 
   const [showEncodingMenu, setShowEncodingMenu] = useState(false)
-  const [showLineEndingMenu, setShowLineEndingMenu] = useState(false)
   const [showConfigMenu, setShowConfigMenu] = useState(false)
   const encodingMenuRef = useRef<HTMLDivElement>(null)
-  const lineEndingMenuRef = useRef<HTMLDivElement>(null)
   const configMenuRef = useRef<HTMLDivElement>(null)
 
   // Update state
@@ -137,9 +135,6 @@ export default function StatusBar() {
       if (encodingMenuRef.current && !encodingMenuRef.current.contains(e.target as Node)) {
         setShowEncodingMenu(false)
       }
-      if (lineEndingMenuRef.current && !lineEndingMenuRef.current.contains(e.target as Node)) {
-        setShowLineEndingMenu(false)
-      }
       if (configMenuRef.current && !configMenuRef.current.contains(e.target as Node)) {
         setShowConfigMenu(false)
       }
@@ -210,6 +205,26 @@ export default function StatusBar() {
 
       {/* Right side */}
       <div className="flex items-center gap-3 ml-auto">
+        {/* Auto-update indicator */}
+        {updateState !== 'idle' && (
+          <span
+            className="flex items-center gap-1 px-1.5 rounded hover:bg-white/10 cursor-pointer"
+            onClick={
+              updateState === 'available' ? handleDownloadUpdate
+              : updateState === 'downloaded' ? handleInstallUpdate
+              : updateState === 'error' ? handleCheckUpdate
+              : undefined
+            }
+            title="自动更新"
+          >
+            {updateState === 'checking' && '检查更新…'}
+            {updateState === 'available' && `⬇ 更新 ${newVersion || ''} 可用`}
+            {updateState === 'downloading' && `⬇ 下载中 ${Math.round(downloadPercent)}%`}
+            {updateState === 'downloaded' && '↻ 重启安装更新'}
+            {updateState === 'error' && `⚠ ${updateError || '更新失败'}`}
+          </span>
+        )}
+
         {cursorPosition && (
           <span className="opacity-90">
             行 {cursorPosition.line}, 列 {cursorPosition.column}
@@ -288,6 +303,24 @@ export default function StatusBar() {
           <span className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
             <span className="opacity-90">{modelInfo?.alias || model.split('/').pop() || model}</span>
+          </span>
+        )}
+
+        {/* Total tokens in active session */}
+        {totalTokens > 0 && (
+          <span className="opacity-70" title="当前会话 Token 消耗">
+            {totalTokens.toLocaleString()} tokens
+          </span>
+        )}
+
+        {/* App version — click to check for updates */}
+        {appVersion && (
+          <span
+            className="opacity-70 hover:opacity-100 cursor-pointer"
+            title="点击检查更新"
+            onClick={handleCheckUpdate}
+          >
+            {appVersion}
           </span>
         )}
       </div>

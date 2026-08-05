@@ -15,7 +15,7 @@ interface PluginState {
   clearError: () => void
 }
 
-export const usePluginStore = create<PluginState>((set, get) => ({
+export const usePluginStore = create<PluginState>((set) => ({
   plugins: [],
   isInstalling: false,
   error: null,

@@ -116,7 +116,7 @@ export default function TabBar({ panelId }: TabBarProps) {
       closeFile(confirmClose, panelId)
       setConfirmClose(null)
     }
-  }, [confirmClose, panelId])
+  }, [confirmClose, panelId, closeFile])
 
   const handleSave = (e: React.MouseEvent, path: string) => {
     e.stopPropagation()

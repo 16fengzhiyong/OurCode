@@ -17,7 +17,7 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
 
-  const { editMessage, deleteMessage, regenerateFromMessage, createBranchFromMessage } = useChatStore()
+  const { editMessage, regenerateFromMessage, createBranchFromMessage } = useChatStore()
 
   const handleSaveEdit = () => {
     editMessage(sessionId, message.id, editContent)
@@ -27,12 +27,6 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   const handleCancelEdit = () => {
     setEditContent(message.content)
     setIsEditing(false)
-  }
-
-  const handleDelete = () => {
-    if (confirm('删除此消息？')) {
-      deleteMessage(sessionId, message.id)
-    }
   }
 
   const handleRegenerate = () => {

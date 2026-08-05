@@ -15,19 +15,30 @@ export async function readFile(path: string, startLine?: number, endLine?: numbe
   return selected.map((line, i) => `${start + i + 1}: ${line}`).join('\n')
 }
 
-/** List directory contents */
+/** List directory contents (recursive up to maxDepth) */
 export async function listDirectory(path: string, maxDepth: number = 1): Promise<string> {
-  const entries: any[] = await window.electronAPI.listDir(path)
-  if (!entries || entries.length === 0) return '(empty directory)'
+  const lines: string[] = []
+  await walkListing(path, '', 0, Math.min(maxDepth, 5), lines)
+  return lines.join('\n')
+}
 
-  let result = ''
+async function walkListing(dirPath: string, prefix: string, depth: number, maxDepth: number, lines: string[]): Promise<void> {
+  if (depth > maxDepth) return
+  const entries: any[] = await window.electronAPI.listDir(dirPath)
+  if (!entries || entries.length === 0) {
+    if (depth === 0) lines.push('(empty directory)')
+    return
+  }
+
   for (const entry of entries) {
     if (EXCLUDED_DIRS.includes(entry.name)) continue
     const icon = entry.isDirectory ? '[DIR]' : '[FILE]'
     const size = entry.size != null ? ` (${formatSize(entry.size)})` : ''
-    result += `${icon} ${entry.name}${size}\n`
+    lines.push(`${prefix}${icon} ${entry.name}${size}`)
+    if (entry.isDirectory && depth < maxDepth) {
+      await walkListing(entry.path, prefix + '  ', depth + 1, maxDepth, lines)
+    }
   }
-  return result.trim()
 }
 
 /** Get directory tree structure */

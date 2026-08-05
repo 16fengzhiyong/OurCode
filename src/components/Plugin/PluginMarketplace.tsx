@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { usePluginStore } from '@/stores/pluginStore'
 import { useUIStore } from '@/stores/uiStore'
 import { PluginInfo, PluginManifest } from '@/services/plugin/types'
@@ -14,13 +14,11 @@ export default function PluginMarketplace() {
   const [installError, setInstallError] = useState<string | null>(null)
   const [showConfirmUninstall, setShowConfirmUninstall] = useState<string | null>(null)
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
   useEffect(() => {
     if (isMarketplaceOpen) {
       loadPlugins()
     }
-  }, [isMarketplaceOpen])
+  }, [isMarketplaceOpen, loadPlugins])
 
   if (!isMarketplaceOpen) return null
 

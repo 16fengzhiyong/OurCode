@@ -217,7 +217,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     if (tabs.length === 0) {
       createTab()
     }
-  }, [isTerminalVisible])
+  }, [isTerminalVisible, tabs.length, createTab])
 
   // Initialize terminal for a tab
   const initTerminal = useCallback((tabId: string, container: HTMLDivElement) => {
@@ -335,10 +335,14 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
 
   // Cleanup all on unmount
   useEffect(() => {
+    // Copy ref containers into locals — refs are stable objects created once, so
+    // this snapshot is equivalent to reading them in the cleanup below.
+    const initTimeouts = initTimeoutsRef.current
+    const terminals = terminalsRef.current
     return () => {
       // Clear pending init timeouts
-      initTimeoutsRef.current.forEach((t) => clearTimeout(t))
-      initTimeoutsRef.current.clear()
+      initTimeouts.forEach((t) => clearTimeout(t))
+      initTimeouts.clear()
       // Remove any active drag listeners
       if (activeDragRef.current) {
         document.removeEventListener('mousemove', activeDragRef.current.move)
@@ -346,13 +350,13 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
         activeDragRef.current = null
       }
       // Dispose all terminals
-      terminalsRef.current.forEach((entry, id) => {
+      terminals.forEach((entry, id) => {
         entry.disposed = true
         entry.cleanup.forEach((fn) => fn())
         window.electronAPI.termDispose(id)
         entry.term.dispose()
       })
-      terminalsRef.current.clear()
+      terminals.clear()
     }
   }, [])
 

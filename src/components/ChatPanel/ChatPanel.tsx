@@ -10,7 +10,6 @@ import { useUIStore } from '@/stores/uiStore'
 export default function ChatPanel() {
   const activeSession = useChatStore((s) => s.getActiveSession())
   const createSession = useChatStore((s) => s.createSession)
-  const sessions = useChatStore((s) => s.sessions)
   const { activeConfigGroupId, configGroups } = useConfigStore()
   const { openSettings } = useUIStore()
   const [showHistory, setShowHistory] = useState(true)

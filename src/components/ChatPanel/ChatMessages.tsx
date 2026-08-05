@@ -30,7 +30,7 @@ export default function ChatMessages() {
     if (usage > 0.9) return { level: 'critical' as const, percent: Math.round(usage * 100), totalTokens, contextWindow }
     if (usage > 0.7) return { level: 'warning' as const, percent: Math.round(usage * 100), totalTokens, contextWindow }
     return null
-  }, [activeSession?.messages.length, activeSession?.model])
+  }, [activeSession])
 
   // Show undo toast when undo stack changes
   useEffect(() => {

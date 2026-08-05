@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useConfigStore } from '@/stores/configStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -20,7 +20,7 @@ const SYSTEM_PROMPT_TEMPLATES = [
 
 export default function SettingsModal() {
   const {
-    configGroups, activeConfigGroupId, models, isLoadingModels,
+    configGroups, activeConfigGroupId, models,
     loadConfigGroups, createConfigGroup, updateConfigGroup,
     deleteConfigGroup, setActiveConfigGroup, fetchModels, testConnection,
     savePromptVersion, getPromptHistory, restorePromptVersion,
@@ -83,24 +83,26 @@ export default function SettingsModal() {
       editor.dispose()
       promptEditorInstance.current = null
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- recreate only on group switch; syncing the prompt text is handled by the effect below
   }, [editingGroup?.id, isCreating])
 
   // Sync external systemPrompt changes (template insert / reset / import / history
   // restore) into the Monaco editor — the init effect only re-runs on group switch.
   useEffect(() => {
     const editor = promptEditorInstance.current
-    if (!editor || !editingGroup) return
-    if (editor.getValue() !== editingGroup.systemPrompt) {
-      editor.setValue(editingGroup.systemPrompt || '')
+    const prompt = editingGroup?.systemPrompt
+    if (!editor || prompt === undefined) return
+    if (editor.getValue() !== prompt) {
+      editor.setValue(prompt || '')
     }
   }, [editingGroup?.systemPrompt])
 
   useEffect(() => {
     if (isSettingsOpen) {
       loadConfigGroups()
-      shortcutStore.loadShortcuts()
+      useShortcutStore.getState().loadShortcuts()
     }
-  }, [isSettingsOpen])
+  }, [isSettingsOpen, loadConfigGroups])
 
   if (!isSettingsOpen) return null
 

@@ -12,7 +12,6 @@ import { useShortcutStore } from './stores/shortcutStore'
 
 export default function App() {
   const loadConfigGroups = useConfigStore((s) => s.loadConfigGroups)
-  const configGroups = useConfigStore((s) => s.configGroups)
   const loadSessions = useChatStore((s) => s.loadSessions)
   const loadPreferences = useEditorStore((s) => s.loadPreferences)
   const { initTheme } = useUIStore()
@@ -44,6 +43,7 @@ export default function App() {
       splash.classList.add('fade-out')
       setTimeout(() => splash.remove(), 500)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only init; store actions are stable references
   }, [])
 
   const handleOnboardingComplete = () => {

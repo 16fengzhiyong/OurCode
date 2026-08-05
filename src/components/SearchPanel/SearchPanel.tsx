@@ -4,7 +4,6 @@ import { useUIStore } from '@/stores/uiStore'
 import { SearchResult } from '@/types'
 
 export default function SearchPanel() {
-  const storeRootPath = useUIStore((s) => s.rootPath)
   const [query, setQuery] = useState('')
   const [replaceValue, setReplaceValue] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])

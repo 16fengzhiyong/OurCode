@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import FileTreeNode from './FileTreeNode'
 import { FileEntry } from '@/types'
 import { useEditorStore } from '@/stores/editorStore'
-import { useUIStore } from '@/stores/uiStore'
 import LoadingSpinner from '../Common/LoadingSpinner'
 
 interface FileTreeProps {

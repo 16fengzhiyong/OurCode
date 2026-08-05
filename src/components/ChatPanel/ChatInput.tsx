@@ -7,7 +7,6 @@ export default function ChatInput() {
   const [input, setInput] = useState('')
   const [contextFiles, setContextFiles] = useState<string[]>([])
   const [showFileSearch, setShowFileSearch] = useState(false)
-  const [fileSearchQuery, setFileSearchQuery] = useState('')
   const [fileSearchResults, setFileSearchResults] = useState<{ name: string; path: string }[]>([])
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
 
@@ -26,25 +25,6 @@ export default function ChatInput() {
   }, [input])
 
   // Detect @ trigger
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value
-    setInput(value)
-
-    // Check for @ trigger
-    const cursorPos = e.target.selectionStart
-    const textBeforeCursor = value.slice(0, cursorPos)
-    const atMatch = textBeforeCursor.match(/@(\S*)$/)
-
-    if (atMatch) {
-      setShowFileSearch(true)
-      setFileSearchQuery(atMatch[1])
-      setSelectedFileIndex(0)
-      searchFiles(atMatch[1])
-    } else {
-      setShowFileSearch(false)
-    }
-  }, [])
-
   const searchFiles = useCallback(async (query: string) => {
     try {
       // Get root path from file tree
@@ -60,6 +40,24 @@ export default function ChatInput() {
       setFileSearchResults([])
     }
   }, [])
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value
+    setInput(value)
+
+    // Check for @ trigger
+    const cursorPos = e.target.selectionStart
+    const textBeforeCursor = value.slice(0, cursorPos)
+    const atMatch = textBeforeCursor.match(/@(\S*)$/)
+
+    if (atMatch) {
+      setShowFileSearch(true)
+      setSelectedFileIndex(0)
+      searchFiles(atMatch[1])
+    } else {
+      setShowFileSearch(false)
+    }
+  }, [searchFiles])
 
   const insertFileReference = useCallback((filePath: string) => {
     const cursorPos = textareaRef.current?.selectionStart || input.length

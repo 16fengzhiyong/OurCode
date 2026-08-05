@@ -18,7 +18,7 @@ interface MenuGroup {
 }
 
 export default function TitleBar() {
-  const { openSettings, toggleSidebar, toggleTerminal, toggleChat, openCommandPalette, openQuickOpen, openMarketplace, setRootPath } = useUIStore()
+  const { openSettings, toggleSidebar, toggleTerminal, toggleChat, openCommandPalette, openMarketplace } = useUIStore()
   const isMaximized = useUIStore((s) => s.isMaximized)
 
   const [activeMenu, setActiveMenu] = useState<string | null>(null)

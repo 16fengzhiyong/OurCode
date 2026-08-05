@@ -24,13 +24,11 @@ const NARROW_BREAKPOINT = 768
 export default function MainLayout() {
   const {
     isSidebarVisible, sidebarWidth, chatWidth, isChatVisible, isTerminalVisible,
-    terminalHeight, isCommandPaletteOpen, isQuickOpenOpen, isMarketplaceOpen, contextMenu,
-    closeCommandPalette, closeQuickOpen, hideContextMenu,
-    toggleSidebar, toggleTerminal, toggleChat, openCommandPalette, openQuickOpen, openMarketplace, closeMarketplace,
+    terminalHeight, isCommandPaletteOpen, isQuickOpenOpen, contextMenu,
     rootPath,
   } = useUIStore()
 
-  const { panels, panelOrder, splitDirection, splitRatios } = useEditorStore()
+  const { panelOrder, splitDirection, splitRatios } = useEditorStore()
 
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1400)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)

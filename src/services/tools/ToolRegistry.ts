@@ -3,8 +3,6 @@
  */
 import { Tool, ToolDefinition } from './types'
 
-const EXCLUDED_DIRS = ['node_modules', '.git', 'dist', 'build', 'out', '.next', '__pycache__', 'vendor', '.vscode', '.idea']
-
 export function createToolRegistry(): Tool[] {
   return [
     // ──────────────── Read-only tools ────────────────

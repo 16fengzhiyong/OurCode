@@ -605,15 +605,11 @@ function registerIpcHandlers(): void {
   })
 
   // Auto Update handlers
-  let updateInfo: UpdateInfo | null = null
-  let downloadProgress = 0
-
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
 
   if (!is.dev) {
     autoUpdater.on('update-available', (info: UpdateInfo) => {
-      updateInfo = info
       broadcast('update:status', {
         state: 'available',
         version: info.version,
@@ -627,7 +623,6 @@ function registerIpcHandlers(): void {
     })
 
     autoUpdater.on('download-progress', (progress) => {
-      downloadProgress = progress.percent
       broadcast('update:progress', {
         percent: progress.percent,
         bytesPerSecond: progress.bytesPerSecond,

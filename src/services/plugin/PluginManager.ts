@@ -1,4 +1,4 @@
-import { PluginManifest, PluginInfo, PluginPermission, PluginStatus, PluginMessage, ExtensionAPI } from './types'
+import { PluginManifest, PluginInfo, PluginPermission, PluginMessage, ExtensionAPI } from './types'
 import { getFileContent } from '@/editor/modelRegistry'
 
 // Lazy store imports to avoid circular dependency
@@ -95,6 +95,11 @@ export class PluginManager {
     try {
       // Load plugin code
       const code = await this.loadPluginCode(id)
+
+      // Initialize store references so the extension API can reach live
+      // editor/chat/ui state (previously these loaders were never called and
+      // every store-backed API returned null).
+      await Promise.all([getEditorStore(), getChatStore(), getUIStore()])
 
       // Create sandboxed Worker
       const worker = this.createSandboxedWorker(id, code, plugin.enabledPermissions)

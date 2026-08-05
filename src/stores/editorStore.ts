@@ -375,9 +375,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         }
       }
 
-      // If only 1 panel left, reset split direction
-      const newSplitDir = newPanelOrder.length <= 1 ? s.splitDirection : s.splitDirection
-
       const next = {
         ...s,
         panels: newPanels,

@@ -1,4 +1,4 @@
-import { ApiConfigGroup, LLMMessage, LLMRequest, LLMStreamChunk } from '@/types'
+import { ApiConfigGroup, LLMRequest, LLMStreamChunk } from '@/types'
 
 export interface LLMAdapter {
   sendRequest(req: LLMRequest, config: ApiConfigGroup, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk>
