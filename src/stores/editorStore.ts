@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { monaco, ensureLanguageService } from '@/editor/monacoSetup'
+import { useRecentFilesStore } from '@/stores/recentFilesStore'
 import { OpenFile, UserPreferences, DEFAULT_PREFERENCES, LANGUAGE_MAP } from '@/types'
 import {
   getFileContent,
@@ -461,6 +462,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   openFile: async (path, panelId) => {
     const state = get()
     const targetPanelId = panelId || state.activePanelId
+
+    // Track the most recently opened file (Ctrl+R list)
+    useRecentFilesStore.getState().addRecentFile(path)
 
     // Check if file content is already loaded
     const existingFile = state.openFiles.find((f) => f.path === path)

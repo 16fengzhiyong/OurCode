@@ -6,19 +6,10 @@ import ChatSidebar from './ChatSidebar'
 import MemoryModal from './MemoryModal'
 import ArenaModal from './ArenaModal'
 import WorkflowModal from './WorkflowModal'
+import WaveLogo from './WaveLogo'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
-
-/** Windsurf Cascade-style wave mark */
-function WaveLogo({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round">
-      <path d="M2 18c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2" />
-      <path d="M2 13c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2" />
-    </svg>
-  )
-}
 
 function IconButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
   return (

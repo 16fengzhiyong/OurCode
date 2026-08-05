@@ -13,7 +13,9 @@ import QuickOpen from '../Sidebar/QuickOpen'
 import ContextMenu from '../Common/ContextMenu'
 import PluginMarketplace from '../Plugin/PluginMarketplace'
 import ProblemsPanel from '../Editor/ProblemsPanel'
+import RecentFilesModal from '../Editor/RecentFilesModal'
 import { useProblemsStore } from '@/stores/problemsStore'
+import { useRecentFilesStore } from '@/stores/recentFilesStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useShortcutStore, matchesShortcut } from '@/stores/shortcutStore'
@@ -31,6 +33,7 @@ export default function MainLayout() {
 
   const { panelOrder, splitDirection, splitRatios } = useEditorStore()
   const isProblemsOpen = useProblemsStore((s) => s.isOpen)
+  const isRecentFilesOpen = useRecentFilesStore((s) => s.isOpen)
 
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1400)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -81,6 +84,7 @@ export default function MainLayout() {
         ['toggleProblems', 'toggleProblems'],
         ['commandPalette', 'commandPalette'],
         ['quickOpen', 'quickOpen'],
+        ['recentFiles', 'recentFiles'],
         ['zoomIn', 'zoomIn'],
         ['zoomOut', 'zoomOut'],
         ['newChatSession', 'newChatSession'],
@@ -255,6 +259,7 @@ export default function MainLayout() {
       <SettingsModal />
       {isCommandPaletteOpen && <CommandPalette />}
       {isQuickOpenOpen && rootPath && <QuickOpen rootPath={rootPath} />}
+      {isRecentFilesOpen && <RecentFilesModal />}
       {contextMenu && <ContextMenu />}
       <PluginMarketplace />
     </div>

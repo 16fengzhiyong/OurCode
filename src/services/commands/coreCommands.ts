@@ -9,6 +9,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useProblemsStore } from '@/stores/problemsStore'
+import { useRecentFilesStore } from '@/stores/recentFilesStore'
 
 /** Trigger a Monaco command on the focused editor. */
 function runEditorCommand(command: string): void {
@@ -97,6 +98,7 @@ export function registerCoreCommands(): void {
   registerCommand({ id: 'toggleProblems', title: '切换问题面板', category: '视图', shortcut: 'Ctrl+Shift+M', run: () => useProblemsStore.getState().toggle() })
   registerCommand({ id: 'commandPalette', title: '打开命令面板', category: '视图', shortcut: 'Ctrl+Shift+P', run: () => useUIStore.getState().openCommandPalette() })
   registerCommand({ id: 'quickOpen', title: '快速打开文件', category: '视图', shortcut: 'Ctrl+P', run: () => useUIStore.getState().openQuickOpen() })
+  registerCommand({ id: 'recentFiles', title: '最近打开的文件', category: '文件', shortcut: 'Ctrl+R', run: () => useRecentFilesStore.getState().toggle() })
   registerCommand({ id: 'openMarketplace', title: '打开扩展市场', category: '视图', shortcut: 'Ctrl+Shift+X', run: () => useUIStore.getState().openMarketplace() })
   registerCommand({ id: 'openSettings', title: '打开设置', category: '视图', run: () => useUIStore.getState().openSettings() })
   registerCommand({ id: 'newWindow', title: '新窗口', category: '视图', run: () => window.electronAPI.openNewWindow() })
