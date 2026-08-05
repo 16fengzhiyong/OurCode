@@ -17,6 +17,12 @@ interface MenuGroup {
   items: MenuItem[]
 }
 
+/** Trigger a Monaco command on the focused editor (e.g. F12 goto definition). */
+function runEditorCommand(command: string): void {
+  const editor = (window as unknown as { __monacoEditor?: { trigger: (source: string, cmd: string, payload: unknown) => void } }).__monacoEditor
+  editor?.trigger('menu', command, null)
+}
+
 export default function TitleBar() {
   const { openSettings, toggleSidebar, toggleTerminal, toggleChat, openCommandPalette, openMarketplace } = useUIStore()
   const isMaximized = useUIStore((s) => s.isMaximized)
@@ -99,8 +105,8 @@ export default function TitleBar() {
       label: '选择',
       items: [
         { label: '全选', shortcut: 'Ctrl+A', action: () => document.execCommand('selectAll') },
-        { label: '展开选区', shortcut: 'Shift+Alt+→', disabled: true },
-        { label: '收缩选区', shortcut: 'Shift+Alt+←', disabled: true },
+        { label: '展开选区', shortcut: 'Shift+Alt+→', action: () => runEditorCommand('editor.action.smartSelect.expand') },
+        { label: '收缩选区', shortcut: 'Shift+Alt+←', action: () => runEditorCommand('editor.action.smartSelect.shrink') },
       ],
     },
     {
@@ -118,11 +124,11 @@ export default function TitleBar() {
       items: [
         { label: '转到文件', shortcut: 'Ctrl+P', action: () => useUIStore.getState().openQuickOpen() },
         { separator: true, label: '' },
-        { label: '转到符号', shortcut: 'Ctrl+Shift+O', disabled: true },
-        { label: '转到行号', shortcut: 'Ctrl+G', disabled: true },
+        { label: '转到符号', shortcut: 'Ctrl+Shift+O', action: () => runEditorCommand('editor.action.quickOutline') },
+        { label: '转到行号', shortcut: 'Ctrl+G', action: () => runEditorCommand('editor.action.gotoLine') },
         { separator: true, label: '' },
-        { label: '转到定义', shortcut: 'F12', disabled: true },
-        { label: '转到引用', shortcut: 'Shift+F12', disabled: true },
+        { label: '转到定义', shortcut: 'F12', action: () => runEditorCommand('editor.action.revealDefinition') },
+        { label: '转到引用', shortcut: 'Shift+F12', action: () => runEditorCommand('editor.action.referencesAction') },
       ],
     },
     {
