@@ -37,6 +37,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readBackup: (filePath: string) => ipcRenderer.invoke('backup:read', filePath),
   deleteBackup: (filePath: string) => ipcRenderer.invoke('backup:delete', filePath),
   clearBackups: () => ipcRenderer.invoke('backup:clearAll'),
+
+  // LSP
+  lspStart: (uri: string, command: string, args: string[], cwd: string, languageId: string, text: string) =>
+    ipcRenderer.invoke('lsp:start', uri, command, args, cwd, languageId, text),
+  lspDidChange: (uri: string, version: number, text: string) =>
+    ipcRenderer.invoke('lsp:didChange', uri, version, text),
+  lspStop: (uri: string) => ipcRenderer.invoke('lsp:stop', uri),
+  onLspDiagnostics: (callback: (payload: { uri: string; diagnostics: Array<Record<string, unknown>> }) => void) => {
+    ipcRenderer.on('lsp:diagnostics', (_event, payload) => callback(payload))
+    return () => { ipcRenderer.removeAllListeners('lsp:diagnostics') }
+  },
   onFileChanged: (callback: (path: string) => void) => {
     ipcRenderer.on(IPC_CHANNELS.FS_FILE_CHANGED, (_event, path) => callback(path))
     return () => {

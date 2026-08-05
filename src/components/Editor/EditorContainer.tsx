@@ -8,6 +8,7 @@ import { useInlineCompletion } from '@/hooks/useInlineCompletion'
 import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoader, trackLoad } from '@/editor/modelRegistry'
 import { ensureLanguageService, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
 import { setPendingVibeReplace } from '@/services/vibeReplace'
+import { attachLsp, detachLsp } from '@/services/lsp/lspClient'
 import BreadcrumbBar from './BreadcrumbBar'
 import type { UserPreferences } from '@/types'
 
@@ -313,6 +314,9 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
         if (loader) {
           trackLoad(activeFilePath, loader(model))
         }
+
+        // Opt-in language server (LSP): spawn for configured languages
+        attachLsp(activeFilePath, file.language, model)
       }
 
       editor.setModel(model)
@@ -338,6 +342,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
 
     for (const path of getRegisteredPaths()) {
       if (!openPaths.has(path)) {
+        detachLsp(path)
         getModel(path)?.dispose()
         unregisterModel(path)
       }

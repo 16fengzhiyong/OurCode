@@ -32,6 +32,10 @@ export interface ElectronAPI {
   readBackup: (filePath: string) => Promise<{ content: string; encoding: string; hasBom: boolean } | null>
   deleteBackup: (filePath: string) => Promise<void>
   clearBackups: () => Promise<void>
+  lspStart: (uri: string, command: string, args: string[], cwd: string, languageId: string, text: string) => Promise<{ ok: boolean; error?: string }>
+  lspDidChange: (uri: string, version: number, text: string) => Promise<void>
+  lspStop: (uri: string) => Promise<void>
+  onLspDiagnostics: (callback: (payload: { uri: string; diagnostics: Array<Record<string, unknown>> }) => void) => () => void
   onFileChanged: (callback: (path: string) => void) => () => void
 
   // Store

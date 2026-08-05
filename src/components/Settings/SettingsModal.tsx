@@ -44,6 +44,11 @@ export default function SettingsModal() {
   const [showPromptHistory, setShowPromptHistory] = useState(false)
   const [dragGroupIndex, setDragGroupIndex] = useState<number | null>(null)
   const [dropGroupIndex, setDropGroupIndex] = useState<number | null>(null)
+  const [lspServersText, setLspServersText] = useState(
+    Object.entries(preferences.lspServers ?? {})
+      .map(([lang, cmd]) => `${lang}: ${cmd}`)
+      .join('\n'),
+  )
   const promptEditorRef = useRef<HTMLDivElement>(null)
   const promptEditorInstance = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -484,6 +489,27 @@ export default function SettingsModal() {
                   <div className="flex items-center justify-between">
                     <label className="text-sm text-nova-text-secondary">Auto Save</label>
                     <button onClick={() => savePreferences({ autoSave: !preferences.autoSave })} className={`w-10 h-5 rounded-full transition-colors ${preferences.autoSave ? 'bg-nova-accent' : 'bg-nova-border'}`}><div className={`w-4 h-4 rounded-full bg-white transition-transform ${preferences.autoSave ? 'translate-x-5' : 'translate-x-0.5'}`} /></button>
+                  </div>
+                  <div>
+                    <label className="text-sm text-nova-text-secondary block mb-1.5">LSP 服务器（每行 language:command）</label>
+                    <textarea
+                      value={lspServersText}
+                      onChange={(e) => setLspServersText(e.target.value)}
+                      onBlur={() => {
+                        const map: Record<string, string> = {}
+                        for (const line of lspServersText.split('\n')) {
+                          const idx = line.indexOf(':')
+                          if (idx > 0 && line.slice(idx + 1).trim()) {
+                            map[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
+                          }
+                        }
+                        savePreferences({ lspServers: map })
+                      }}
+                      placeholder={'python: pylsp\ngo: gopls -mode stdio\nrust: rust-analyzer'}
+                      spellCheck={false}
+                      className="w-full h-20 p-2 bg-nova-bg border border-nova-border rounded-lg text-xs text-nova-text-primary font-mono resize-none placeholder-nova-text-muted focus:outline-none focus:border-nova-accent/50"
+                    />
+                    <p className="text-[10px] text-nova-text-muted mt-1">打开对应语言文件时自动启动；诊断会显示在「问题」面板。</p>
                   </div>
                 </div>
               </div>

@@ -9,6 +9,7 @@ import { autoUpdater, UpdateInfo } from 'electron-updater'
 import { FileSystemService } from './services/file-system'
 import { SQLiteStore } from './services/sqlite-store'
 import { BackupService } from './services/backup'
+import { LspServer } from './services/lsp'
 import { MCPManager, extractMcpText, toMcpToolDefinition } from './services/mcp-manager'
 
 const DEFAULT_EXCLUDE_FOLDERS = ['node_modules', '.git', 'dist', 'build', 'out']
@@ -76,6 +77,23 @@ let fileSystem: FileSystemService
 let store: SQLiteStore
 let backup: BackupService
 let mcp: MCPManager
+
+// Language servers by document URI (one per open file)
+const lspServers = new Map<string, LspServer>()
+
+/** Stop and remove the language server for a document (if any). */
+async function lspStop(uri: string): Promise<void> {
+  const server = lspServers.get(uri)
+  if (server) {
+    lspServers.delete(uri)
+    await server.stop().catch(() => {})
+  }
+}
+
+/** Stop every language server (app shutdown). */
+async function stopAllLspServers(): Promise<void> {
+  await Promise.all(Array.from(lspServers.keys()).map((uri) => lspStop(uri)))
+}
 
 interface TerminalSession {
   pty: pty.IPty
@@ -325,6 +343,35 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('backup:clearAll', async () => {
     return backup.clearAll()
+  })
+
+  // LSP: start a language server for a document, push diagnostics back
+  ipcMain.handle('lsp:start', async (_event, uri: string, command: string, args: string[], cwd: string, languageId: string, text: string) => {
+    await lspStop(uri)
+    const server = new LspServer()
+    server.onDiagnostics = (params) => {
+      broadcast('lsp:diagnostics', { uri: params.uri, diagnostics: params.diagnostics })
+    }
+    server.onStderr = (line) => {
+      if (is.dev) console.debug(`[lsp:${languageId}]`, line.trimEnd())
+    }
+    try {
+      await server.start({ command, args, cwd })
+      server.didOpen(uri, languageId, text)
+      lspServers.set(uri, server)
+      return { ok: true as const }
+    } catch (error) {
+      await server.stop().catch(() => {})
+      return { ok: false as const, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('lsp:didChange', async (_event, uri: string, version: number, text: string) => {
+    lspServers.get(uri)?.didChange(uri, text, version)
+  })
+
+  ipcMain.handle('lsp:stop', async (_event, uri: string) => {
+    await lspStop(uri)
   })
 
   // Store handlers
@@ -906,6 +953,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   mcp?.stopAll()
+  void stopAllLspServers()
   store.close()
   if (process.platform !== 'darwin') {
     app.quit()

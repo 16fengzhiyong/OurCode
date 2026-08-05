@@ -15,6 +15,7 @@ import { useWorkflowStore } from './stores/workflowStore'
 import { useAICommandsStore } from './stores/aiCommandsStore'
 import { useShortcutStore } from './stores/shortcutStore'
 import { ensureProblemsSubscription, useProblemsStore } from './stores/problemsStore'
+import { ensureLspDiagnosticsSubscription } from './services/lsp/lspClient'
 import { registerCoreCommands } from './services/commands/coreCommands'
 import { setLocale, type Locale } from './i18n'
 
@@ -58,6 +59,8 @@ export default function App() {
       // Live diagnostics: follow Monaco's marker stream into the Problems panel
       ensureProblemsSubscription()
       useProblemsStore.getState().refresh()
+      // LSP diagnostics → markers (opt-in language servers)
+      ensureLspDiagnosticsSubscription()
       setReady(true)
       if (!hasCompleted) {
         setShowOnboarding(true)
