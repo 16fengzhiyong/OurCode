@@ -5,52 +5,95 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Root */
+/* Root — Windsurf 2026 Dark design tokens (from Windsurf 1.110.1 theme-2026) */
 :root {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --bg: #1e1e1e;
-  --surface: #252526;
-  --sidebar: #252526;
-  --editor-bg: #1e1e1e;
-  --border: #454545;
-  --hover: #2a2d2e;
-  --input-bg: #3c3c3c;
-  --text-primary: #cccccc;
-  --text-secondary: #cccccc;
-  --text-muted: #8d8d8d;
-  --accent: var(--primary-color, #007acc);
-  --accent-purple: var(--primary-color, #7c5cbf);
-  --primary-color: #007acc;
-  --primary-color-10: rgba(0, 122, 204, 0.1);
-  --primary-color-20: rgba(0, 122, 204, 0.2);
-  --primary-color-30: rgba(0, 122, 204, 0.3);
-  --ai-bg: #1a1a2e;
-  --ai-surface: #16213e;
-  --ai-border: #0f3460;
-  --ai-accent: #533483;
-  --ai-glow: #7c5cbf;
-  --bg-activity: #333333;
-  --bg-tabs: #2d2d2d;
-  --bg-tab-active: #1e1e1e;
-  --bg-statusbar: #007acc;
-  --bg-selected: #094771;
+  --bg: #121314;
+  --surface: #191a1b;
+  --sidebar: #191a1b;
+  --card: #202122;
+  --editor-bg: #121314;
+  --border: #2a2b2c;
+  --hover: #262728;
+  --input-bg: #191a1b;
+  --text-primary: #bfbfbf;
+  --text-secondary: #bfbfbf;
+  --text-muted: #8c8c8c;
+  --text-placeholder: #777777;
+  --text-disabled: #666666;
+  --accent: var(--primary-color, #3994bc);
+  --accent-purple: var(--primary-color, #3994bc);
+  --primary-color: #3994bc;
+  --primary-color-10: rgba(57, 148, 188, 0.1);
+  --primary-color-20: rgba(57, 148, 188, 0.2);
+  --primary-color-30: rgba(57, 148, 188, 0.3);
+  --ai-bg: #191a1b;
+  --ai-surface: #202122;
+  --ai-border: #2a2b2c;
+  --ai-accent: #3994bc;
+  --ai-glow: #3e9bc4;
+  --bg-activity: #191a1b;
+  --bg-tabs: #191a1b;
+  --bg-tab-active: #121314;
+  --bg-statusbar: #191a1b;
+  --bg-selected: rgba(57, 148, 188, 0.15);
   --text-active: #ffffff;
+  --selection: #276782;
+  --link: #48a0c7;
+  --green: #73c991;
+  --red: #f48771;
+  --yellow: #e5ba7d;
+  --info: #57a3f8;
+
+  /* Radius / elevation / backdrop (Windsurf 2026 styles.css) */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --shadow-sm: 0 0 4px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 0 6px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 0 12px rgba(0, 0, 0, 0.14);
+  --shadow-xl: 0 0 20px rgba(0, 0, 0, 0.15);
+  --shadow-hover: 0 0 8px rgba(0, 0, 0, 0.12);
+  --backdrop-blur: blur(20px) saturate(180%) brightness(0.55);
 }
 
-/* Light theme */
+/* Light theme — Windsurf 2026 Light */
 :root:not(.dark) {
-  --bg: #FFFFFF;
-  --surface: #F8F9FA;
-  --sidebar: #F3F4F6;
-  --editor-bg: #FFFFFF;
-  --border: #E5E7EB;
-  --hover: #F0F1F3;
-  --input-bg: #F5F6F8;
-  --text-primary: #1F2937;
-  --text-secondary: #4B5563;
-  --text-muted: #9CA3AF;
-  --accent: var(--primary-color, #3B82F6);
-  --accent-purple: var(--primary-color, #8B5CF6);
+  --bg: #ffffff;
+  --surface: #fafafd;
+  --sidebar: #fafafd;
+  --card: #ffffff;
+  --editor-bg: #ffffff;
+  --border: #e6e8eb;
+  --hover: #ececef;
+  --input-bg: #ffffff;
+  --text-primary: #202020;
+  --text-secondary: #202020;
+  --text-muted: #707070;
+  --text-placeholder: #8a8a8a;
+  --text-disabled: #b0b0b0;
+  --accent: var(--primary-color, #0069cc);
+  --accent-purple: var(--primary-color, #0069cc);
+  --primary-color: #0069cc;
+  --ai-bg: #fafafd;
+  --ai-surface: #ffffff;
+  --ai-border: #e6e8eb;
+  --ai-accent: #0069cc;
+  --ai-glow: #0069cc;
+  --bg-activity: #fafafd;
+  --bg-tabs: #fafafd;
+  --bg-tab-active: #ffffff;
+  --bg-statusbar: #fafafd;
+  --bg-selected: rgba(0, 105, 204, 0.1);
+  --text-active: #ffffff;
+  --selection: #0069cc;
+  --link: #0069cc;
+  --green: #1a7f4d;
+  --red: #d33b2a;
+  --yellow: #9a6a00;
+  --info: #0069cc;
+  --backdrop-blur: blur(20px) saturate(180%);
 }
 
 html {
@@ -78,26 +121,26 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #424242;
+  background: #83848533;
   border: 3px solid transparent;
   border-radius: 5px;
   background-clip: padding-box;
 }
 
 :root:not(.dark) ::-webkit-scrollbar-thumb {
-  background: #D1D5DB;
+  background: #9a9ea233;
   border: 3px solid transparent;
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555555;
+  background: #83848566;
   border: 3px solid transparent;
   background-clip: padding-box;
 }
 
 :root:not(.dark) ::-webkit-scrollbar-thumb:hover {
-  background: #9CA3AF;
+  background: #9a9ea266;
   border: 3px solid transparent;
   background-clip: padding-box;
 }
@@ -152,16 +195,16 @@ body {
 
 /* Markdown code blocks */
 .markdown-body pre {
-  background-color: rgba(0,0,0,0.4);
-  border-radius: 8px;
+  background-color: var(--surface);
+  border-radius: var(--radius-lg);
   padding: 14px;
   overflow-x: auto;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid var(--border);
 }
 
 :root:not(.dark) .markdown-body pre {
-  background-color: #F5F6F8;
-  border-color: #E5E7EB;
+  background-color: var(--surface);
+  border-color: var(--border);
 }
 
 .markdown-body code {
@@ -201,20 +244,21 @@ body {
   background: var(--surface);
 }
 
-/* Context menu */
+/* Context menu (Windsurf 2026: blurred floating panel) */
 .context-menu {
-  background: #252526;
-  border: 1px solid #454545;
-  border-radius: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  background: color-mix(in srgb, var(--card, #202122) 85%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   min-width: 180px;
   padding: 4px;
-  backdrop-filter: blur(8px);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
 }
 
 :root:not(.dark) .context-menu {
-  background: #FFFFFF;
-  border-color: #E5E7EB;
+  background: color-mix(in srgb, var(--card, #ffffff) 90%, transparent);
+  border-color: var(--border);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
@@ -224,16 +268,16 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   margin: 1px 0;
 }
 
 .context-menu-item:hover {
-  background: #094771;
+  background: var(--bg-selected);
 }
 
 :root:not(.dark) .context-menu-item:hover {
-  background: #F0F1F3;
+  background: var(--hover);
 }
 
 /* Tooltip */
@@ -247,22 +291,25 @@ body {
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
-  background: #252526;
-  color: #cccccc;
+  background: color-mix(in srgb, var(--card, #202122) 90%, transparent);
+  color: var(--text-primary);
   padding: 4px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s;
-  border: 1px solid #454545;
+  border: 1px solid var(--border);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  z-index: 1000;
 }
 
 :root:not(.dark) .tooltip::after {
-  background: #FFFFFF;
-  color: #1F2937;
-  border-color: #E5E7EB;
+  background: color-mix(in srgb, var(--card, #ffffff) 90%, transparent);
+  color: var(--text-primary);
+  border-color: var(--border);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 

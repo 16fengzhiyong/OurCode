@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { monaco } from '@/editor/monacoSetup'
+import { monaco, ensureLanguageService } from '@/editor/monacoSetup'
 import { OpenFile, UserPreferences, DEFAULT_PREFERENCES, LANGUAGE_MAP } from '@/types'
 import {
   getFileContent,
@@ -772,6 +772,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   restoreFromBackup: async (filePath, content, encoding, hasBom) => {
     const state = get()
     const language = state.getLanguageByPath(filePath)
+
+    // Register the lazy language service (e.g. TypeScript) before the model
+    await ensureLanguageService(language)
 
     // If already open, just refresh the live model and mark dirty
     const existing = state.openFiles.find((f) => f.path === filePath)

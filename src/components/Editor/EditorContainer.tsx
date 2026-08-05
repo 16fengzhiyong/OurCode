@@ -6,6 +6,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useInlineCompletion } from '@/hooks/useInlineCompletion'
 import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoader, trackLoad } from '@/editor/modelRegistry'
+import { ensureLanguageService } from '@/editor/monacoSetup'
 import { setPendingVibeReplace } from '@/services/vibeReplace'
 import type { UserPreferences } from '@/types'
 
@@ -275,46 +276,60 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
       return
     }
 
-    const state = useEditorStore.getState()
-    const file = state.openFiles.find((f) => f.path === activeFilePath)
-    if (!file) return
+    let cancelled = false
+    void (async () => {
+      const state = useEditorStore.getState()
+      const file = state.openFiles.find((f) => f.path === activeFilePath)
+      if (!file) return
 
-    let model = getModel(activeFilePath)
+      // The TypeScript service is loaded lazily; the contribution must be
+      // registered before the model is created or Monaco degrades to plaintext.
+      await ensureLanguageService(file.language)
+      // The user may have switched tabs while the service loaded
+      if (cancelled) return
+      if (activeFilePath !== useEditorStore.getState().panels[panelId]?.activeFilePath) return
 
-    if (!model) {
-      const uri = monaco.Uri.parse(`file:///${activeFilePath}`)
-      // Start empty; a registered stream loader fills it chunk by chunk so large
-      // files load without freezing the UI. Large files are plain text (no
-      // syntax highlighting) — see PLAINTEXT_THRESHOLD_BYTES.
-      model = monaco.editor.createModel('', file.plainText ? 'plaintext' : file.language, uri)
-      registerModel(activeFilePath, model)
+      let model = getModel(activeFilePath)
 
-      model.onDidChangeContent(() => {
-        // Edits applied while the file streams in are programmatic, not user
-        // edits — only mark dirty once the load finished
-        const current = useEditorStore.getState().openFiles.find((f) => f.path === activeFilePath)
-        if (current && !current.isLoading) {
-          useEditorStore.getState().markDirty(activeFilePath, true)
+      if (!model) {
+        const uri = monaco.Uri.parse(`file:///${activeFilePath}`)
+        // Start empty; a registered stream loader fills it chunk by chunk so large
+        // files load without freezing the UI. Large files are plain text (no
+        // syntax highlighting) — see PLAINTEXT_THRESHOLD_BYTES.
+        model = monaco.editor.createModel('', file.plainText ? 'plaintext' : file.language, uri)
+        registerModel(activeFilePath, model)
+
+        model.onDidChangeContent(() => {
+          // Edits applied while the file streams in are programmatic, not user
+          // edits — only mark dirty once the load finished
+          const current = useEditorStore.getState().openFiles.find((f) => f.path === activeFilePath)
+          if (current && !current.isLoading) {
+            useEditorStore.getState().markDirty(activeFilePath, true)
+          }
+        })
+
+        const loader = takeLoader(activeFilePath)
+        if (loader) {
+          trackLoad(activeFilePath, loader(model))
         }
-      })
-
-      const loader = takeLoader(activeFilePath)
-      if (loader) {
-        trackLoad(activeFilePath, loader(model))
       }
-    }
 
-    editor.setModel(model)
+      editor.setModel(model)
 
-    const cursor = fileCursors.get(activeFilePath) ?? file.cursorPosition
-    if (cursor) {
-      editor.setPosition({
-        lineNumber: cursor.line,
-        column: cursor.column,
-      })
-      editor.revealLineInCenter(cursor.line)
+      const cursor = fileCursors.get(activeFilePath) ?? file.cursorPosition
+      if (cursor) {
+        editor.setPosition({
+          lineNumber: cursor.line,
+          column: cursor.column,
+        })
+        editor.revealLineInCenter(cursor.line)
+      }
+    })()
+
+    return () => {
+      cancelled = true
     }
-  }, [activeFilePath])
+  }, [activeFilePath, panelId])
 
   // Cleanup models for closed files
   useEffect(() => {
