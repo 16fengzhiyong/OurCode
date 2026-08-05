@@ -8,6 +8,7 @@ import { useInlineCompletion } from '@/hooks/useInlineCompletion'
 import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoader, trackLoad } from '@/editor/modelRegistry'
 import { ensureLanguageService, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
 import { setPendingVibeReplace } from '@/services/vibeReplace'
+import BreadcrumbBar from './BreadcrumbBar'
 import type { UserPreferences } from '@/types'
 
 // Files above this size get large-file editor settings (no word wrap / minimap)
@@ -358,6 +359,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
           </span>
         </div>
       )}
+      <BreadcrumbBar />
       <div className="relative flex-1 min-h-0">
         <div ref={editorRef} className="absolute inset-0" />
         {activeFile?.isLoading && (activeFile.size ?? 0) > 1024 * 1024 && (
