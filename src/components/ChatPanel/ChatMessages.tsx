@@ -4,10 +4,6 @@ import ChatMessage from './ChatMessage'
 import ThinkingBlock from './ThinkingBlock'
 import { TodoPanel, PlanCard } from './AgentPanel'
 
-// Marker set by the agent loop when the tool-call budget is exhausted;
-// the ChatMessage renders a "继续" button for messages starting with it.
-export const EXHAUSTED_MARKER = '[已达到最大工具调用轮数'
-
 // Common model context windows (in tokens)
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gpt-4o': 128000, 'gpt-4o-mini': 128000, 'gpt-4-turbo': 128000, 'gpt-3.5-turbo': 16385,

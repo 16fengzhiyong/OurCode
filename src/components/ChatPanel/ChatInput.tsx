@@ -4,6 +4,7 @@ import { useConfigStore } from '@/stores/configStore'
 import ModelSelector from './ModelSelector'
 import { filterSlashCommands, buildSlashPrompt, getEditorSlashContext, SlashCommand } from '@/services/commands/slashCommands'
 import { takePendingVibeReplace } from '@/services/vibeReplace'
+import { AUTO_CONTINUE_KEY } from '@shared/constants'
 
 export default function ChatInput() {
   const [input, setInput] = useState('')
@@ -15,6 +16,52 @@ export default function ChatInput() {
   const [slashQuery, setSlashQuery] = useState('')
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0)
   const [queuedHint, setQueuedHint] = useState(false)
+  const [autoContinue, setAutoContinue] = useState(() => localStorage.getItem(AUTO_CONTINUE_KEY) === '1')
+  const [listening, setListening] = useState(false)
+  const recognitionRef = useRef<{ stop: () => void } | null>(null)
+
+  const toggleAutoContinue = () => {
+    setAutoContinue((prev) => {
+      const next = !prev
+      localStorage.setItem(AUTO_CONTINUE_KEY, next ? '1' : '0')
+      return next
+    })
+  }
+
+  // Voice input (Windsurf Ctrl+Shift+M parity) via the Web Speech API
+  const toggleVoiceInput = () => {
+    const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
+    if (!SR) {
+      alert('当前环境不支持语音输入')
+      return
+    }
+    if (listening) {
+      recognitionRef.current?.stop()
+      setListening(false)
+      return
+    }
+    try {
+      const rec = new SR()
+      rec.lang = 'zh-CN'
+      rec.interimResults = false
+      rec.continuous = false
+      rec.onresult = (e: any) => {
+        const text = e?.results?.[0]?.[0]?.transcript
+        if (text) {
+          setInput((prev) => (prev ? prev + ' ' : '') + text)
+          textareaRef.current?.focus()
+        }
+      }
+      rec.onend = () => setListening(false)
+      rec.onerror = () => setListening(false)
+      recognitionRef.current = rec
+      rec.start()
+      setListening(true)
+    } catch {
+      alert('语音识别启动失败')
+      setListening(false)
+    }
+  }
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileSearchRef = useRef<HTMLDivElement>(null)
@@ -363,8 +410,23 @@ export default function ChatInput() {
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
               </svg>
             </button>
-            <button className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors text-xs font-medium" title="引用文件">
+            <button
+              className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors text-xs font-medium"
+              title="引用文件"
+            >
               @
+            </button>
+            <button
+              onClick={toggleVoiceInput}
+              className={`p-1 rounded transition-colors ${listening ? 'text-red-400 bg-red-500/15' : 'text-nova-text-muted hover:text-nova-text-primary'}`}
+              title="语音输入 (Ctrl+Shift+M)"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
             </button>
             <div className="w-px h-3.5 mx-0.5" style={{ background: 'rgba(255,255,255,0.08)' }} />
             <button className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors" title="模型设置">
@@ -391,6 +453,18 @@ export default function ChatInput() {
             <span className="text-[11px] flex-1" style={{ color: '#5a5a7a' }}>
               {currentModelName} · {isLoading ? '生成中，Enter 可排队' : 'Ctrl + Enter 发送'}
             </span>
+            <label
+              className="flex items-center gap-1 text-[10px] text-nova-text-muted cursor-pointer select-none hover:text-nova-text-secondary transition-colors"
+              title="工具轮数耗尽后自动继续（同一轮只自动继续一次）"
+            >
+              <input
+                type="checkbox"
+                checked={autoContinue}
+                onChange={toggleAutoContinue}
+                className="accent-nova-accent w-3 h-3"
+              />
+              ⚡ 自动继续
+            </label>
             {queuedHint && <span className="text-[11px] text-nova-accent">已排队，完成后自动发送</span>}
             {isLoading ? (
               <button

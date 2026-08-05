@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion } from '@/types'
+import { EXHAUSTED_MARKER, AUTO_CONTINUE_KEY } from '@shared/constants'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
 import { useMemoryStore } from './memoryStore'
@@ -708,6 +709,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   stopGeneration: () => {
     get().abortController?.abort()
+    // If the agent is blocked on an ask_user_question, aborting would leave the
+    // loop hanging forever — resolve the question so the loop can unwind.
+    if (_questionResolve) {
+      _questionResolve('（生成已停止，用户取消了提问）')
+      _questionResolve = null
+    }
+    set({ pendingQuestion: null })
   },
 
   // Branch: create a new branch from a specific message
@@ -1247,6 +1255,19 @@ async function runAgentLoop(
         role: 'assistant',
         content: '[已达到最大工具调用轮数 (20)。点击下方"继续"按钮可继续执行。]',
       })
+      // Auto-continue (Windsurf-style) — but only once per conversation turn, so
+      // a model that keeps exhausting cannot loop forever. The exhausted message
+      // just added is counted below.
+      const autoContinue = localStorage.getItem(AUTO_CONTINUE_KEY) === '1'
+      const queuedPending = useChatStore.getState().queuedMessages.length > 0
+      const exhaustedCount = useChatStore.getState().sessions
+        .find((s) => s.id === sessionId)?.messages
+        .filter((m) => m.role === 'assistant' && m.content.startsWith(EXHAUSTED_MARKER)).length || 0
+      // Skip auto-continue if the user already queued a new message (their intent
+      // wins over resuming the old trajectory) or if we already auto-continued once.
+      if (autoContinue && !queuedPending && exhaustedCount <= 1) {
+        setTimeout(() => { useChatStore.getState().continueGeneration() }, 150)
+      }
     }
   } catch (error: any) {
     if (error.name === 'AbortError') {

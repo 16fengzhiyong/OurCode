@@ -320,13 +320,3 @@ export function getEditorSelectionContext(): string {
     return ''
   }
 }
-
-/** Current live editor content (for the current_file block) */
-export async function getLiveFileContent(path: string, fallback: string): Promise<string> {
-  try {
-    const { getFileContent } = await import('@/editor/modelRegistry')
-    return getFileContent(path, fallback)
-  } catch {
-    return fallback
-  }
-}

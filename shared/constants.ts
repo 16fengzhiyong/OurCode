@@ -114,6 +114,13 @@ export const DEFAULT_PREFERENCES = {
 // Free model keywords
 export const FREE_MODEL_KEYWORDS = ['free', 'gpt-3.5', 'llama', 'mistral', 'gemma']
 
+// Marker on the assistant message shown when the agent loop exhausts its
+// tool-call budget; the UI renders a "继续" button for messages starting with it.
+export const EXHAUSTED_MARKER = '[已达到最大工具调用轮数'
+
+// localStorage key for the "auto continue on exhaustion" toggle
+export const AUTO_CONTINUE_KEY = 'ourcode-auto-continue'
+
 // Known model metadata (context window, vision, function call)
 export const MODEL_METADATA: Record<string, { contextWindow: number; vision: boolean; functionCall: boolean }> = {
   // OpenAI
