@@ -6,8 +6,11 @@ import { IPC_CHANNELS } from '../shared/constants'
 contextBridge.exposeInMainWorld('electronAPI', {
   // File System
   readFile: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_READ_FILE, path),
-  writeFile: (path: string, content: string, encoding: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.FS_WRITE_FILE, path, content, encoding),
+  writeFile: (path: string, content: string, encoding: string, hasBom?: boolean) =>
+    ipcRenderer.invoke(IPC_CHANNELS.FS_WRITE_FILE, path, content, encoding, hasBom),
+  openFileStream: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_OPEN_STREAM, path),
+  readFileChunk: (id: number) => ipcRenderer.invoke(IPC_CHANNELS.FS_READ_CHUNK, id),
+  closeFileStream: (id: number) => ipcRenderer.invoke(IPC_CHANNELS.FS_CLOSE_STREAM, id),
   listDir: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_LIST_DIR, path),
   createFile: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_CREATE_FILE, path),
   createDir: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_CREATE_DIR, path),

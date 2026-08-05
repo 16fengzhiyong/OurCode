@@ -75,6 +75,25 @@ export interface OpenFile {
   lineEnding: 'lf' | 'crlf'
   isDirty: boolean
   cursorPosition?: { line: number; column: number }
+  hasBom?: boolean // original file started with a byte-order mark; preserved on save
+  isLoading?: boolean // true while the file is being streamed into the editor
+  size?: number // file size in bytes (from stat/stream)
+  isPreview?: boolean // huge file: only the first PREVIEW_LIMIT_BYTES were loaded
+  isReadOnly?: boolean // preview files cannot be edited or saved
+}
+
+// Chunked file stream (main process -> renderer, pull-based)
+export interface FileStreamStart {
+  id: number
+  encoding: string
+  hasBom: boolean
+  totalBytes: number
+  chunk: string // first chunk, already decoded
+}
+
+export interface FileStreamChunk {
+  chunk: string // decoded text; on done it carries the decoder flush
+  done: boolean
 }
 
 // File Entry

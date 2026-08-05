@@ -1,5 +1,28 @@
 import { create } from 'zustand'
+import type * as monaco from 'monaco-editor'
 import { OpenFile, UserPreferences, DEFAULT_PREFERENCES, LANGUAGE_MAP } from '@/types'
+import {
+  getFileContent,
+  getModel,
+  registerModel,
+  unregisterModel,
+  registerLoader,
+  appendText,
+  setModelEol,
+  yieldToEventLoop,
+  waitForLoad,
+} from '@/editor/modelRegistry'
+import type { FileStreamChunk } from '@shared/types'
+
+// Files larger than this ask for confirmation before opening (protects against
+// accidentally loading a multi-GB file that would exhaust memory).
+const LARGE_FILE_CONFIRM_BYTES = 50 * 1024 * 1024
+
+// Files larger than this open as a read-only *preview* of the first
+// PREVIEW_LIMIT_BYTES. A Monaco model of hundreds of MB / millions of lines
+// needs multiple GB of memory and would freeze the app, so we never build one.
+export const LARGE_FILE_PREVIEW_BYTES = 100 * 1024 * 1024
+export const PREVIEW_LIMIT_BYTES = 20 * 1024 * 1024
 
 export interface Panel {
   id: string
@@ -64,6 +87,95 @@ const syncDerivedState = (s: EditorState) => {
   return {
     activeFilePath: panel?.activeFilePath ?? null,
     tabOrder: panel?.tabOrder ?? [],
+  }
+}
+
+/**
+ * Stream a file's content into its model in decoded chunks (pull-based IPC over
+ * `openFileStream`/`readFileChunk`). The tab is already open; this fills the
+ * model progressively and yields to the event loop between chunks, so the UI
+ * never freezes even for files of hundreds of MB. `applyEdits` is used for
+ * appends, which keeps the load out of the undo stack.
+ */
+async function streamFileIntoModel(path: string, model: monaco.editor.ITextModel): Promise<void> {
+  let streamId: number | null = null
+  try {
+    const stream = await window.electronAPI.openFileStream(path)
+    streamId = stream.id
+
+    // Huge files never fit into a Monaco model, so they open as a read-only
+    // preview of the first PREVIEW_LIMIT_BYTES.
+    const isPreview = stream.totalBytes > LARGE_FILE_PREVIEW_BYTES
+
+    if (stream.totalBytes > LARGE_FILE_CONFIRM_BYTES) {
+      const mb = Math.round(stream.totalBytes / (1024 * 1024))
+      const message = isPreview
+        ? `此文件较大（约 ${mb} MB）。为避免卡顿，将以只读模式显示前 ${Math.round(PREVIEW_LIMIT_BYTES / (1024 * 1024))} MB 预览，确定打开吗？`
+        : `此文件较大（约 ${mb} MB），确定要打开吗？`
+      if (!window.confirm(message)) {
+        await window.electronAPI.closeFileStream(stream.id)
+        useEditorStore.getState().closeFileGlobally(path)
+        return
+      }
+    }
+
+    const lineEnding = stream.chunk.includes('\r\n') ? 'crlf' : 'lf'
+    useEditorStore.setState((s) => ({
+      openFiles: s.openFiles.map((f) =>
+        f.path === path
+          ? {
+              ...f,
+              encoding: stream.encoding,
+              hasBom: stream.hasBom,
+              size: stream.totalBytes,
+              lineEnding,
+              isPreview,
+              isReadOnly: isPreview,
+            }
+          : f,
+      ),
+    }))
+
+    // Match the model's EOL to the file's, otherwise Monaco converts every
+    // inserted '\n' into its default ('\r\n' on Windows) and the text no longer
+    // round-trips byte-for-byte
+    setModelEol(model, lineEnding)
+
+    appendText(model, stream.chunk)
+    await yieldToEventLoop()
+
+    let loadedChars = stream.chunk.length
+    for (;;) {
+      // Cancel if the model was disposed (file closed globally) mid-load
+      if (getModel(path) !== model) {
+        await window.electronAPI.closeFileStream(stream.id)
+        return
+      }
+      // Preview mode: stop pulling once the cap is reached (char count is a
+      // good proxy for bytes for text files)
+      if (isPreview && loadedChars >= PREVIEW_LIMIT_BYTES) {
+        await window.electronAPI.closeFileStream(stream.id)
+        break
+      }
+      const res: FileStreamChunk | null = await window.electronAPI.readFileChunk(stream.id)
+      if (!res) break
+      appendText(model, res.chunk)
+      loadedChars += res.chunk.length
+      if (res.done) break
+      await yieldToEventLoop()
+    }
+  } catch (error) {
+    console.error('Failed to stream file:', error)
+    if (streamId !== null) {
+      await window.electronAPI.closeFileStream(streamId).catch(() => {})
+    }
+  } finally {
+    // Mark loaded even on failure so the editor stays usable
+    useEditorStore.setState((s) => ({
+      openFiles: s.openFiles.map((f) =>
+        f.path === path ? { ...f, isLoading: false, isDirty: false } : f,
+      ),
+    }))
   }
 }
 
@@ -235,40 +347,37 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return
     }
 
-    try {
-      const { content, encoding } = await window.electronAPI.readFile(path)
-      const language = get().getLanguageByPath(path)
-      const lineEnding = content.includes('\r\n') ? 'crlf' : 'lf'
-
-      const newFile: OpenFile = {
-        path,
-        content,
-        language,
-        encoding,
-        lineEnding,
-        isDirty: false,
-      }
-
-      set((s) => {
-        const panel = s.panels[targetPanelId]
-        if (!panel) return s
-        const newPanel: Panel = {
-          ...panel,
-          activeFilePath: path,
-          tabOrder: panel.tabOrder.includes(path) ? panel.tabOrder : [...panel.tabOrder, path],
-        }
-        const next = {
-          ...s,
-          openFiles: [...s.openFiles, newFile],
-          panels: { ...s.panels, [targetPanelId]: newPanel },
-          activePanelId: targetPanelId,
-        }
-        return { ...next, ...syncDerivedState(next) }
-      })
-    } catch (error) {
-      console.error('Failed to open file:', error)
-      throw error
+    // Reserve the tab immediately (content streams in afterwards), then hand the
+    // load to the editor's model via a registered loader
+    const language = get().getLanguageByPath(path)
+    const newFile: OpenFile = {
+      path,
+      content: '',
+      language,
+      encoding: 'utf-8',
+      lineEnding: 'lf',
+      isDirty: false,
+      isLoading: true,
     }
+
+    set((s) => {
+      const panel = s.panels[targetPanelId]
+      if (!panel) return s
+      const newPanel: Panel = {
+        ...panel,
+        activeFilePath: path,
+        tabOrder: panel.tabOrder.includes(path) ? panel.tabOrder : [...panel.tabOrder, path],
+      }
+      const next = {
+        ...s,
+        openFiles: [...s.openFiles, newFile],
+        panels: { ...s.panels, [targetPanelId]: newPanel },
+        activePanelId: targetPanelId,
+      }
+      return { ...next, ...syncDerivedState(next) }
+    })
+
+    registerLoader(path, (model) => streamFileIntoModel(path, model))
   },
 
   closeFile: (path, panelId) => {
@@ -332,6 +441,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       encoding: 'utf-8',
       lineEnding: 'lf',
       isDirty: false,
+      hasBom: false,
     }
     set((s) => {
       const panel = s.panels[s.activePanelId]
@@ -399,15 +509,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   saveFile: async (path) => {
     const file = get().openFiles.find((f) => f.path === path)
     if (!file) return
+    // Preview files are read-only — never write a truncated model back to disk
+    if (file.isReadOnly) return
+
+    // If the file is still streaming in, wait for it to finish first
+    const pendingLoad = waitForLoad(path)
+    if (pendingLoad) await pendingLoad.catch(() => {})
+
+    // The Monaco model is the source of truth once the file is open; the store's
+    // content is only the initial copy. Read the live text at save time.
+    const content = getFileContent(path, file.content)
 
     // Untitled buffer → prompt Save As, then migrate the tab to the real path
     if (path.startsWith('/untitled/')) {
       const newPath = await window.electronAPI.saveFile()
       if (!newPath) return
-      await window.electronAPI.writeFile(newPath, file.content, file.encoding)
+      await window.electronAPI.writeFile(newPath, content, file.encoding, file.hasBom)
+      // Re-register the live model under the real path (and store the saved text
+      // as the initial copy) so the migrated tab keeps its content
+      const model = getModel(path)
+      if (model) {
+        registerModel(newPath, model)
+        unregisterModel(path)
+      }
       set((s) => {
         const newOpenFiles = s.openFiles.map((f) =>
-          f.path === path ? { ...f, path: newPath, isDirty: false } : f
+          f.path === path ? { ...f, path: newPath, content, isDirty: false } : f
         )
         const newPanels = { ...s.panels }
         for (const pid of Object.keys(newPanels)) {
@@ -429,7 +556,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (!file.isDirty) return
 
     try {
-      await window.electronAPI.writeFile(path, file.content, file.encoding)
+      // Preserve the original byte-order mark, if the file had one
+      await window.electronAPI.writeFile(path, content, file.encoding, file.hasBom)
       get().markDirty(path, false)
     } catch (error) {
       console.error('Failed to save file:', error)
@@ -443,11 +571,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   markDirty: (path, isDirty = true) => {
-    set((s) => ({
-      openFiles: s.openFiles.map((f) =>
-        f.path === path ? { ...f, isDirty } : f
-      ),
-    }))
+    set((s) => {
+      // No-op when the flag is already set so typing doesn't churn subscribers
+      // (a file gets dirty on the first keystroke, not every keystroke)
+      const file = s.openFiles.find((f) => f.path === path)
+      if (!file || file.isDirty === isDirty) return s
+      return {
+        openFiles: s.openFiles.map((f) =>
+          f.path === path ? { ...f, isDirty } : f
+        ),
+      }
+    })
   },
 
   setFileEncoding: (path, encoding) => {
@@ -460,11 +594,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   revertFile: async (path) => {
+    const current = get().openFiles.find((f) => f.path === path)
+    // Preview files can't be reverted (that would re-read the whole huge file)
+    if (current?.isReadOnly) return
     try {
-      const { content, encoding } = await window.electronAPI.readFile(path)
+      const { content, encoding, hasBom } = await window.electronAPI.readFile(path)
+      // Refresh the live model too, so the editor immediately matches disk
+      // (this resets Monaco's undo history — expected for a revert)
+      getModel(path)?.setValue(content)
       set((s) => ({
         openFiles: s.openFiles.map((f) =>
-          f.path === path ? { ...f, content, encoding, isDirty: false } : f
+          f.path === path ? { ...f, content, encoding, hasBom, isDirty: false } : f
         ),
       }))
     } catch (error) {

@@ -106,7 +106,7 @@ export default function SearchPanel() {
 
     for (const [filePath, fileResults] of fileGroups) {
       try {
-        const { content, encoding } = await window.electronAPI.readFile(filePath)
+        const { content, encoding, hasBom } = await window.electronAPI.readFile(filePath)
         let newContent = content
 
         // Sort results by position (descending) to replace from end to start
@@ -119,7 +119,7 @@ export default function SearchPanel() {
           newContent = newContent.slice(0, matchStart) + replaceValue + newContent.slice(matchEnd)
         }
 
-        await window.electronAPI.writeFile(filePath, newContent, encoding)
+        await window.electronAPI.writeFile(filePath, newContent, encoding, hasBom)
 
         // Refresh open editors so Monaco doesn't show stale content
         if (useEditorStore.getState().openFiles.some((f) => f.path === filePath)) {

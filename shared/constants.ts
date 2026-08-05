@@ -18,6 +18,9 @@ export const IPC_CHANNELS = {
   FS_MOVE: 'fs:move',
   FS_SELECT_FOLDER: 'fs:selectFolder',
   FS_FILE_CHANGED: 'fs:fileChanged',
+  FS_OPEN_STREAM: 'fs:openStream',
+  FS_READ_CHUNK: 'fs:readChunk',
+  FS_CLOSE_STREAM: 'fs:closeStream',
 
   // Store (SQLite)
   STORE_GET_CONFIG_GROUPS: 'store:getConfigGroups',

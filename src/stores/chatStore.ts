@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS } from '@/types'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
+import { getFileContent } from '@/editor/modelRegistry'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { ToolExecutor } from '@/services/tools'
 import { ToolCall, ToolResult } from '@/services/tools/types'
@@ -82,11 +83,13 @@ Git 分支: ${_cachedGitBranch || '未知'}
     enhanced += `\n</open_files>`
   }
 
-  // Append current file content
+  // Append current file content (live from the editor model, so edits made since
+  // the file was opened are included)
   if (activeFile) {
-    const lines = activeFile.content.split('\n')
+    const liveContent = getFileContent(activeFile.path, activeFile.content)
+    const lines = liveContent.split('\n')
     const truncated = lines.length > 200
-    const content = truncated ? lines.slice(0, 200).join('\n') + '\n... (truncated)' : activeFile.content
+    const content = truncated ? lines.slice(0, 200).join('\n') + '\n... (truncated)' : liveContent
     enhanced += `\n\n<current_file path="${activeFile.path}">\n${content}\n</current_file>`
   }
 

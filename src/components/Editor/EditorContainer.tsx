@@ -1,13 +1,14 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import * as monaco from 'monaco-editor'
-import { useEditorStore } from '@/stores/editorStore'
+import { useEditorStore, PREVIEW_LIMIT_BYTES } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useInlineCompletion } from '@/hooks/useInlineCompletion'
+import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoader, trackLoad } from '@/editor/modelRegistry'
 
-// Shared model cache across all editor instances
-const sharedModels = new Map<string, monaco.editor.ITextModel>()
+// Files above this size get large-file editor settings (no word wrap / minimap)
+const LARGE_FILE_OPTIMIZE_BYTES = 10 * 1024 * 1024
 
 // Track all editor instances for theme updates
 const editorInstances = new Set<monaco.editor.IStandaloneCodeEditor>()
@@ -31,13 +32,12 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   const panels = useEditorStore((s) => s.panels)
   const openFiles = useEditorStore((s) => s.openFiles)
   const preferences = useEditorStore((s) => s.preferences)
-  const updateFileContent = useEditorStore((s) => s.updateFileContent)
-  const markDirty = useEditorStore((s) => s.markDirty)
   const setActivePanel = useEditorStore((s) => s.setActivePanel)
   const setCursorPosition = useEditorStore((s) => s.setCursorPosition)
 
   const panel = panels[panelId]
   const activeFilePath = panel?.activeFilePath ?? null
+  const activeFile = useEditorStore((s) => s.openFiles.find((f) => f.path === activeFilePath))
 
   const { openCommandPalette, showContextMenu, theme: uiTheme } = useUIStore()
 
@@ -199,7 +199,11 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     monaco.editor.setTheme(isDark ? 'vs-dark' : 'vs')
   }, [uiTheme])
 
-  // Create/switch models when active file changes
+  // Create/switch models when the active file changes. The Monaco model is the
+  // source of truth for the text; editing only marks the file dirty (no full
+  // document copy into the store per keystroke), and save/revert/AI context read
+  // the live content through the model registry. Deps are just the active path so
+  // this never re-runs on keystrokes — even for multi-megabyte files.
   useEffect(() => {
     const editor = monacoRef.current
     if (!editor || !activeFilePath) {
@@ -209,24 +213,31 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
       return
     }
 
-    const file = openFiles.find((f) => f.path === activeFilePath)
+    const state = useEditorStore.getState()
+    const file = state.openFiles.find((f) => f.path === activeFilePath)
     if (!file) return
 
-    let model = sharedModels.get(activeFilePath)
+    let model = getModel(activeFilePath)
 
     if (!model) {
       const uri = monaco.Uri.parse(`file:///${activeFilePath}`)
-      model = monaco.editor.createModel(file.content, file.language, uri)
-      sharedModels.set(activeFilePath, model)
+      // Start empty; a registered stream loader fills it chunk by chunk so large
+      // files load without freezing the UI.
+      model = monaco.editor.createModel('', file.language, uri)
+      registerModel(activeFilePath, model)
 
       model.onDidChangeContent(() => {
-        const content = model!.getValue()
-        updateFileContent(activeFilePath, content)
-        markDirty(activeFilePath, true)
+        // Edits applied while the file streams in are programmatic, not user
+        // edits — only mark dirty once the load finished
+        const current = useEditorStore.getState().openFiles.find((f) => f.path === activeFilePath)
+        if (current && !current.isLoading) {
+          useEditorStore.getState().markDirty(activeFilePath, true)
+        }
       })
-    } else {
-      if (model.getValue() !== file.content) {
-        model.setValue(file.content)
+
+      const loader = takeLoader(activeFilePath)
+      if (loader) {
+        trackLoad(activeFilePath, loader(model))
       }
     }
 
@@ -239,39 +250,70 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
       })
       editor.revealLineInCenter(file.cursorPosition.line)
     }
-  }, [activeFilePath, openFiles])
+  }, [activeFilePath])
+
+  // Large files: drop word wrap and the minimap (like VS Code's large-file mode)
+  // so scrolling and rendering stay fast; preview files are read-only.
+  useEffect(() => {
+    const file = useEditorStore.getState().openFiles.find((f) => f.path === activeFilePath)
+    const large = (file?.size ?? 0) > LARGE_FILE_OPTIMIZE_BYTES
+    monacoRef.current?.updateOptions({
+      wordWrap: large ? 'off' : 'on',
+      minimap: { enabled: large ? false : preferences.showMinimap },
+      readOnly: file?.isReadOnly ?? false,
+    })
+  }, [activeFilePath, openFiles, preferences.showMinimap])
 
   // Cleanup models for closed files
   useEffect(() => {
-    const openPaths = new Set(openFiles.map((f) => f.path))
+    const openPaths = new Set(useEditorStore.getState().openFiles.map((f) => f.path))
 
-    for (const [path, model] of sharedModels) {
+    for (const path of getRegisteredPaths()) {
       if (!openPaths.has(path)) {
-        model.dispose()
-        sharedModels.delete(path)
+        getModel(path)?.dispose()
+        unregisterModel(path)
       }
     }
   }, [openFiles])
 
-  // Empty state
-  if (!activeFilePath) {
-    return (
-      <div className="flex-1 h-full flex items-center justify-center text-nova-text-muted">
-        <div className="text-center">
-          <div className="text-6xl mb-4 opacity-30">📝</div>
-          <div className="text-lg text-nova-text-secondary">打开文件开始编辑</div>
-          <div className="text-sm mt-2">
-            使用 <kbd className="px-2 py-1 bg-nova-hover rounded text-xs">Ctrl+P</kbd> 快速打开文件
-          </div>
-          <div className="text-sm mt-1">
-            或使用 <kbd className="px-2 py-1 bg-nova-hover rounded text-xs">Ctrl+O</kbd> 打开文件夹
-          </div>
-        </div>
-      </div>
-    )
-  }
-
+  // The editor div is always mounted so the Monaco editor initializes once, even
+  // when no file is open yet (previously the empty state replaced the div, the
+  // one-time init effect saw `editorRef.current === null`, and the editor was
+  // never created — every file then opened into a blank pane). The welcome text
+  // is an overlay on top of the empty editor instead.
   return (
-    <div ref={editorRef} className="flex-1" />
+    <div className="flex-1 h-full min-h-0 flex flex-col">
+      {activeFile?.isPreview && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs bg-amber-500/15 text-amber-300 border-b border-amber-500/20">
+          <span>⚠</span>
+          <span>
+            文件较大（{formatMB(activeFile.size)} MB），仅显示前 {Math.round(PREVIEW_LIMIT_BYTES / (1024 * 1024))} MB 只读预览。
+            完整内容请在外部工具中查看（在文件树右键 → 「在文件夹中显示」）。
+          </span>
+        </div>
+      )}
+      <div className="relative flex-1 min-h-0">
+        <div ref={editorRef} className="absolute inset-0" />
+        {!activeFilePath && (
+          <div className="absolute inset-0 flex items-center justify-center text-nova-text-muted pointer-events-none">
+            <div className="text-center">
+              <div className="text-6xl mb-4 opacity-30">📝</div>
+              <div className="text-lg text-nova-text-secondary">打开文件开始编辑</div>
+              <div className="text-sm mt-2">
+                使用 <kbd className="px-2 py-1 bg-nova-hover rounded text-xs">Ctrl+P</kbd> 快速打开文件
+              </div>
+              <div className="text-sm mt-1">
+                或使用 <kbd className="px-2 py-1 bg-nova-hover rounded text-xs">Ctrl+O</kbd> 打开文件夹
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   )
+}
+
+/** Format a byte count as an MB integer for the preview banner. */
+function formatMB(bytes: number | undefined): number {
+  return Math.round((bytes ?? 0) / (1024 * 1024))
 }

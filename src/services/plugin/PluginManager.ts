@@ -1,4 +1,5 @@
 import { PluginManifest, PluginInfo, PluginPermission, PluginStatus, PluginMessage, ExtensionAPI } from './types'
+import { getFileContent } from '@/editor/modelRegistry'
 
 // Lazy store imports to avoid circular dependency
 let _editorStore: any = null
@@ -212,7 +213,8 @@ export class PluginManager {
           if (!store) return null
           const activeFile = store.openFiles.find((f: any) => f.path === store.activeFilePath)
           if (!activeFile) return null
-          return { path: activeFile.path, content: activeFile.content, language: activeFile.language }
+          // Live text from the editor model; the store only keeps the initial copy
+          return { path: activeFile.path, content: getFileContent(activeFile.path, activeFile.content), language: activeFile.language }
         },
         insertText: (text: string) => {
           if (!hasPerm('editor.write')) throw new Error('Permission denied: editor.write required')

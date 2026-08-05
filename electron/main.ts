@@ -10,6 +10,10 @@ import { SQLiteStore } from './services/sqlite-store'
 
 const DEFAULT_EXCLUDE_FOLDERS = ['node_modules', '.git', 'dist', 'build', 'out']
 
+// Files larger than this are skipped by search:inFiles (reading + splitting a
+// multi-hundred-MB file to search it would block the main process)
+const SEARCH_MAX_FILE_BYTES = 50 * 1024 * 1024
+
 /**
  * Paths the renderer is allowed to touch. Populated from the dialogs that the
  * user explicitly opened (open folder / open file / save file) and the watched
@@ -185,9 +189,22 @@ function registerIpcHandlers(): void {
     return fileSystem.readFile(path)
   })
 
-  ipcMain.handle('fs:writeFile', async (_event, path: string, content: string, encoding: string) => {
+  ipcMain.handle('fs:writeFile', async (_event, path: string, content: string, encoding: string, hasBom?: boolean) => {
     assertPathAllowed(path)
-    return fileSystem.writeFile(path, content, encoding)
+    return fileSystem.writeFile(path, content, encoding, hasBom)
+  })
+
+  ipcMain.handle('fs:openStream', async (_event, path: string) => {
+    assertPathAllowed(path)
+    return fileSystem.openStream(path)
+  })
+
+  ipcMain.handle('fs:readChunk', async (_event, id: number) => {
+    return fileSystem.readNext(id)
+  })
+
+  ipcMain.handle('fs:closeStream', async (_event, id: number) => {
+    return fileSystem.closeStream(id)
   })
 
   ipcMain.handle('fs:listDir', async (_event, path: string) => {
@@ -470,6 +487,9 @@ function registerIpcHandlers(): void {
           } else {
             // Apply file pattern filter
             if (fileMatcher && !fileMatcher(entry.name || '')) continue
+            // Skip huge files — reading + splitting them to search would freeze
+            // the main process
+            if ((entry.size ?? 0) > SEARCH_MAX_FILE_BYTES) continue
             await searchInFile(entry.path)
           }
         }

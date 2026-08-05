@@ -5,8 +5,11 @@ export * from '@shared/constants'
 // Electron API type
 export interface ElectronAPI {
   // File System
-  readFile: (path: string) => Promise<{ content: string; encoding: string }>
-  writeFile: (path: string, content: string, encoding: string) => Promise<void>
+  readFile: (path: string) => Promise<{ content: string; encoding: string; hasBom: boolean }>
+  writeFile: (path: string, content: string, encoding: string, hasBom?: boolean) => Promise<void>
+  openFileStream: (path: string) => Promise<import('@shared/types').FileStreamStart>
+  readFileChunk: (id: number) => Promise<import('@shared/types').FileStreamChunk | null>
+  closeFileStream: (id: number) => Promise<void>
   listDir: (path: string) => Promise<import('@shared/types').FileEntry[]>
   createFile: (path: string) => Promise<void>
   createDir: (path: string) => Promise<void>
