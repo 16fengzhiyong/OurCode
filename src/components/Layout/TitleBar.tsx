@@ -3,6 +3,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
+import { useI18n } from '@/i18n/useI18n'
 
 interface MenuItem {
   label: string
@@ -26,6 +27,7 @@ function runEditorCommand(command: string): void {
 export default function TitleBar() {
   const { openSettings, toggleSidebar, toggleTerminal, toggleChat, openCommandPalette, openMarketplace } = useUIStore()
   const isMaximized = useUIStore((s) => s.isMaximized)
+  const t = useI18n()
 
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -52,13 +54,13 @@ export default function TitleBar() {
 
   const menus: MenuGroup[] = [
     {
-      label: '文件',
+      label: t('menu.file'),
       items: [
-        { label: '新建文件', shortcut: 'Ctrl+N', action: () => {
+        { label: t('menu.file.new'), shortcut: 'Ctrl+N', action: () => {
           useEditorStore.getState().newFile()
         }},
         { separator: true, label: '' },
-        { label: '打开文件夹', shortcut: 'Ctrl+O', action: async () => {
+        { label: t('menu.file.openFolder'), shortcut: 'Ctrl+O', action: async () => {
           const path = await window.electronAPI.openFolder()
           if (path) {
             useUIStore.getState().setRootPath(path)
@@ -69,82 +71,82 @@ export default function TitleBar() {
           }
         }},
         { separator: true, label: '' },
-        { label: '保存', shortcut: 'Ctrl+S', action: () => {
+        { label: t('menu.file.save'), shortcut: 'Ctrl+S', action: () => {
           const afp = useEditorStore.getState().activeFilePath
           if (afp) useEditorStore.getState().saveFile(afp)
         }},
-        { label: '全部保存', shortcut: 'Ctrl+Shift+S', action: () => useEditorStore.getState().saveAll() },
+        { label: t('menu.file.saveAll'), shortcut: 'Ctrl+Shift+S', action: () => useEditorStore.getState().saveAll() },
         { separator: true, label: '' },
-        { label: '新窗口', action: () => window.electronAPI.openNewWindow() },
-        { label: '偏好设置', action: openSettings },
+        { label: t('menu.file.newWindow'), action: () => window.electronAPI.openNewWindow() },
+        { label: t('menu.file.preferences'), action: openSettings },
       ],
     },
     {
-      label: '编辑',
+      label: t('menu.edit'),
       items: [
-        { label: '撤销', shortcut: 'Ctrl+Z', action: () => document.execCommand('undo') },
-        { label: '重做', shortcut: 'Ctrl+Y', action: () => document.execCommand('redo') },
+        { label: t('menu.edit.undo'), shortcut: 'Ctrl+Z', action: () => document.execCommand('undo') },
+        { label: t('menu.edit.redo'), shortcut: 'Ctrl+Y', action: () => document.execCommand('redo') },
         { separator: true, label: '' },
-        { label: '剪切', shortcut: 'Ctrl+X', action: () => document.execCommand('cut') },
-        { label: '复制', shortcut: 'Ctrl+C', action: () => document.execCommand('copy') },
-        { label: '粘贴', shortcut: 'Ctrl+V', action: () => document.execCommand('paste') },
+        { label: t('menu.edit.cut'), shortcut: 'Ctrl+X', action: () => document.execCommand('cut') },
+        { label: t('menu.edit.copy'), shortcut: 'Ctrl+C', action: () => document.execCommand('copy') },
+        { label: t('menu.edit.paste'), shortcut: 'Ctrl+V', action: () => document.execCommand('paste') },
         { separator: true, label: '' },
-        { label: '查找', shortcut: 'Ctrl+F', action: () => {
+        { label: t('menu.edit.find'), shortcut: 'Ctrl+F', action: () => {
           const editor = (window as any).__monacoEditor
           if (editor) editor.trigger('keyboard', 'actions.find', null)
         }},
-        { label: '替换', shortcut: 'Ctrl+H', action: () => {
+        { label: t('menu.edit.replace'), shortcut: 'Ctrl+H', action: () => {
           const editor = (window as any).__monacoEditor
           if (editor) editor.trigger('keyboard', 'editor.action.startFindReplaceAction', null)
         }},
         { separator: true, label: '' },
-        { label: '命令面板', shortcut: 'Ctrl+Shift+P', action: openCommandPalette },
+        { label: t('menu.edit.commandPalette'), shortcut: 'Ctrl+Shift+P', action: openCommandPalette },
       ],
     },
     {
-      label: '选择',
+      label: t('menu.selection'),
       items: [
-        { label: '全选', shortcut: 'Ctrl+A', action: () => document.execCommand('selectAll') },
-        { label: '展开选区', shortcut: 'Shift+Alt+→', action: () => runEditorCommand('editor.action.smartSelect.expand') },
-        { label: '收缩选区', shortcut: 'Shift+Alt+←', action: () => runEditorCommand('editor.action.smartSelect.shrink') },
+        { label: t('menu.selection.selectAll'), shortcut: 'Ctrl+A', action: () => document.execCommand('selectAll') },
+        { label: t('menu.selection.expand'), shortcut: 'Shift+Alt+→', action: () => runEditorCommand('editor.action.smartSelect.expand') },
+        { label: t('menu.selection.shrink'), shortcut: 'Shift+Alt+←', action: () => runEditorCommand('editor.action.smartSelect.shrink') },
       ],
     },
     {
-      label: '查看',
+      label: t('menu.view'),
       items: [
-        { label: '命令面板', shortcut: 'Ctrl+Shift+P', action: openCommandPalette },
+        { label: t('menu.edit.commandPalette'), shortcut: 'Ctrl+Shift+P', action: openCommandPalette },
         { separator: true, label: '' },
-        { label: '切换侧边栏', shortcut: 'Ctrl+B', action: toggleSidebar },
-        { label: '切换终端', shortcut: 'Ctrl+J', action: toggleTerminal },
-        { label: '切换AI面板', shortcut: 'Ctrl+L', action: toggleChat },
+        { label: t('menu.view.toggleSidebar'), shortcut: 'Ctrl+B', action: toggleSidebar },
+        { label: t('menu.view.toggleTerminal'), shortcut: 'Ctrl+J', action: toggleTerminal },
+        { label: t('menu.view.toggleChat'), shortcut: 'Ctrl+L', action: toggleChat },
       ],
     },
     {
-      label: '转到',
+      label: t('menu.go'),
       items: [
-        { label: '转到文件', shortcut: 'Ctrl+P', action: () => useUIStore.getState().openQuickOpen() },
+        { label: t('menu.go.gotoFile'), shortcut: 'Ctrl+P', action: () => useUIStore.getState().openQuickOpen() },
         { separator: true, label: '' },
-        { label: '转到符号', shortcut: 'Ctrl+Shift+O', action: () => runEditorCommand('editor.action.quickOutline') },
-        { label: '转到行号', shortcut: 'Ctrl+G', action: () => runEditorCommand('editor.action.gotoLine') },
+        { label: t('menu.go.gotoSymbol'), shortcut: 'Ctrl+Shift+O', action: () => runEditorCommand('editor.action.quickOutline') },
+        { label: t('menu.go.gotoLine'), shortcut: 'Ctrl+G', action: () => runEditorCommand('editor.action.gotoLine') },
         { separator: true, label: '' },
-        { label: '转到定义', shortcut: 'F12', action: () => runEditorCommand('editor.action.revealDefinition') },
-        { label: '转到引用', shortcut: 'Shift+F12', action: () => runEditorCommand('editor.action.referencesAction') },
+        { label: t('menu.go.gotoDefinition'), shortcut: 'F12', action: () => runEditorCommand('editor.action.revealDefinition') },
+        { label: t('menu.go.gotoReferences'), shortcut: 'Shift+F12', action: () => runEditorCommand('editor.action.referencesAction') },
       ],
     },
     {
-      label: '运行',
+      label: t('menu.run'),
       items: [
-        { label: '开始调试', shortcut: 'F5', disabled: true },
-        { label: '运行无调试', shortcut: 'Ctrl+F5', disabled: true },
+        { label: t('menu.run.debug'), shortcut: 'F5', disabled: true },
+        { label: t('menu.run.noDebug'), shortcut: 'Ctrl+F5', disabled: true },
         { separator: true, label: '' },
-        { label: '停止', shortcut: 'Shift+F5', disabled: true },
-        { label: '重启', shortcut: 'Ctrl+Shift+F5', disabled: true },
+        { label: t('menu.run.stop'), shortcut: 'Shift+F5', disabled: true },
+        { label: t('menu.run.restart'), shortcut: 'Ctrl+Shift+F5', disabled: true },
       ],
     },
     {
-      label: '智能体',
+      label: t('menu.agent'),
       items: [
-        { label: '新建对话', action: () => {
+        { label: t('menu.agent.newChat'), action: () => {
           const configStore = useConfigStore.getState()
           if (configStore.activeConfigGroupId) {
             useChatStore.getState().createSession(configStore.activeConfigGroupId)
@@ -152,12 +154,12 @@ export default function TitleBar() {
             openSettings()
           }
         }},
-        { label: '清空当前对话', action: () => {
+        { label: t('menu.agent.clearChat'), action: () => {
           const session = useChatStore.getState().getActiveSession()
           if (session) useChatStore.getState().clearMessages(session.id)
         }},
         { separator: true, label: '' },
-        { label: '导出对话为 Markdown', action: () => {
+        { label: t('menu.agent.exportMd'), action: () => {
           const session = useChatStore.getState().getActiveSession()
           if (session) {
             const md = useChatStore.getState().exportSession(session.id, 'markdown')
@@ -170,7 +172,7 @@ export default function TitleBar() {
             URL.revokeObjectURL(url)
           }
         }},
-        { label: '导出对话为 JSON', action: () => {
+        { label: t('menu.agent.exportJson'), action: () => {
           const session = useChatStore.getState().getActiveSession()
           if (session) {
             const json = useChatStore.getState().exportSession(session.id, 'json')
@@ -186,30 +188,30 @@ export default function TitleBar() {
       ],
     },
     {
-      label: '终端',
+      label: t('menu.terminal'),
       items: [
-        { label: '新建终端', shortcut: 'Ctrl+`', action: toggleTerminal },
+        { label: t('menu.terminal.new'), shortcut: 'Ctrl+`', action: toggleTerminal },
         { separator: true, label: '' },
-        { label: '终端面板', shortcut: 'Ctrl+J', action: toggleTerminal },
+        { label: t('menu.terminal.panel'), shortcut: 'Ctrl+J', action: toggleTerminal },
       ],
     },
     {
-      label: '扩展',
+      label: t('menu.extensions'),
       items: [
-        { label: '扩展市场', shortcut: 'Ctrl+Shift+X', action: openMarketplace },
+        { label: t('menu.extensions.marketplace'), shortcut: 'Ctrl+Shift+X', action: openMarketplace },
       ],
     },
     {
-      label: '帮助',
+      label: t('menu.help'),
       items: [
-        { label: '报告问题', action: () => {
+        { label: t('menu.help.reportIssue'), action: () => {
           window.open('https://github.com/anthropics/claude-code/issues', '_blank')
         }},
-        { label: '功能建议', action: () => {
+        { label: t('menu.help.featureRequest'), action: () => {
           window.open('https://github.com/anthropics/claude-code/issues', '_blank')
         }},
         { separator: true, label: '' },
-        { label: '导出所有数据', action: async () => {
+        { label: t('menu.help.exportData'), action: async () => {
           try {
             const sessions = await window.electronAPI.getSessions()
             const configs = await window.electronAPI.getConfigGroups()
@@ -223,14 +225,14 @@ export default function TitleBar() {
             URL.revokeObjectURL(url)
           } catch (e) { console.error(e) }
         }},
-        { label: '清除所有数据', action: () => {
+        { label: t('menu.help.clearData'), action: () => {
           if (confirm('确定要清除所有数据？此操作不可恢复！')) {
             localStorage.clear()
             window.location.reload()
           }
         }},
         { separator: true, label: '' },
-        { label: '开发者工具', action: () => {
+        { label: t('menu.help.devtools'), action: () => {
           window.electronAPI.openDevTools?.()
         }},
       ],

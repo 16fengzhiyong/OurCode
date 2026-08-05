@@ -13,6 +13,7 @@ import { useAICommandsStore } from './stores/aiCommandsStore'
 import { useShortcutStore } from './stores/shortcutStore'
 import { ensureProblemsSubscription, useProblemsStore } from './stores/problemsStore'
 import { registerCoreCommands } from './services/commands/coreCommands'
+import { setLocale, type Locale } from './i18n'
 
 export default function App() {
   const loadConfigGroups = useConfigStore((s) => s.loadConfigGroups)
@@ -32,6 +33,8 @@ export default function App() {
     loadConfigGroups().then(async () => {
       loadSessions()
       await loadPreferences()
+      // Apply the persisted UI language to the document
+      setLocale((useEditorStore.getState().preferences.language ?? 'zh-CN') as Locale)
       // Restore the persisted theme (initTheme used to hardcode 'dark' on startup)
       initTheme(useEditorStore.getState().preferences.theme)
       loadCommands()

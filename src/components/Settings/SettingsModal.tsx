@@ -422,6 +422,17 @@ export default function SettingsModal() {
                     </select>
                   </div>
                   <div className="flex items-center justify-between">
+                    <label className="text-sm text-nova-text-secondary">Language</label>
+                    <select
+                      value={preferences.language}
+                      onChange={(e) => savePreferences({ language: e.target.value as 'zh-CN' | 'en-US' })}
+                      className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-lg text-sm text-nova-text-primary outline-none"
+                    >
+                      <option value="zh-CN">简体中文</option>
+                      <option value="en-US">English</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between">
                     <label className="text-sm text-nova-text-secondary">主题色</label>
                     <div className="flex items-center gap-1.5">
                       {THEME_COLOR_PRESETS.map((c) => (
