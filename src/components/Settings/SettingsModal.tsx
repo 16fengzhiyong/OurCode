@@ -18,6 +18,10 @@ const SYSTEM_PROMPT_TEMPLATES = [
   { name: 'SQL Expert', prompt: 'You are a database expert. Help write efficient SQL queries and optimize performance.' },
 ]
 
+// Accent color presets for the Appearance section (the picker writes the
+// --accent / --primary-color CSS variables used by the whole UI)
+const THEME_COLOR_PRESETS = ['#007acc', '#3b82f6', '#7c5cbf', '#e11d48', '#059669', '#ea580c']
+
 export default function SettingsModal() {
   const {
     configGroups, activeConfigGroupId, models,
@@ -27,7 +31,8 @@ export default function SettingsModal() {
   } = useConfigStore()
 
   const { preferences, savePreferences } = useEditorStore()
-  const { isSettingsOpen, closeSettings, setTheme } = useUIStore()
+  const { isSettingsOpen, closeSettings, setTheme, setThemeColor } = useUIStore()
+  const themeColor = useUIStore((s) => s.themeColor)
   const shortcutStore = useShortcutStore()
 
   const [activeTab, setActiveTab] = useState<'api' | 'preferences' | 'shortcuts'>('api')
@@ -415,6 +420,27 @@ export default function SettingsModal() {
                       <option value="light">Light</option>
                       <option value="system">System</option>
                     </select>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-nova-text-secondary">主题色</label>
+                    <div className="flex items-center gap-1.5">
+                      {THEME_COLOR_PRESETS.map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => setThemeColor(c)}
+                          className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${themeColor.toLowerCase() === c ? 'border-white' : 'border-transparent'}`}
+                          style={{ background: c }}
+                          title={c}
+                        />
+                      ))}
+                      <input
+                        type="color"
+                        value={themeColor}
+                        onChange={(e) => setThemeColor(e.target.value)}
+                        className="w-6 h-6 rounded cursor-pointer border-none bg-transparent p-0"
+                        title="自定义颜色"
+                      />
+                    </div>
                   </div>
                   <div className="flex items-center justify-between">
                     <label className="text-sm text-nova-text-secondary">Font Size</label>

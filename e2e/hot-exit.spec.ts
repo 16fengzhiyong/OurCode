@@ -47,11 +47,12 @@ test.describe('Hot Exit', () => {
         ;(dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [folder] })
       }, dir)
       await win1.keyboard.press('Control+o')
-      await win1.waitForFunction(
-        () => document.getElementById('file-tree-root')?.getAttribute('data-root-path'),
-        null,
-        { timeout: 10000 },
-      )
+      // Retry the shortcut until the tree renders (keydown handler attachment
+      // races on cold start)
+      await expect(async () => {
+        await win1.keyboard.press('Control+o')
+        await expect(win1.locator('#file-tree-root >> text=hello.ts').first()).toBeVisible({ timeout: 4000 })
+      }).toPass({ timeout: 25000 })
 
       // Open hello.ts in the editor
       await win1.locator('#file-tree-root >> text=hello.ts').first().click()

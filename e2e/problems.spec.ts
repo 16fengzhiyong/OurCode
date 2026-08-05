@@ -34,10 +34,13 @@ test.describe('Problems Panel', () => {
       await app.evaluate(({ dialog }, folder) => {
         ;(dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [folder] })
       }, dir)
-      await win.keyboard.press('Control+o')
-      // The tree loads async after the folder dialog returns; a retrying
-      // toBeVisible covers the whole open-and-list sequence
-      await expect(win.locator('#file-tree-root >> text=broken.ts').first()).toBeVisible({ timeout: 15000 })
+      // Open the folder via Ctrl+O (stubbed dialog). Retry the shortcut until
+      // the tree renders — the keydown handler may not be attached yet on a
+      // cold start, and the tree lists the folder asynchronously.
+      await expect(async () => {
+        await win.keyboard.press('Control+o')
+        await expect(win.locator('#file-tree-root >> text=broken.ts').first()).toBeVisible({ timeout: 4000 })
+      }).toPass({ timeout: 25000 })
 
       // Open the broken file — the TS worker emits a marker
       await win.locator('#file-tree-root >> text=broken.ts').first().click()
