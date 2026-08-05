@@ -39,6 +39,12 @@ export const READONLY_PREVIEW_CHARS = 500 * 1024 // ≈ 500 KB / a few thousand 
 // single synchronous pass in the main process.
 const STREAMED_SAVE_THRESHOLD = 4 * 1024 * 1024
 
+// Paths with an in-flight save. Autosave fires every second and a large
+// streamed save runs for many seconds, so without this set each tick would
+// start another concurrent save of the same file (markDirty(false) only runs
+// when the first save finishes). Guarded in saveFile.
+const savingFiles = new Set<string>()
+
 export interface Panel {
   id: string
   tabOrder: string[]
@@ -587,51 +593,57 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   saveFile: async (path) => {
-    const file = get().openFiles.find((f) => f.path === path)
-    if (!file) return
+    // Guard against overlapping saves. Autosave fires every second, and a
+    // large streamed save takes many seconds — without this guard each tick
+    // would start another concurrent save of the same file, piling up until
+    // the main process is saturated encoding/writing gigabytes.
+    if (savingFiles.has(path)) return
+    savingFiles.add(path)
+    try {
+      const file = get().openFiles.find((f) => f.path === path)
+      if (!file) return
 
-    // If the file is still streaming in, wait for it to finish first
-    const pendingLoad = waitForLoad(path)
-    if (pendingLoad) await pendingLoad.catch(() => {})
+      // If the file is still streaming in, wait for it to finish first
+      const pendingLoad = waitForLoad(path)
+      if (pendingLoad) await pendingLoad.catch(() => {})
 
-    // Untitled buffer → prompt Save As, then migrate the tab to the real path
-    if (path.startsWith('/untitled/')) {
-      // Untitled buffers are small; reading the live model text is cheap here
-      const content = getFileContent(path, file.content)
-      const newPath = await window.electronAPI.saveFile()
-      if (!newPath) return
-      await window.electronAPI.writeFile(newPath, content, file.encoding, file.hasBom)
-      // Re-register the live model under the real path (and store the saved text
-      // as the initial copy) so the migrated tab keeps its content
-      const model = getModel(path)
-      if (model) {
-        registerModel(newPath, model)
-        unregisterModel(path)
-      }
-      set((s) => {
-        const newOpenFiles = s.openFiles.map((f) =>
-          f.path === path ? { ...f, path: newPath, content, isDirty: false } : f
-        )
-        const newPanels = { ...s.panels }
-        for (const pid of Object.keys(newPanels)) {
-          const p = newPanels[pid]
-          if (p.tabOrder.includes(path)) {
-            newPanels[pid] = {
-              ...p,
-              tabOrder: p.tabOrder.map((tp) => (tp === path ? newPath : tp)),
-              activeFilePath: p.activeFilePath === path ? newPath : p.activeFilePath,
+      // Untitled buffer → prompt Save As, then migrate the tab to the real path
+      if (path.startsWith('/untitled/')) {
+        // Untitled buffers are small; reading the live model text is cheap here
+        const content = getFileContent(path, file.content)
+        const newPath = await window.electronAPI.saveFile()
+        if (!newPath) return
+        await window.electronAPI.writeFile(newPath, content, file.encoding, file.hasBom)
+        // Re-register the live model under the real path (and store the saved text
+        // as the initial copy) so the migrated tab keeps its content
+        const model = getModel(path)
+        if (model) {
+          registerModel(newPath, model)
+          unregisterModel(path)
+        }
+        set((s) => {
+          const newOpenFiles = s.openFiles.map((f) =>
+            f.path === path ? { ...f, path: newPath, content, isDirty: false } : f
+          )
+          const newPanels = { ...s.panels }
+          for (const pid of Object.keys(newPanels)) {
+            const p = newPanels[pid]
+            if (p.tabOrder.includes(path)) {
+              newPanels[pid] = {
+                ...p,
+                tabOrder: p.tabOrder.map((tp) => (tp === path ? newPath : tp)),
+                activeFilePath: p.activeFilePath === path ? newPath : p.activeFilePath,
+              }
             }
           }
-        }
-        const next = { ...s, openFiles: newOpenFiles, panels: newPanels }
-        return { ...next, ...syncDerivedState(next) }
-      })
-      return
-    }
+          const next = { ...s, openFiles: newOpenFiles, panels: newPanels }
+          return { ...next, ...syncDerivedState(next) }
+        })
+        return
+      }
 
-    if (!file.isDirty) return
+      if (!file.isDirty) return
 
-    try {
       const model = getModel(path)
       // Large models are streamed to disk in bounded chunks. Reading the whole
       // document (`getFileContent` → `model.getValue()`) is only done for small
@@ -649,6 +661,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     } catch (error) {
       console.error('Failed to save file:', error)
       throw error
+    } finally {
+      savingFiles.delete(path)
     }
   },
 
