@@ -7,6 +7,7 @@ import picomatch from 'picomatch'
 import { autoUpdater, UpdateInfo } from 'electron-updater'
 import { FileSystemService } from './services/file-system'
 import { SQLiteStore } from './services/sqlite-store'
+import { BackupService } from './services/backup'
 
 const DEFAULT_EXCLUDE_FOLDERS = ['node_modules', '.git', 'dist', 'build', 'out']
 
@@ -71,6 +72,7 @@ let mainWindow: BrowserWindow | null = null
 const allWindows: Set<BrowserWindow> = new Set()
 let fileSystem: FileSystemService
 let store: SQLiteStore
+let backup: BackupService
 
 interface TerminalSession {
   pty: pty.IPty
@@ -290,6 +292,27 @@ function registerIpcHandlers(): void {
     assertPathAllowed(src)
     assertPathAllowed(dest)
     return fileSystem.move(src, dest)
+  })
+
+  // Hot-exit backups (unsaved dirty buffers mirrored off the real file)
+  ipcMain.handle('backup:save', async (_event, filePath: string, content: string, encoding: string, hasBom?: boolean) => {
+    return backup.save(filePath, content, encoding, Boolean(hasBom))
+  })
+
+  ipcMain.handle('backup:list', async () => {
+    return backup.list()
+  })
+
+  ipcMain.handle('backup:read', async (_event, filePath: string) => {
+    return backup.read(filePath)
+  })
+
+  ipcMain.handle('backup:delete', async (_event, filePath: string) => {
+    return backup.delete(filePath)
+  })
+
+  ipcMain.handle('backup:clearAll', async () => {
+    return backup.clearAll()
   })
 
   // Store handlers
@@ -705,6 +728,7 @@ app.whenReady().then(() => {
   const userDataPath = app.getPath('userData')
   fileSystem = new FileSystemService()
   store = new SQLiteStore(userDataPath)
+  backup = new BackupService(join(userDataPath, 'backups'))
 
   registerIpcHandlers()
   createWindow()

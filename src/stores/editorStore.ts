@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { monaco } from '@/editor/monacoSetup'
+import { monaco } from '@/editor/monacoSetup'
 import { OpenFile, UserPreferences, DEFAULT_PREFERENCES, LANGUAGE_MAP } from '@/types'
 import {
   getFileContent,
@@ -44,6 +44,55 @@ const STREAMED_SAVE_THRESHOLD = 4 * 1024 * 1024
 // start another concurrent save of the same file (markDirty(false) only runs
 // when the first save finishes). Guarded in saveFile.
 const savingFiles = new Set<string>()
+
+// ── Hot exit (crash-safe unsaved buffers) ──────────────────────────────────
+// Dirty buffers are mirrored to <userData>/backups a beat after the last edit
+// and deleted on save/close/revert. Files above this size are skipped: backing
+// up a multi-hundred-MB model means copying the whole buffer every few seconds,
+// exactly what the streaming load/save paths exist to avoid. (VS Code likewise
+// refuses to hot-exit extremely large files.)
+const HOT_EXIT_BACKUP_MAX_BYTES = 50 * 1024 * 1024
+const HOT_EXIT_DEBOUNCE_MS = 1500
+const backupTimers = new Map<string, NodeJS.Timeout>()
+
+function clearBackupTimer(path: string): void {
+  const t = backupTimers.get(path)
+  if (t) {
+    clearTimeout(t)
+    backupTimers.delete(path)
+  }
+}
+
+function scheduleHotExitBackup(path: string): void {
+  clearBackupTimer(path)
+  backupTimers.set(path, setTimeout(() => {
+    void performHotExitBackup(path)
+  }, HOT_EXIT_DEBOUNCE_MS))
+}
+
+async function performHotExitBackup(path: string): Promise<void> {
+  backupTimers.delete(path)
+  const file = useEditorStore.getState().openFiles.find((f) => f.path === path)
+  if (!file || !file.isDirty) return
+  if ((file.size ?? 0) > HOT_EXIT_BACKUP_MAX_BYTES) return
+  const model = getModel(path)
+  if (model && model.getValueLength() > HOT_EXIT_BACKUP_MAX_BYTES) return
+  try {
+    const content = getFileContent(path, file.content)
+    await window.electronAPI.saveBackup(path, content, file.encoding, file.hasBom)
+  } catch {
+    // Backups are best-effort — a failed write must never break typing/saving
+  }
+}
+
+async function clearHotExitBackup(path: string): Promise<void> {
+  clearBackupTimer(path)
+  try {
+    await window.electronAPI.deleteBackup(path)
+  } catch {
+    /* best-effort */
+  }
+}
 
 export interface Panel {
   id: string
@@ -95,6 +144,7 @@ interface EditorState {
   setFileEncoding: (path: string, encoding: string) => void
   revertFile: (path: string) => Promise<void>
   updateFileContent: (path: string, content: string) => void
+  restoreFromBackup: (filePath: string, content: string, encoding: string, hasBom: boolean) => Promise<void>
 
   getActiveFile: () => OpenFile | undefined
   getLanguageByPath: (path: string) => string
@@ -501,6 +551,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const next = { ...s, openFiles: newOpenFiles, panels: newPanels }
       return { ...next, ...syncDerivedState(next) }
     })
+    void clearHotExitBackup(path)
   },
 
   setActiveFile: (path, panelId) => {
@@ -636,6 +687,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           const next = { ...s, openFiles: newOpenFiles, panels: newPanels }
           return { ...next, ...syncDerivedState(next) }
         })
+        void clearHotExitBackup(path)
         return
       }
 
@@ -655,6 +707,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         await window.electronAPI.writeFile(path, content, file.encoding, file.hasBom)
       }
       get().markDirty(path, false)
+      void clearHotExitBackup(path)
     } catch (error) {
       console.error('Failed to save file:', error)
       throw error
@@ -669,17 +722,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   markDirty: (path, isDirty = true) => {
-    set((s) => {
-      // No-op when the flag is already set so typing doesn't churn subscribers
-      // (a file gets dirty on the first keystroke, not every keystroke)
-      const file = s.openFiles.find((f) => f.path === path)
-      if (!file || file.isDirty === isDirty) return s
-      return {
-        openFiles: s.openFiles.map((f) =>
-          f.path === path ? { ...f, isDirty } : f
-        ),
-      }
-    })
+    const file = get().openFiles.find((f) => f.path === path)
+    if (!file || file.isDirty === isDirty) return
+    // First keystroke on a clean buffer schedules the hot-exit backup
+    if (isDirty) scheduleHotExitBackup(path)
+    set((s) => ({
+      openFiles: s.openFiles.map((f) =>
+        f.path === path ? { ...f, isDirty } : f
+      ),
+    }))
   },
 
   setFileEncoding: (path, encoding) => {
@@ -702,6 +753,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           f.path === path ? { ...f, content, encoding, hasBom, isDirty: false } : f
         ),
       }))
+      void clearHotExitBackup(path)
     } catch (error) {
       console.error('Failed to revert file:', error)
       throw error
@@ -714,6 +766,60 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         f.path === path ? { ...f, content, isDirty: true } : f
       ),
     }))
+  },
+
+  /** Open a tab filled with hot-exit backup content (no disk read, marked dirty). */
+  restoreFromBackup: async (filePath, content, encoding, hasBom) => {
+    const state = get()
+    const language = state.getLanguageByPath(filePath)
+
+    // If already open, just refresh the live model and mark dirty
+    const existing = state.openFiles.find((f) => f.path === filePath)
+    if (existing) {
+      const model = getModel(filePath)
+      if (model) model.setValue(content)
+      set((s) => ({
+        openFiles: s.openFiles.map((f) =>
+          f.path === filePath ? { ...f, content, encoding, hasBom, isDirty: true } : f
+        ),
+      }))
+      return
+    }
+
+    // Pre-register the model so EditorContainer picks it up without streaming
+    let model = getModel(filePath)
+    if (model) {
+      model.setValue(content)
+    } else {
+      const uri = monaco.Uri.parse(`file:///${filePath}`)
+      model = monaco.editor.createModel(content, language, uri)
+      registerModel(filePath, model)
+    }
+
+    set((s) => {
+      const panel = s.panels[s.activePanelId]
+      if (!panel) return s
+      const newPanel: Panel = {
+        ...panel,
+        activeFilePath: filePath,
+        tabOrder: panel.tabOrder.includes(filePath) ? panel.tabOrder : [...panel.tabOrder, filePath],
+      }
+      const newFile: OpenFile = {
+        path: filePath,
+        content,
+        language,
+        encoding,
+        lineEnding: 'lf',
+        isDirty: true,
+        hasBom,
+      }
+      const next = {
+        ...s,
+        openFiles: [...s.openFiles, newFile],
+        panels: { ...s.panels, [s.activePanelId]: newPanel },
+      }
+      return { ...next, ...syncDerivedState(next) }
+    })
   },
 
   getActiveFile: () => {

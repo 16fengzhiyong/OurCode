@@ -118,6 +118,15 @@ export interface FileStat {
   modifiedAt: number
 }
 
+// Hot-exit backup entry (an unsaved dirty buffer mirrored by the main process)
+export interface BackupEntry {
+  filePath: string
+  encoding: string
+  hasBom: boolean
+  size: number
+  mtime: number
+}
+
 // User Preferences
 export interface UserPreferences {
   theme: 'light' | 'dark' | 'system'

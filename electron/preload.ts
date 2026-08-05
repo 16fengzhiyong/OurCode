@@ -29,6 +29,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   copyPath: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_COPY_PATH, path),
   copy: (src: string, dest: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_COPY, src, dest),
   move: (src: string, dest: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_MOVE, src, dest),
+
+  // Hot-exit backups
+  saveBackup: (filePath: string, content: string, encoding: string, hasBom?: boolean) =>
+    ipcRenderer.invoke('backup:save', filePath, content, encoding, hasBom),
+  listBackups: () => ipcRenderer.invoke('backup:list'),
+  readBackup: (filePath: string) => ipcRenderer.invoke('backup:read', filePath),
+  deleteBackup: (filePath: string) => ipcRenderer.invoke('backup:delete', filePath),
+  clearBackups: () => ipcRenderer.invoke('backup:clearAll'),
   onFileChanged: (callback: (path: string) => void) => {
     ipcRenderer.on(IPC_CHANNELS.FS_FILE_CHANGED, (_event, path) => callback(path))
     return () => {

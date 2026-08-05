@@ -219,9 +219,13 @@ export default function MainLayout() {
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [openFolderFromShortcut]) // No deps — reads live store state
 
-  // Auto-save timer
+  // Auto-save timer — subscribes to the preference so toggling Auto Save in
+  // Settings takes effect immediately (previously the effect ran once on mount
+  // and the toggle only applied after a restart).
+  const autoSave = useEditorStore((s) => s.preferences.autoSave)
+  const autoSaveInterval = useEditorStore((s) => s.preferences.autoSaveInterval)
   useEffect(() => {
-    if (!useEditorStore.getState().preferences.autoSave) {
+    if (!autoSave) {
       if (autoSaveTimerRef.current) { clearInterval(autoSaveTimerRef.current); autoSaveTimerRef.current = null }
       return
     }
@@ -229,9 +233,9 @@ export default function MainLayout() {
       useEditorStore.getState().openFiles.filter((f) => f.isDirty).forEach((f) => {
         useEditorStore.getState().saveFile(f.path).catch(console.error)
       })
-    }, useEditorStore.getState().preferences.autoSaveInterval)
+    }, autoSaveInterval)
     return () => { if (autoSaveTimerRef.current) clearInterval(autoSaveTimerRef.current) }
-  }, []) // Run once 鈥?reads from store directly
+  }, [autoSave, autoSaveInterval])
 
   const effectiveSidebarWidth = isCompact ? Math.min(sidebarWidth, 200) : sidebarWidth
 

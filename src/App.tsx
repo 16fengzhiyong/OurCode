@@ -3,6 +3,8 @@ import MainLayout from './components/Layout/MainLayout'
 import ErrorBoundary from './components/Common/ErrorBoundary'
 import ToolApprovalDialog from './components/ChatPanel/ToolApprovalDialog'
 import OnboardingModal from './components/Onboarding/OnboardingModal'
+import RestoreBackupsModal from './components/Editor/RestoreBackupsModal'
+import type { BackupEntry } from '@shared/types'
 import { useConfigStore } from './stores/configStore'
 import { useChatStore, refreshGitBranch } from './stores/chatStore'
 import { useEditorStore } from './stores/editorStore'
@@ -19,6 +21,7 @@ export default function App() {
 
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [ready, setReady] = useState(false)
+  const [pendingBackups, setPendingBackups] = useState<BackupEntry[]>([])
 
   useEffect(() => {
     const hasCompleted = localStorage.getItem('hasCompletedOnboarding')
@@ -31,6 +34,11 @@ export default function App() {
       // Load persisted shortcut presets/custom bindings before the first keystroke
       useShortcutStore.getState().loadShortcuts()
       refreshGitBranch()
+      // Hot-exit backups from a previous session (crash / force-quit recovery)
+      try {
+        const backups = await window.electronAPI.listBackups()
+        if (backups.length > 0) setPendingBackups(backups)
+      } catch { /* ignore */ }
       setReady(true)
       if (!hasCompleted) {
         setShowOnboarding(true)
@@ -56,6 +64,9 @@ export default function App() {
       <MainLayout />
       <ToolApprovalDialog />
       {ready && showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
+      {ready && pendingBackups.length > 0 && (
+        <RestoreBackupsModal backups={pendingBackups} onClose={() => setPendingBackups([])} />
+      )}
     </ErrorBoundary>
   )
 }

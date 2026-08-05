@@ -27,6 +27,11 @@ export interface ElectronAPI {
   copyPath: (path: string) => Promise<void>
   copy: (src: string, dest: string) => Promise<void>
   move: (src: string, dest: string) => Promise<void>
+  saveBackup: (filePath: string, content: string, encoding: string, hasBom?: boolean) => Promise<void>
+  listBackups: () => Promise<import('@shared/types').BackupEntry[]>
+  readBackup: (filePath: string) => Promise<{ content: string; encoding: string; hasBom: boolean } | null>
+  deleteBackup: (filePath: string) => Promise<void>
+  clearBackups: () => Promise<void>
   onFileChanged: (callback: (path: string) => void) => () => void
 
   // Store
