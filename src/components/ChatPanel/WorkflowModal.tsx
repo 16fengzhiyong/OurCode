@@ -80,7 +80,7 @@ export default function WorkflowModal({ onClose }: { onClose: () => void }) {
                   <button
                     onClick={() => handleRun(w.prompt)}
                     className="px-3 py-1 text-xs text-white rounded hover:opacity-90 transition-opacity"
-                    style={{ background: 'linear-gradient(135deg, #533483, #007acc)' }}
+                    style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
                   >
                     ▶ 运行
                   </button>
@@ -127,7 +127,7 @@ export default function WorkflowModal({ onClose }: { onClose: () => void }) {
               onClick={handleSave}
               disabled={!prompt.trim()}
               className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
-              style={{ background: 'linear-gradient(135deg, #533483, #007acc)' }}
+              style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
             >
               保存工作流
             </button>

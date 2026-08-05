@@ -257,7 +257,7 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
                 key={session.id}
                 className={`
                   group px-3 py-2 cursor-pointer transition-colors
-                  ${isActive ? 'bg-nova-accent/10 border-l-2 border-l-nova-accent' : 'hover:bg-nova-hover border-l-2 border-l-transparent'}
+                  ${isActive ? 'bg-nova-accent/15 border-l-2 border-l-nova-accent' : 'hover:bg-nova-hover border-l-2 border-l-transparent'}
                   ${session.archivedAt ? 'opacity-60' : ''}
                 `}
                 onClick={() => setActiveSession(session.id)}

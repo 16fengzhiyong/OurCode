@@ -65,11 +65,8 @@ export default function ChatInput() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileSearchRef = useRef<HTMLDivElement>(null)
 
-  const { sendMessage, isLoading, stopGeneration, queueMessage, sessions, activeSessionId, setAgentMode } = useChatStore()
+  const { sendMessage, isLoading, stopGeneration, queueMessage } = useChatStore()
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
-
-  const activeSession = sessions.find((s) => s.id === activeSessionId)
-  const agentMode = activeSession?.agentMode || 'chat'
 
   // Auto-resize textarea
   useEffect(() => {
@@ -327,7 +324,7 @@ export default function ChatInput() {
                 key={cmd.id}
                 className={`px-3 py-2 cursor-pointer text-sm flex items-center gap-2 ${
                   index === selectedSlashIndex
-                    ? 'bg-[#094771] text-white'
+                    ? 'bg-nova-accent/15 text-white'
                     : 'text-nova-text-secondary hover:bg-nova-hover'
                 }`}
                 onClick={() => insertSlashCommand(cmd)}
@@ -351,7 +348,7 @@ export default function ChatInput() {
                 key={file.path}
                 className={`px-3 py-2 cursor-pointer text-sm flex items-center gap-2 ${
                   index === selectedFileIndex
-                    ? 'bg-[#094771] text-white'
+                    ? 'bg-nova-accent/15 text-white'
                     : 'text-nova-text-secondary hover:bg-nova-hover'
                 }`}
                 onClick={() => insertFileReference(file.path)}
@@ -364,36 +361,15 @@ export default function ChatInput() {
         )}
 
         <div
-          className="overflow-hidden"
+          className="overflow-hidden transition-colors focus-within:border-nova-accent/70"
           style={{
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 8,
+            background: 'var(--card, #202122)',
+            border: '1px solid #333536',
+            borderRadius: 12,
           }}
         >
           {/* Toolbar */}
-          <div className="flex items-center gap-1 px-2.5 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            {/* Agent mode toggle: chat / plan (Windsurf Cascade-style) */}
-            {activeSessionId && (
-              <div className="flex items-center mr-1 rounded-md overflow-hidden border border-nova-border/60 text-[11px]">
-                <button
-                  onClick={() => setAgentMode(activeSessionId, 'chat')}
-                  className={`px-2 py-0.5 transition-colors ${agentMode === 'chat' ? 'text-white font-medium' : 'text-nova-text-muted hover:text-nova-text-secondary'}`}
-                  style={agentMode === 'chat' ? { background: 'linear-gradient(135deg, #533483, #007acc)' } : undefined}
-                  title="对话模式：直接回答（Windsurf Code 模式）"
-                >
-                  💬 对话
-                </button>
-                <button
-                  onClick={() => setAgentMode(activeSessionId, 'plan')}
-                  className={`px-2 py-0.5 transition-colors ${agentMode === 'plan' ? 'text-white font-medium' : 'text-nova-text-muted hover:text-nova-text-secondary'}`}
-                  style={agentMode === 'plan' ? { background: 'linear-gradient(135deg, #533483, #007acc)' } : undefined}
-                  title="计划模式：先制定计划，批准后执行（Windsurf Plan 模式）"
-                >
-                  📋 计划
-                </button>
-              </div>
-            )}
+          <div className="flex items-center gap-1 px-2 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             <button
               className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors text-xs"
               title="插入代码块"
@@ -427,7 +403,7 @@ export default function ChatInput() {
                 <line x1="8" y1="23" x2="16" y2="23" />
               </svg>
             </button>
-            <div className="w-px h-3.5 mx-0.5" style={{ background: 'rgba(255,255,255,0.08)' }} />
+            <div className="flex-1" />
             <button className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors" title="模型设置">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
@@ -449,7 +425,7 @@ export default function ChatInput() {
 
           {/* Footer */}
           <div className="flex items-center gap-1.5 px-2.5 py-1.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            <span className="text-[11px] flex-1" style={{ color: '#5a5a7a' }}>
+            <span className="text-[11px] flex-1 text-nova-text-muted">
               {currentModelName} · {isLoading ? '生成中，Enter 可排队' : 'Ctrl + Enter 发送'}
             </span>
             <label
@@ -468,8 +444,8 @@ export default function ChatInput() {
             {isLoading ? (
               <button
                 onClick={stopGeneration}
-                className="px-3 py-1 text-xs text-red-400 hover:text-red-300 transition-colors rounded"
-                style={{ background: 'rgba(244,71,71,0.15)' }}
+                className="px-3 py-1 text-xs text-red-400 hover:text-red-300 transition-colors rounded-lg"
+                style={{ background: 'rgba(244,135,113,0.15)' }}
               >
                 停止
               </button>
@@ -477,8 +453,8 @@ export default function ChatInput() {
               <button
                 onClick={handleSubmit}
                 disabled={!input.trim() || !activeConfigGroupId}
-                className="px-3 py-1 text-xs text-white font-medium rounded disabled:opacity-30 hover:opacity-90 transition-opacity"
-                style={{ background: 'linear-gradient(135deg, #533483, #007acc)' }}
+                className="px-3.5 py-1 text-xs text-white font-medium rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
+                style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
               >
                 发送
               </button>

@@ -406,6 +406,17 @@ body {
   line-height: 1.5;
 }
 
+/* highlight.js inside chat code blocks inherits the surface background so it
+   blends into the Windsurf 2026 dark chrome instead of its own #0d1117 */
+.code-block .hljs {
+  background: transparent;
+}
+
+.code-block pre,
+.code-block .hljs {
+  background: var(--surface);
+}
+
 /* Search result highlight (Windsurf find-match teal) */
 .searchHighlight {
   background-color: rgba(57, 148, 188, 0.35);

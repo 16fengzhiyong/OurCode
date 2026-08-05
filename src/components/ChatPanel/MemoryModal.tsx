@@ -48,7 +48,7 @@ export default function MemoryModal({ onClose }: { onClose: () => void }) {
               >
                 <span
                   className={`mt-1 text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
-                    m.scope === 'project' ? 'bg-sky-500/20 text-sky-300' : 'bg-nova-accent/20 text-nova-accent'
+                    m.scope === 'project' ? 'bg-[#57A3F8]/20 text-[#57A3F8]' : 'bg-nova-accent/20 text-nova-accent'
                   }`}
                 >
                   {m.scope === 'project' ? '项目' : '全局'}
@@ -92,7 +92,7 @@ export default function MemoryModal({ onClose }: { onClose: () => void }) {
                 onClick={handleAdd}
                 disabled={!content.trim()}
                 className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
-                style={{ background: 'linear-gradient(135deg, #533483, #007acc)' }}
+                style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
               >
                 保存记忆
               </button>

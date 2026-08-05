@@ -117,7 +117,7 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
               onClick={handleRun}
               disabled={running || !prompt.trim() || selected.length < 2}
               className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
-              style={{ background: 'linear-gradient(135deg, #533483, #007acc)' }}
+              style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
             >
               {running ? '对比中...' : `▶ 开始对比 (${selected.length})`}
             </button>
@@ -150,7 +150,7 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
                     <button
                       onClick={() => adopt(r)}
                       className="px-3 py-1 text-xs text-white rounded hover:opacity-90 transition-opacity"
-                      style={{ background: 'linear-gradient(135deg, #533483, #007acc)' }}
+                      style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
                     >
                       采用此回答
                     </button>
@@ -167,9 +167,9 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
           </div>
           {running && results.length === 0 && (
             <div className="flex items-center justify-center gap-3 text-nova-text-muted text-sm py-8">
-              <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#6d6d8d' }} />
-              <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#6d6d8d', animationDelay: '0.2s' }} />
-              <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#6d6d8d', animationDelay: '0.4s' }} />
+              <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485' }} />
+              <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.2s' }} />
+              <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.4s' }} />
               <span>模型并行推理中...</span>
             </div>
           )}

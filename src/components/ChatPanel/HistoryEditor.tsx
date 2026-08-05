@@ -34,7 +34,7 @@ export default function HistoryEditor({ sessionId, isExpanded, onToggle }: Histo
 
   return (
     <div
-      className="border-t border-[#2A2F3D] flex-shrink-0"
+      className="border-t border-nova-border flex-shrink-0"
       style={{ maxHeight: isExpanded ? 260 : 48 }}
     >
       {/* Header */}
@@ -54,11 +54,11 @@ export default function HistoryEditor({ sessionId, isExpanded, onToggle }: Histo
           height="12"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#7F8AA8"
+          stroke="currentColor"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="transition-transform"
+          className="transition-transform text-nova-text-muted"
           style={{ transform: isExpanded ? 'rotate(0deg)' : 'rotate(180deg)' }}
         >
           <polyline points="18 15 12 9 6 15" />
@@ -74,10 +74,10 @@ export default function HistoryEditor({ sessionId, isExpanded, onToggle }: Histo
             userMessages.map((msg) => (
               <div
                 key={msg.id}
-                className="bg-[#11161F] rounded-[14px] px-3 py-2.5 flex items-center justify-between group hover:bg-nova-hover transition-colors"
+                className="bg-nova-card rounded-[14px] px-3 py-2.5 flex items-center justify-between group hover:bg-nova-hover transition-colors"
               >
                 <div className="flex items-center gap-2.5 overflow-hidden">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7F8AA8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                   </svg>
                   <span className="text-xs text-text-secondary truncate">

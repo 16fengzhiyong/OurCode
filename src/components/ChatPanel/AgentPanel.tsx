@@ -15,7 +15,7 @@ const STATUS_LABEL: Record<TodoItem['status'], string> = {
 
 const STATUS_STYLE: Record<TodoItem['status'], string> = {
   pending: 'text-nova-text-muted border-nova-border',
-  in_progress: 'text-sky-300 border-sky-500/40 bg-sky-500/10',
+  in_progress: 'text-[#57A3F8] border-[#57A3F8]/40 bg-[#57A3F8]/10',
   completed: 'text-green-400 border-green-500/40 bg-green-500/10',
   failed: 'text-red-400 border-red-500/40 bg-red-500/10',
 }
@@ -99,7 +99,7 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
             onClick={() => approvePlan(sessionId)}
             disabled={isLoading}
             className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-40 hover:opacity-90 transition-opacity"
-            style={{ background: 'linear-gradient(135deg, #533483, #007acc)' }}
+            style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
           >
             ✓ 同意并执行
           </button>

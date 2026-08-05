@@ -58,7 +58,7 @@ export default function QuestionDialog() {
           <button
             onClick={() => customAnswer.trim() ? submit(customAnswer.trim()) : submit('（无输入）')}
             className="px-4 py-2 text-sm text-white rounded-lg hover:opacity-90 transition-opacity"
-            style={{ background: 'linear-gradient(135deg, #533483, #007acc)' }}
+            style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
           >
             发送
           </button>

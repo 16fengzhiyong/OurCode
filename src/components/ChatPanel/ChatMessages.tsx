@@ -254,13 +254,11 @@ export default function ChatMessages() {
       ))}
 
       {isLoading && (
-        <div className="flex gap-3 animate-fade-in">
-          <div className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, #533483, #007acc)' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" className="animate-pulse">
-              <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5" />
-            </svg>
+        <div className="flex gap-2.5 animate-fade-in">
+          <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 mt-0.5" style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}>
+            <WaveLogo size={14} />
           </div>
-          <div className="rounded-[18px] px-3.5 py-3 max-w-[80%]" style={{ background: '#16213e', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="flex-1 min-w-0">
             {streamingThinking && <ThinkingBlock content={streamingThinking} />}
             {streamingContent ? (
               <div className="text-sm text-nova-text-primary whitespace-pre-wrap">
@@ -270,9 +268,9 @@ export default function ChatMessages() {
             ) : !streamingThinking ? (
               <div className="flex items-center gap-2 text-nova-text-muted text-sm">
                 <div className="flex gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#6d6d8d' }} />
-                  <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#6d6d8d', animationDelay: '0.2s' }} />
-                  <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#6d6d8d', animationDelay: '0.4s' }} />
+                  <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485' }} />
+                  <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.2s' }} />
+                  <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.4s' }} />
                 </div>
                 <span>思考中...</span>
               </div>
