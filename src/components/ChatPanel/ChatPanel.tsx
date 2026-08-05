@@ -4,6 +4,8 @@ import ChatInput from './ChatInput'
 import HistoryEditor from './HistoryEditor'
 import ChatSidebar from './ChatSidebar'
 import MemoryModal from './MemoryModal'
+import ArenaModal from './ArenaModal'
+import WorkflowModal from './WorkflowModal'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -16,6 +18,8 @@ export default function ChatPanel() {
   const [showHistory, setShowHistory] = useState(true)
   const [showSessionList, setShowSessionList] = useState(false)
   const [showMemories, setShowMemories] = useState(false)
+  const [showArena, setShowArena] = useState(false)
+  const [showWorkflows, setShowWorkflows] = useState(false)
 
   const handleNewSession = () => {
     if (activeConfigGroupId) {
@@ -36,6 +40,12 @@ export default function ChatPanel() {
 
       {/* Memory manager */}
       {showMemories && <MemoryModal onClose={() => setShowMemories(false)} />}
+
+      {/* Arena (parallel model comparison) */}
+      {showArena && <ArenaModal onClose={() => setShowArena(false)} />}
+
+      {/* Workflows */}
+      {showWorkflows && <WorkflowModal onClose={() => setShowWorkflows(false)} />}
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* AI Header */}
@@ -63,6 +73,20 @@ export default function ChatPanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowArena(true)}
+                className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary transition-colors"
+                title="Arena 模型对比"
+              >
+                <span className="text-sm">⚖️</span>
+              </button>
+              <button
+                onClick={() => setShowWorkflows(true)}
+                className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary transition-colors"
+                title="工作流"
+              >
+                <span className="text-sm">🔁</span>
+              </button>
               <button
                 onClick={() => setShowMemories(true)}
                 className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary transition-colors"

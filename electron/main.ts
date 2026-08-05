@@ -658,6 +658,20 @@ function registerIpcHandlers(): void {
     store.deleteMemory(id)
   })
 
+  // ───────────────────── Workflows ─────────────────────
+  ipcMain.handle('workflow:list', async () => {
+    return store.getWorkflows()
+  })
+
+  ipcMain.handle('workflow:add', async (_event, workflow: { name: string; description?: string; prompt: string }) => {
+    if (!workflow?.prompt?.trim()) throw new Error('工作流内容不能为空')
+    return store.addWorkflow(workflow)
+  })
+
+  ipcMain.handle('workflow:delete', async (_event, id: string) => {
+    store.deleteWorkflow(id)
+  })
+
   // ───────────────────── Checkpoints (AI edit snapshots) ─────────────────────
   ipcMain.handle('checkpoint:list', async (_event, sessionId: string) => {
     return store.getCheckpoints(sessionId)

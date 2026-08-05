@@ -11,6 +11,7 @@ import { useChatStore, refreshGitBranch } from './stores/chatStore'
 import { useEditorStore } from './stores/editorStore'
 import { useUIStore } from './stores/uiStore'
 import { useMemoryStore } from './stores/memoryStore'
+import { useWorkflowStore } from './stores/workflowStore'
 import { useAICommandsStore } from './stores/aiCommandsStore'
 import { useShortcutStore } from './stores/shortcutStore'
 import { ensureProblemsSubscription, useProblemsStore } from './stores/problemsStore'
@@ -24,6 +25,7 @@ export default function App() {
   const { initTheme } = useUIStore()
   const loadCommands = useAICommandsStore((s) => s.loadCommands)
   const loadMemories = useMemoryStore((s) => s.loadMemories)
+  const loadWorkflows = useWorkflowStore((s) => s.loadWorkflows)
 
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [ready, setReady] = useState(false)
@@ -43,6 +45,8 @@ export default function App() {
       loadCommands()
       // Load persistent user memories (injected into the agent prompt)
       loadMemories()
+      // Load reusable workflow templates
+      loadWorkflows()
       // Load persisted shortcut presets/custom bindings before the first keystroke
       useShortcutStore.getState().loadShortcuts()
       refreshGitBranch()

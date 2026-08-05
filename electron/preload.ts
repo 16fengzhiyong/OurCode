@@ -114,6 +114,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   memoryAdd: (content: string, scope?: string) => ipcRenderer.invoke('memory:add', content, scope),
   memoryDelete: (id: string) => ipcRenderer.invoke('memory:delete', id),
 
+  // Workflows
+  workflowList: () => ipcRenderer.invoke('workflow:list'),
+  workflowAdd: (workflow: { name: string; description?: string; prompt: string }) => ipcRenderer.invoke('workflow:add', workflow),
+  workflowDelete: (id: string) => ipcRenderer.invoke('workflow:delete', id),
+
   // Checkpoints
   checkpointList: (sessionId: string) => ipcRenderer.invoke('checkpoint:list', sessionId),
   checkpointCreate: (checkpoint: any) => ipcRenderer.invoke('checkpoint:create', checkpoint),

@@ -91,6 +91,11 @@ export interface ElectronAPI {
   memoryAdd: (content: string, scope?: string) => Promise<import('@shared/types').Memory>
   memoryDelete: (id: string) => Promise<void>
 
+  // Workflows
+  workflowList: () => Promise<import('@shared/types').Workflow[]>
+  workflowAdd: (workflow: { name: string; description?: string; prompt: string }) => Promise<import('@shared/types').Workflow>
+  workflowDelete: (id: string) => Promise<void>
+
   // Checkpoints (AI edit snapshots)
   checkpointList: (sessionId: string) => Promise<import('@shared/types').Checkpoint[]>
   checkpointCreate: (checkpoint: import('@shared/types').Checkpoint) => Promise<import('@shared/types').Checkpoint>

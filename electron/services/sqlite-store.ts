@@ -3,7 +3,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { CryptoService } from './crypto'
-import { ApiConfigGroup, ChatSession, ChatMessage, ChatBranch, UserPreferences, Memory, Checkpoint, TodoItem } from '../../shared/types'
+import { ApiConfigGroup, ChatSession, ChatMessage, ChatBranch, UserPreferences, Memory, Checkpoint, TodoItem, Workflow } from '../../shared/types'
 import { DEFAULT_PREFERENCES } from '../../shared/constants'
 
 /** Parse a JSON column safely ('' / null / invalid → fallback) */
@@ -175,6 +175,15 @@ export class SQLiteStore {
         message_id TEXT DEFAULT '',
         files TEXT DEFAULT '[]',
         FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS workflows (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        prompt TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
       );
 
       CREATE INDEX IF NOT EXISTS idx_messages_session ON chat_messages(session_id, sort_order);
@@ -538,6 +547,31 @@ export class SQLiteStore {
     this.db.prepare('DELETE FROM checkpoints WHERE session_id = ?').run(sessionId)
   }
 
+  // ───────────────────── Workflows (reusable prompt templates) ─────────────────────
+  getWorkflows(): Workflow[] {
+    const rows = this.db.prepare('SELECT * FROM workflows ORDER BY updated_at DESC').all() as any[]
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description || '',
+      prompt: this.maybeDecrypt(row.prompt),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
+  }
+
+  addWorkflow(input: { name: string; description?: string; prompt: string }): Workflow {
+    const id = uuidv4()
+    const now = Date.now()
+    this.db.prepare('INSERT INTO workflows (id, name, description, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, input.name || '未命名工作流', input.description || '', this.maybeEncrypt(input.prompt), now, now)
+    return { id, name: input.name || '未命名工作流', description: input.description || '', prompt: input.prompt, createdAt: now, updatedAt: now }
+  }
+
+  deleteWorkflow(id: string): void {
+    this.db.prepare('DELETE FROM workflows WHERE id = ?').run(id)
+  }
+
   resetAll(): void {
     this.db.exec('DELETE FROM chat_messages')
     this.db.exec('DELETE FROM chat_sessions')
@@ -545,6 +579,7 @@ export class SQLiteStore {
     this.db.exec('DELETE FROM user_preferences')
     this.db.exec('DELETE FROM memories')
     this.db.exec('DELETE FROM checkpoints')
+    this.db.exec('DELETE FROM workflows')
   }
 
   close(): void {

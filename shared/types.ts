@@ -92,6 +92,17 @@ export interface Memory {
   updatedAt: number
 }
 
+// Reusable workflow (Windsurf-style): a named prompt template that can be
+// re-run against the current workspace/selection
+export interface Workflow {
+  id: string
+  name: string
+  description: string
+  prompt: string
+  createdAt: number
+  updatedAt: number
+}
+
 // Ask-user-question interaction (asked by the agent during the loop)
 export interface UserQuestion {
   id: string

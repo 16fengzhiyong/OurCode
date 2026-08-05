@@ -3,6 +3,7 @@ import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useConfigStore } from '@/stores/configStore'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
+import { runLifeguardCheck, LifeguardFinding } from '@/services/lifeguard'
 import DiffView from '../Editor/DiffView'
 
 interface GitStatus {
@@ -146,8 +147,40 @@ export default function GitPanel() {
     if (result.success) {
       setCommitMessage('')
       refreshStatus()
+      setLifeguardFindings([])
     } else {
       console.error('提交失败:', result.error)
+    }
+  }
+
+  // Lifeguard: pre-commit AI bug check (Windsurf-style)
+  const [lifeguardFindings, setLifeguardFindings] = useState<LifeguardFinding[]>([])
+  const [lifeguardRunning, setLifeguardRunning] = useState(false)
+  const [lifeguardError, setLifeguardError] = useState<string | null>(null)
+
+  const handleLifeguard = async () => {
+    const configGroup = useConfigStore.getState().getActiveConfigGroup()
+    if (!configGroup || !configGroup.defaultModel) {
+      alert('请先配置 API 模型')
+      return
+    }
+    const diffResult = await runGitCommand(['diff', 'HEAD'])
+    const diffText = diffResult.success ? diffResult.output : ''
+    if (!diffText) {
+      setLifeguardFindings([])
+      setLifeguardError('没有可检查的改动（工作区与 HEAD 一致）')
+      return
+    }
+    setLifeguardRunning(true)
+    setLifeguardError(null)
+    try {
+      const findings = await runLifeguardCheck(diffText, configGroup)
+      setLifeguardFindings(findings)
+    } catch (e: any) {
+      setLifeguardError(e.message || 'Lifeguard 检查失败')
+      setLifeguardFindings([])
+    } finally {
+      setLifeguardRunning(false)
     }
   }
 
@@ -335,14 +368,64 @@ export default function GitPanel() {
             日志
           </button>
         </div>
-        <button
-          onClick={handleGenerateCommitMessage}
-          disabled={generatingCommit}
-          className="mt-1 text-[10px] text-nova-text-muted hover:text-nova-accent transition-colors disabled:opacity-40"
-          title="基于暂存的更改自动生成提交消息"
-        >
-          {generatingCommit ? '🤖 生成中...' : '🤖 AI 生成提交消息'}
-        </button>
+        <div className="flex items-center gap-3 mt-1.5">
+          <button
+            onClick={handleGenerateCommitMessage}
+            disabled={generatingCommit}
+            className="text-[10px] text-nova-text-muted hover:text-nova-accent transition-colors disabled:opacity-40"
+            title="基于暂存的更改自动生成提交消息"
+          >
+            {generatingCommit ? '🤖 生成中...' : '🤖 AI 生成提交消息'}
+          </button>
+          <button
+            onClick={handleLifeguard}
+            disabled={lifeguardRunning}
+            className="text-[10px] text-nova-text-muted hover:text-red-400 transition-colors disabled:opacity-40"
+            title="提交前用 AI 检查改动中的潜在 Bug"
+          >
+            {lifeguardRunning ? '🛟 检查中...' : '🛟 Lifeguard 检查'}
+          </button>
+        </div>
+
+        {/* Lifeguard findings */}
+        {lifeguardError && (
+          <div className="mt-2 px-2 py-1.5 rounded bg-yellow-500/10 border border-yellow-500/30 text-[11px] text-yellow-400">
+            {lifeguardError}
+          </div>
+        )}
+        {lifeguardFindings.length > 0 && (
+          <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto">
+            <div className="text-[10px] text-nova-text-muted flex items-center gap-1.5">
+              <span>🛟 Lifeguard 发现 {lifeguardFindings.length} 个潜在问题</span>
+              <span className="ml-auto">
+                {lifeguardFindings.filter((f) => f.severity === 'error').length} 错误 ·{' '}
+                {lifeguardFindings.filter((f) => f.severity === 'warning').length} 警告
+              </span>
+            </div>
+            {lifeguardFindings.map((f, i) => (
+              <div
+                key={i}
+                className={`rounded-lg border px-2.5 py-1.5 text-[11px] ${
+                  f.severity === 'error'
+                    ? 'border-red-500/30 bg-red-500/5 text-red-300'
+                    : f.severity === 'warning'
+                      ? 'border-yellow-500/30 bg-yellow-500/5 text-yellow-200'
+                      : 'border-sky-500/30 bg-sky-500/5 text-sky-200'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>{f.severity === 'error' ? '✕' : f.severity === 'warning' ? '⚠' : 'ⓘ'}</span>
+                  <span className="font-medium">
+                    {f.severity === 'error' ? '错误' : f.severity === 'warning' ? '警告' : '提示'}
+                    {f.file && <> · {f.file}{f.line ? `:${f.line}` : ''}</>}
+                  </span>
+                </div>
+                <div className="mt-0.5">{f.message}</div>
+                {f.suggestion && <div className="mt-0.5 opacity-80">建议: {f.suggestion}</div>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Changed files */}
