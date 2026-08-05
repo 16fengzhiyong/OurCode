@@ -126,7 +126,10 @@ function createWindow(): void {
     backgroundColor: '#1e1e1e',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
-      sandbox: false,
+      // Renderers are sandboxed (like VS Code): the preload only uses the
+      // sandbox-whitelisted electron APIs (contextBridge/ipcRenderer), so a
+      // compromised renderer cannot reach Node.js primitives directly.
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -163,7 +166,7 @@ function createNewWindow(): void {
     backgroundColor: '#1e1e1e',
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
     },
