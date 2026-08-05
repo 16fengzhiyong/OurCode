@@ -12,6 +12,8 @@ import CommandPalette from '../CommandPalette/CommandPalette'
 import QuickOpen from '../Sidebar/QuickOpen'
 import ContextMenu from '../Common/ContextMenu'
 import PluginMarketplace from '../Plugin/PluginMarketplace'
+import ProblemsPanel from '../Editor/ProblemsPanel'
+import { useProblemsStore } from '@/stores/problemsStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
@@ -29,6 +31,7 @@ export default function MainLayout() {
   } = useUIStore()
 
   const { panelOrder, splitDirection, splitRatios } = useEditorStore()
+  const isProblemsOpen = useProblemsStore((s) => s.isOpen)
 
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1400)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -144,6 +147,12 @@ export default function MainLayout() {
       if (matches('toggleChat')) {
         e.preventDefault()
         useUIStore.getState().toggleChat()
+        return
+      }
+
+      if (matches('toggleProblems')) {
+        e.preventDefault()
+        useProblemsStore.getState().toggle()
         return
       }
 
@@ -335,6 +344,9 @@ export default function MainLayout() {
               <div style={{ width: isNarrow ? '100%' : isCompact ? '320px' : chatWidth + 'px' }} className={`h-full ${isNarrow ? 'border-t' : 'border-l'} border-nova-border shrink-0 overflow-hidden`}><ChatPanel /></div>
             )}
           </div>
+          {isProblemsOpen && (
+            <div className="shrink-0" style={{ height: 160 }}><ProblemsPanel /></div>
+          )}
           {isTerminalVisible && (
             <div style={{ height: isCompact ? Math.min(terminalHeight, 180) : Math.min(terminalHeight, windowWidth < 800 ? 200 : 500) }} className="border-t border-nova-border shrink-0"><TerminalPanel rootPath={rootPath} /></div>
           )}

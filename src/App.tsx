@@ -11,6 +11,7 @@ import { useEditorStore } from './stores/editorStore'
 import { useUIStore } from './stores/uiStore'
 import { useAICommandsStore } from './stores/aiCommandsStore'
 import { useShortcutStore } from './stores/shortcutStore'
+import { ensureProblemsSubscription, useProblemsStore } from './stores/problemsStore'
 
 export default function App() {
   const loadConfigGroups = useConfigStore((s) => s.loadConfigGroups)
@@ -39,6 +40,9 @@ export default function App() {
         const backups = await window.electronAPI.listBackups()
         if (backups.length > 0) setPendingBackups(backups)
       } catch { /* ignore */ }
+      // Live diagnostics: follow Monaco's marker stream into the Problems panel
+      ensureProblemsSubscription()
+      useProblemsStore.getState().refresh()
       setReady(true)
       if (!hasCompleted) {
         setShowOnboarding(true)

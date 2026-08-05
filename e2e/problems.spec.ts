@@ -1,0 +1,71 @@
+import { test, expect, _electron as electron, type Page } from '@playwright/test'
+import path from 'path'
+import { mkdtemp, writeFile, rm } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
+
+async function mainWindow(app: import('@playwright/test').ElectronApplication): Promise<Page> {
+  let page: Page | null = null
+  for (let i = 0; i < 20 && !page; i++) {
+    for (const p of app.windows()) {
+      try {
+        if (await p.evaluate(() => typeof window.electronAPI !== 'undefined')) {
+          page = p
+          break
+        }
+      } catch { /* closed mid-poll */ }
+    }
+    if (!page) await new Promise((r) => setTimeout(r, 250))
+  }
+  if (!page) throw new Error('main window not found')
+  return page
+}
+
+test.describe('Problems Panel', () => {
+  test('shows TypeScript diagnostics and jumps to the problem location', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'problems-'))
+    // A file with a guaranteed TS type error
+    await writeFile(join(dir, 'broken.ts'), 'const x: number = "hello";\nconst ok = 1;\n', 'utf-8')
+
+    const app = await electron.launch({ args: [path.join(__dirname, '../dist-electron/main.js')] })
+    const win = await mainWindow(app)
+    try {
+      // Open the folder (stubbed dialog on the main process)
+      await app.evaluate(({ dialog }, folder) => {
+        ;(dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [folder] })
+      }, dir)
+      await win.keyboard.press('Control+o')
+      // The tree loads async after the folder dialog returns; a retrying
+      // toBeVisible covers the whole open-and-list sequence
+      await expect(win.locator('#file-tree-root >> text=broken.ts').first()).toBeVisible({ timeout: 15000 })
+
+      // Open the broken file — the TS worker emits a marker
+      await win.locator('#file-tree-root >> text=broken.ts').first().click()
+      await win.waitForTimeout(1000)
+
+      // Open the Problems panel (Ctrl+Shift+M) and wait for the TS diagnostic
+      await win.keyboard.press('Control+Shift+m')
+      await expect(win.locator('text=问题').first()).toBeVisible({ timeout: 3000 })
+      await expect(
+        win.locator('text=not assignable to type').first(),
+      ).toBeVisible({ timeout: 15000 })
+
+      // The status bar error count reflects the real marker (was hardcoded 0)
+      const errorBtn = win.locator('button[title="打开问题面板"]').first()
+      const errorText = await errorBtn.innerText()
+      expect(errorText.trim()).toBe('1')
+
+      // Clicking the problem jumps the editor to the offending line
+      await win.locator('button', { hasText: 'not assignable to type' }).first().click()
+      await win.waitForTimeout(800)
+      const cursor = await win.evaluate(() => {
+        const ed = (window as any).__monacoEditor
+        return ed?.getPosition() || null
+      })
+      expect(cursor?.lineNumber).toBe(1)
+    } finally {
+      await app.close()
+      await rm(dir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
+})

@@ -3,6 +3,7 @@ import { useEditorStore } from '@/stores/editorStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useProblemsStore } from '@/stores/problemsStore'
 
 export default function StatusBar() {
   const { openFiles, activeFilePath, cursorPosition, preferences } = useEditorStore()
@@ -151,6 +152,12 @@ export default function StatusBar() {
   const model = activeSession?.model || activeConfigGroup?.defaultModel || ''
   const modelInfo = models.find((m) => m.id === model)
 
+  // Live diagnostics counts (replaces the previously hardcoded 0 / 0)
+  const problems = useProblemsStore((s) => s.problems)
+  const errorCount = problems.filter((p) => p.severity === 'error').length
+  const warningCount = problems.filter((p) => p.severity === 'warning').length
+  const openProblems = () => useProblemsStore.getState().setOpen(true)
+
   const encodings = ['UTF-8', 'GBK', 'GB2312', 'GB18030', 'ASCII', 'ISO-8859-1', 'UTF-16']
 
   return (
@@ -190,17 +197,27 @@ export default function StatusBar() {
         {/* Separator */}
         <div className="w-px h-3.5" style={{ background: 'rgba(255,255,255,0.2)' }} />
 
-        {/* Errors */}
-        <span className="flex items-center gap-1 cursor-default" style={{ background: 'rgba(244,71,71,0.9)', padding: '0 5px', borderRadius: 2 }}>
+        {/* Errors — click to open the Problems panel */}
+        <button
+          className="flex items-center gap-1 cursor-pointer hover:bg-white/10"
+          style={{ background: errorCount > 0 ? 'rgba(244,71,71,0.9)' : undefined, padding: '0 5px', borderRadius: 2 }}
+          onClick={openProblems}
+          title="打开问题面板"
+        >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-          0
-        </span>
+          {errorCount}
+        </button>
 
-        {/* Warnings */}
-        <span className="flex items-center gap-1 cursor-default opacity-90">
+        {/* Warnings — click to open the Problems panel */}
+        <button
+          className="flex items-center gap-1 cursor-pointer hover:bg-white/10"
+          style={{ background: warningCount > 0 ? 'rgba(204,167,0,0.9)' : undefined, padding: '0 5px', borderRadius: 2 }}
+          onClick={openProblems}
+          title="打开问题面板"
+        >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          0
-        </span>
+          {warningCount}
+        </button>
       </div>
 
       {/* Right side */}
