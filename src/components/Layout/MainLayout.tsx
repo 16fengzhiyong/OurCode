@@ -16,9 +16,8 @@ import ProblemsPanel from '../Editor/ProblemsPanel'
 import { useProblemsStore } from '@/stores/problemsStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
-import { useChatStore } from '@/stores/chatStore'
-import { useConfigStore } from '@/stores/configStore'
 import { useShortcutStore, matchesShortcut } from '@/stores/shortcutStore'
+import { executeCommand } from '@/services/commands/commandRegistry'
 
 const COMPACT_BREAKPOINT = 1024
 const NARROW_BREAKPOINT = 768
@@ -55,16 +54,6 @@ export default function MainLayout() {
   const isCompact = windowWidth < COMPACT_BREAKPOINT
   const isNarrow = windowWidth < NARROW_BREAKPOINT
 
-  const openFolderFromShortcut = useCallback(async () => {
-    const path = await window.electronAPI.openFolder()
-    if (path) {
-      const ui = useUIStore.getState()
-      ui.setRootPath(path)
-      ui.setActiveSidebarTab('files')
-      if (!ui.isSidebarVisible) ui.toggleSidebar()
-    }
-  }, [])
-
   // Keyboard shortcuts — resolved live from the shortcutStore so the presets /
   // custom bindings configured in Settings actually take effect.
   useEffect(() => {
@@ -76,141 +65,51 @@ export default function MainLayout() {
         return extraKeys?.some((k) => matchesShortcut(e, k)) ?? false
       }
 
-      // --- File ---
-      if (matches('saveFile')) {
-        e.preventDefault()
-        const activeFilePath = useEditorStore.getState().activeFilePath
-        if (activeFilePath) useEditorStore.getState().saveFile(activeFilePath)
-        return
-      }
-
-      if (matches('saveAll')) {
-        e.preventDefault()
-        useEditorStore.getState().saveAll()
-        return
-      }
-
-      if (matches('newFile')) {
-        e.preventDefault()
-        useEditorStore.getState().newFile()
-        return
-      }
-
-      if (matches('openFolder')) {
-        e.preventDefault()
-        openFolderFromShortcut()
-        return
-      }
-
-      if (matches('closeTab')) {
-        e.preventDefault()
-        const { activeFilePath, openFiles, closeFile } = useEditorStore.getState()
-        if (activeFilePath) {
-          const file = openFiles.find((f) => f.path === activeFilePath)
-          if (file?.isDirty) {
-            if (confirm('有未保存的更改，确定关闭？')) closeFile(activeFilePath)
-          } else {
-            closeFile(activeFilePath)
-          }
+      // Preset/custom shortcut actions all dispatch through the unified command
+      // registry (same IDs the command palette and plugins use)
+      const actionCommands: Array<[action: string, command: string, extraKeys?: string[]]> = [
+        ['saveFile', 'saveFile'],
+        ['saveAll', 'saveAll'],
+        ['newFile', 'newFile'],
+        ['openFolder', 'openFolder'],
+        ['closeTab', 'closeTab'],
+        ['find', 'find'],
+        ['replace', 'replace'],
+        ['toggleSidebar', 'toggleSidebar'],
+        ['toggleTerminal', 'toggleTerminal', ['Ctrl+`']],
+        ['toggleChat', 'toggleChat'],
+        ['toggleProblems', 'toggleProblems'],
+        ['commandPalette', 'commandPalette'],
+        ['quickOpen', 'quickOpen'],
+        ['zoomIn', 'zoomIn'],
+        ['zoomOut', 'zoomOut'],
+        ['newChatSession', 'newChatSession'],
+        ['sendSelectionToAI', 'sendSelectionToAI'],
+      ]
+      for (const [action, command, extra] of actionCommands) {
+        if (matches(action, extra)) {
+          e.preventDefault()
+          executeCommand(command)
+          return
         }
-        return
-      }
-
-      // --- Edit ---
-      if (matches('find')) {
-        e.preventDefault()
-        const editor = (window as any).__monacoEditor
-        if (editor) editor.trigger('keyboard', 'actions.find', null)
-        return
-      }
-
-      if (matches('replace')) {
-        e.preventDefault()
-        const editor = (window as any).__monacoEditor
-        if (editor) editor.trigger('keyboard', 'editor.action.startFindReplaceAction', null)
-        return
-      }
-
-      // --- View ---
-      if (matches('toggleSidebar')) {
-        e.preventDefault()
-        useUIStore.getState().toggleSidebar()
-        return
-      }
-
-      if (matches('toggleTerminal', ['Ctrl+`'])) {
-        e.preventDefault()
-        useUIStore.getState().toggleTerminal()
-        return
-      }
-
-      if (matches('toggleChat')) {
-        e.preventDefault()
-        useUIStore.getState().toggleChat()
-        return
-      }
-
-      if (matches('toggleProblems')) {
-        e.preventDefault()
-        useProblemsStore.getState().toggle()
-        return
-      }
-
-      if (matches('commandPalette')) {
-        e.preventDefault()
-        useUIStore.getState().openCommandPalette()
-        return
-      }
-
-      if (matches('quickOpen')) {
-        e.preventDefault()
-        useUIStore.getState().openQuickOpen()
-        return
       }
 
       // --- Fixed bindings (not part of the shortcut presets) ---
       if (matchesShortcut(e, 'Ctrl+Shift+X')) {
         e.preventDefault()
-        useUIStore.getState().openMarketplace()
+        executeCommand('openMarketplace')
         return
       }
 
       if (matchesShortcut(e, 'Ctrl+\\')) {
         e.preventDefault()
-        useEditorStore.getState().splitPanel('horizontal')
+        executeCommand('splitPanelHorizontal')
         return
       }
 
       if (matchesShortcut(e, 'Ctrl+Shift+\\')) {
         e.preventDefault()
-        useEditorStore.getState().cyclePanelFocus()
-        return
-      }
-
-      // --- Chat / AI ---
-      if (matches('newChatSession')) {
-        e.preventDefault()
-        const configId = useConfigStore.getState().activeConfigGroupId
-        if (configId) {
-          useChatStore.getState().createSession(configId)
-        } else {
-          useUIStore.getState().openSettings()
-        }
-        return
-      }
-
-      if (matches('sendSelectionToAI')) {
-        e.preventDefault()
-        const selection = window.getSelection()?.toString()
-        if (selection) {
-          const chatStore = useChatStore.getState()
-          if (!chatStore.activeSessionId) {
-            const configGroupId = useConfigStore.getState().activeConfigGroupId
-            if (configGroupId) chatStore.createSession(configGroupId)
-          }
-          chatStore.sendMessage(`解释这段代码:\n\n\`\`\`\n${selection}\n\`\`\``)
-          if (!useUIStore.getState().isChatVisible) useUIStore.getState().toggleChat()
-        }
+        executeCommand('cyclePanelFocus')
         return
       }
 
@@ -226,7 +125,7 @@ export default function MainLayout() {
 
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [openFolderFromShortcut]) // No deps — reads live store state
+  }, []) // No deps — reads live store state
 
   // Auto-save timer — subscribes to the preference so toggling Auto Save in
   // Settings takes effect immediately (previously the effect ran once on mount

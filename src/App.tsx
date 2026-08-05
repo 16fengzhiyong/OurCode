@@ -12,6 +12,7 @@ import { useUIStore } from './stores/uiStore'
 import { useAICommandsStore } from './stores/aiCommandsStore'
 import { useShortcutStore } from './stores/shortcutStore'
 import { ensureProblemsSubscription, useProblemsStore } from './stores/problemsStore'
+import { registerCoreCommands } from './services/commands/coreCommands'
 
 export default function App() {
   const loadConfigGroups = useConfigStore((s) => s.loadConfigGroups)
@@ -26,6 +27,8 @@ export default function App() {
 
   useEffect(() => {
     const hasCompleted = localStorage.getItem('hasCompletedOnboarding')
+    // Register the shared command surface (shortcuts / palette / plugins)
+    registerCoreCommands()
     loadConfigGroups().then(async () => {
       loadSessions()
       await loadPreferences()

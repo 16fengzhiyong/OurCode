@@ -1,5 +1,6 @@
 import { PluginManifest, PluginInfo, PluginPermission, PluginMessage, ExtensionAPI } from './types'
 import { getFileContent } from '@/editor/modelRegistry'
+import { registerCommand, unregisterCommand } from '@/services/commands/commandRegistry'
 
 // Lazy store imports to avoid circular dependency
 let _editorStore: any = null
@@ -139,7 +140,10 @@ export class PluginManager {
       if (item.pluginId === id) this.statusBarItems.delete(itemId)
     }
     for (const [cmdId, cmd] of this.pluginCommands) {
-      if (cmd.pluginId === id) this.pluginCommands.delete(cmdId)
+      if (cmd.pluginId === id) {
+        this.pluginCommands.delete(cmdId)
+        unregisterCommand(`plugin.${cmdId}`)
+      }
     }
     for (const [key, binding] of this.pluginKeybindings) {
       if (binding.pluginId === id) this.pluginKeybindings.delete(key)
@@ -339,6 +343,14 @@ export class PluginManager {
       commands: {
         registerCommand: (id: string, handler: (...args: any[]) => void) => {
           this.pluginCommands.set(id, { pluginId, handler })
+          // Contribute the command to the unified registry so it shows up in
+          // the command palette alongside built-in commands
+          registerCommand({
+            id: `plugin.${id}`,
+            title: id,
+            category: '插件',
+            run: (...args) => handler(...args),
+          })
         },
         executeCommand: async (id: string, ...args: any[]) => {
           const cmd = this.pluginCommands.get(id)

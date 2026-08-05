@@ -1,11 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useAICommandsStore } from '@/stores/aiCommandsStore'
+import { useShortcutStore } from '@/stores/shortcutStore'
+import { getCommands, executeCommand } from '@/services/commands/commandRegistry'
 
-interface Command {
+interface PaletteItem {
   id: string
   label: string
   shortcut?: string
@@ -21,218 +23,39 @@ export default function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const aiCommands = useAICommandsStore((s) => s.commands)
-  const executeCommand = useAICommandsStore((s) => s.executeCommand)
+  const executeAICommand = useAICommandsStore((s) => s.executeCommand)
+  // Re-render when shortcut bindings change so shown shortcuts stay in sync
+  const shortcuts = useShortcutStore((s) => s.shortcuts)
 
-  const commands: Command[] = [
-    // File commands
-    {
-      id: 'new-file',
-      label: '新建文件',
-      shortcut: 'Ctrl+N',
+  // The palette is built from the unified command registry (shortcuts, menus
+  // and plugins all register here) plus the AI prompt commands.
+  const paletteItems: PaletteItem[] = useMemo(() => {
+    const shortcutStore = useShortcutStore.getState()
+    const registryItems: PaletteItem[] = getCommands().map((cmd) => ({
+      id: cmd.id,
+      label: cmd.title,
+      icon: cmd.icon,
+      category: cmd.category,
+      shortcut: cmd.shortcut || shortcutStore.getShortcut(cmd.id) || undefined,
       action: () => {
-        useEditorStore.getState().newFile()
         closeCommandPalette()
+        executeCommand(cmd.id)
       },
-      category: '文件',
-    },
-    {
-      id: 'open-folder',
-      label: '打开文件夹',
-      shortcut: 'Ctrl+O',
-      action: async () => {
-        const path = await window.electronAPI.openFolder()
-        if (path) {
-          useUIStore.getState().setRootPath(path)
-          useUIStore.getState().setActiveSidebarTab('files')
-          if (!useUIStore.getState().isSidebarVisible) {
-            useUIStore.getState().toggleSidebar()
-          }
-        }
-        closeCommandPalette()
-      },
-      category: '文件',
-    },
-    {
-      id: 'save',
-      label: '保存文件',
-      shortcut: 'Ctrl+S',
-      action: () => {
-        const activeFile = useEditorStore.getState().getActiveFile()
-        if (activeFile) useEditorStore.getState().saveFile(activeFile.path)
-        closeCommandPalette()
-      },
-      category: '文件',
-    },
-    {
-      id: 'save-all',
-      label: '保存所有文件',
-      shortcut: 'Ctrl+Shift+S',
-      action: () => {
-        useEditorStore.getState().saveAll()
-        closeCommandPalette()
-      },
-      category: '文件',
-    },
-    // View commands
-    {
-      id: 'toggle-sidebar',
-      label: '切换侧边栏',
-      shortcut: 'Ctrl+B',
-      action: () => {
-        useUIStore.getState().toggleSidebar()
-        closeCommandPalette()
-      },
-      category: '视图',
-    },
-    {
-      id: 'toggle-terminal',
-      label: '切换终端',
-      shortcut: 'Ctrl+J',
-      action: () => {
-        useUIStore.getState().toggleTerminal()
-        closeCommandPalette()
-      },
-      category: '视图',
-    },
-    {
-      id: 'toggle-chat',
-      label: '切换 AI 面板',
-      shortcut: 'Ctrl+L',
-      action: () => {
-        useUIStore.getState().toggleChat()
-        closeCommandPalette()
-      },
-      category: '视图',
-    },
-    {
-      id: 'split-horizontal',
-      label: '左右分屏',
-      shortcut: 'Ctrl+\\',
-      action: () => {
-        useEditorStore.getState().splitPanel('horizontal')
-        closeCommandPalette()
-      },
-      category: '视图',
-    },
-    {
-      id: 'split-vertical',
-      label: '上下分屏',
-      action: () => {
-        useEditorStore.getState().splitPanel('vertical')
-        closeCommandPalette()
-      },
-      category: '视图',
-    },
-    {
-      id: 'close-panel',
-      label: '关闭当前分屏',
-      action: () => {
-        const state = useEditorStore.getState()
-        if (state.panelOrder.length > 1) {
-          state.closePanel(state.activePanelId)
-        }
-        closeCommandPalette()
-      },
-      category: '视图',
-    },
-    {
-      id: 'cycle-panel',
-      label: '切换分屏焦点',
-      shortcut: 'Ctrl+Shift+\\',
-      action: () => {
-        useEditorStore.getState().cyclePanelFocus()
-        closeCommandPalette()
-      },
-      category: '视图',
-    },
-    {
-      id: 'settings',
-      label: '打开设置',
-      action: () => {
-        useUIStore.getState().openSettings()
-        closeCommandPalette()
-      },
-      category: '偏好',
-    },
-    // Chat commands
-    {
-      id: 'new-chat',
-      label: '新建对话',
-      action: () => {
-        const activeConfigId = useConfigStore.getState().activeConfigGroupId
-        if (activeConfigId) {
-          useChatStore.getState().createSession(activeConfigId)
-        } else {
-          useConfigStore.getState().createConfigGroup({ name: '默认' }).then((group) => {
-            useChatStore.getState().createSession(group.id)
-          })
-        }
-        closeCommandPalette()
-      },
-      category: '对话',
-    },
-    {
-      id: 'clear-chat',
-      label: '清空对话',
-      action: () => {
-        const activeSession = useChatStore.getState().getActiveSession()
-        if (activeSession) useChatStore.getState().clearMessages(activeSession.id)
-        closeCommandPalette()
-      },
-      category: '对话',
-    },
-    {
-      id: 'export-chat-md',
-      label: '导出对话为 Markdown',
-      action: () => {
-        const activeSession = useChatStore.getState().getActiveSession()
-        if (activeSession) {
-          const md = useChatStore.getState().exportSession(activeSession.id, 'markdown')
-          const blob = new Blob([md], { type: 'text/markdown' })
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `对话-${Date.now()}.md`
-          a.click()
-          URL.revokeObjectURL(url)
-        }
-        closeCommandPalette()
-      },
-      category: '对话',
-    },
-    {
-      id: 'export-chat-json',
-      label: '导出对话为 JSON',
-      action: () => {
-        const activeSession = useChatStore.getState().getActiveSession()
-        if (activeSession) {
-          const json = useChatStore.getState().exportSession(activeSession.id, 'json')
-          const blob = new Blob([json], { type: 'application/json' })
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url
-          a.download = `对话-${Date.now()}.json`
-          a.click()
-          URL.revokeObjectURL(url)
-        }
-        closeCommandPalette()
-      },
-      category: '对话',
-    },
-    // AI command entries
-    ...aiCommands.map((cmd) => ({
+    }))
+
+    const aiItems: PaletteItem[] = aiCommands.map((cmd) => ({
       id: `ai-${cmd.id}`,
       label: `AI: ${cmd.name}`,
       icon: cmd.icon,
+      category: 'AI 命令',
       action: () => {
         const selection = window.getSelection()?.toString() || ''
         const activeFile = useEditorStore.getState().getActiveFile()
-        const prompt = executeCommand(cmd.id, {
+        const prompt = executeAICommand(cmd.id, {
           selection,
           file: activeFile?.path || '',
           language: activeFile?.language || '',
         })
-
         const chatStore = useChatStore.getState()
         if (!chatStore.activeSessionId) {
           const configId = useConfigStore.getState().activeConfigGroupId
@@ -242,11 +65,13 @@ export default function CommandPalette() {
         useUIStore.getState().toggleChat()
         closeCommandPalette()
       },
-      category: 'AI 命令',
-    })),
-  ]
+    }))
 
-  const filteredCommands = commands.filter((cmd) =>
+    return [...registryItems, ...aiItems]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rebuilt when the palette opens
+  }, [aiCommands, shortcuts, isCommandPaletteOpen])
+
+  const filteredCommands = paletteItems.filter((cmd) =>
     cmd.label.toLowerCase().includes(query.toLowerCase()) ||
     cmd.category?.toLowerCase().includes(query.toLowerCase())
   )
