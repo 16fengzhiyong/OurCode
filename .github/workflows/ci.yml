@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  quality:
+    name: Typecheck · Lint · Unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
+
+  e2e:
+    name: Build · E2E (Electron)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # GitHub CI containers can't enable Chromium's user-namespace sandbox
+      ELECTRON_DISABLE_SANDBOX: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install Electron runtime system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+            libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+            libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 \
+            libgtk-3-0 libx11-xcb1 xvfb
+      - name: Install dependencies
+        run: npm ci
+      - name: Rebuild native modules for Electron ABI
+        run: npx electron-builder install-app-deps
+      - name: Build
+        run: npm run build
+      - name: E2E tests
+        run: xvfb-run -a npm run test:e2e
