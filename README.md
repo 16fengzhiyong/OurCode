@@ -141,4 +141,8 @@ Available permissions: `editor.read`, `editor.write`, `file.read`, `file.write`,
 
 ## 📄 License
 
-Not specified.
+[PolyForm Noncommercial License 1.0.0](./LICENSE) — free to use, modify, and distribute for any **noncommercial purpose**, including personal research, study, education, hobby projects, and use by noncommercial organizations (charities, educational institutions, public research organizations, and government institutions).
+
+**Commercial use is not permitted.** If you'd like to use OurCode IDE for commercial purposes, please contact the author for a separate license.
+
+See [LICENSE](./LICENSE) for the full terms.
