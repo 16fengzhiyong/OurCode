@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 import { usePluginStore } from '@/stores/pluginStore'
 import { useUIStore } from '@/stores/uiStore'
 import { PluginInfo, PluginManifest } from '@/services/plugin/types'
+import { useI18n } from '@/i18n/useI18n'
 
 export default function PluginMarketplace() {
   const { isMarketplaceOpen, closeMarketplace } = useUIStore()
   const { plugins, isInstalling, error, loadPlugins, installPlugin, uninstallPlugin, togglePlugin, clearError } = usePluginStore()
+  const t = useI18n()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState<'installed' | 'install'>('installed')
@@ -38,11 +40,11 @@ export default function PluginMarketplace() {
     try {
       const manifest: PluginManifest = JSON.parse(manifestText)
       if (!manifest.id || !manifest.name || !manifest.version || !manifest.main) {
-        setInstallError('Manifest must include: id, name, version, main')
+        setInstallError(t('plugin.errorManifestFields'))
         return
       }
       if (!codeText.trim()) {
-        setInstallError('Plugin code is required')
+        setInstallError(t('plugin.errorCodeRequired'))
         return
       }
       await installPlugin(manifest, codeText)
@@ -50,7 +52,7 @@ export default function PluginMarketplace() {
       setCodeText('')
       setActiveTab('installed')
     } catch (e: any) {
-      setInstallError(e.message || 'Invalid manifest JSON')
+      setInstallError(e.message || t('plugin.errorInvalidManifest'))
     }
   }
 
@@ -70,10 +72,10 @@ export default function PluginMarketplace() {
         } else if (data.id && data.name) {
           setManifestText(JSON.stringify(data, null, 2))
         } else {
-          setInstallError('Unrecognized plugin package format. Expected { manifest, code } or manifest JSON.')
+          setInstallError(t('plugin.errorBadPackage'))
         }
       } catch (e: any) {
-        setInstallError(`Failed to read file: ${e.message}`)
+        setInstallError(t('plugin.errorReadFile', { error: e.message }))
       }
     }
     input.click()
@@ -86,38 +88,38 @@ export default function PluginMarketplace() {
       disabled: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
       error: 'bg-red-500/20 text-red-400 border-red-500/30',
     }
-    const labels: Record<string, string> = {
-      active: '运行中',
-      installed: '已安装',
-      disabled: '已禁用',
-      error: '错误',
+    const labelKeys: Record<string, string> = {
+      active: t('plugin.statusActive'),
+      installed: t('plugin.statusInstalled'),
+      disabled: t('plugin.statusDisabled'),
+      error: t('plugin.statusError'),
     }
     return (
       <span className={`text-[10px] px-1.5 py-0.5 rounded border ${styles[status] || styles.installed}`}>
-        {labels[status] || status}
+        {labelKeys[status] || status}
       </span>
     )
   }
 
   const getPermissionLabel = (perm: string): string => {
-    const labels: Record<string, string> = {
-      'editor.read': '读取编辑器',
-      'editor.write': '写入编辑器',
-      'file.read': '读取文件',
-      'file.write': '写入文件',
-      'ai.chat': 'AI对话',
-      'ai.completion': 'AI补全',
-      'ui.panel': '注册面板',
-      'ui.statusbar': '状态栏',
-      'terminal.read': '读取终端',
-      'terminal.write': '写入终端',
-      'network': '网络请求',
+    const labelKeys: Record<string, string> = {
+      'editor.read': t('plugin.permissionEditorRead'),
+      'editor.write': t('plugin.permissionEditorWrite'),
+      'file.read': t('plugin.permissionFileRead'),
+      'file.write': t('plugin.permissionFileWrite'),
+      'ai.chat': t('plugin.permissionAiChat'),
+      'ai.completion': t('plugin.permissionAiCompletion'),
+      'ui.panel': t('plugin.permissionUiPanel'),
+      'ui.statusbar': t('plugin.permissionUiStatusbar'),
+      'terminal.read': t('plugin.permissionTerminalRead'),
+      'terminal.write': t('plugin.permissionTerminalWrite'),
+      'network': t('plugin.permissionNetwork'),
     }
-    return labels[perm] || perm
+    return labelKeys[perm] || perm
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="扩展市场" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={closeMarketplace}>
+    <div role="dialog" aria-modal="true" aria-label={t('plugin.dialog')} className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={closeMarketplace}>
       <div
         className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl w-[900px] max-h-[80vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
@@ -131,8 +133,8 @@ export default function PluginMarketplace() {
               </svg>
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-nova-text-primary">扩展市场</h2>
-              <p className="text-xs text-nova-text-muted">管理已安装的扩展或安装新扩展</p>
+              <h2 className="text-lg font-semibold text-nova-text-primary">{t('plugin.title')}</h2>
+              <p className="text-xs text-nova-text-muted">{t('plugin.subtitle')}</p>
             </div>
           </div>
           <button
@@ -155,7 +157,7 @@ export default function PluginMarketplace() {
             }`}
             onClick={() => setActiveTab('installed')}
           >
-            已安装 ({plugins.length})
+            {t('plugin.installedTab', { count: plugins.length })}
           </button>
           <button
             className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
@@ -165,7 +167,7 @@ export default function PluginMarketplace() {
             }`}
             onClick={() => setActiveTab('install')}
           >
-            安装扩展
+            {t('plugin.installTab')}
           </button>
         </div>
 
@@ -181,7 +183,7 @@ export default function PluginMarketplace() {
                   </svg>
                   <input
                     type="text"
-                    placeholder="搜索扩展..."
+                    placeholder={t('plugin.searchPlaceholder')}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 bg-nova-bg border border-nova-border rounded-lg text-sm text-nova-text-primary placeholder-nova-text-muted focus:outline-none focus:border-nova-accent"
@@ -193,7 +195,7 @@ export default function PluginMarketplace() {
               {error && (
                 <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center justify-between">
                   <span className="text-sm text-red-400">{error}</span>
-                  <button onClick={clearError} className="text-red-400 hover:text-red-300 text-xs">关闭</button>
+                  <button onClick={clearError} className="text-red-400 hover:text-red-300 text-xs">{t('plugin.close')}</button>
                 </div>
               )}
 
@@ -204,14 +206,14 @@ export default function PluginMarketplace() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                   </svg>
                   <p className="text-nova-text-muted text-sm">
-                    {searchQuery ? '未找到匹配的扩展' : '尚未安装任何扩展'}
+                    {searchQuery ? t('plugin.noMatch') : t('plugin.noneInstalled')}
                   </p>
                   {!searchQuery && (
                     <button
                       onClick={() => setActiveTab('install')}
                       className="mt-3 text-sm text-nova-accent hover:underline"
                     >
-                      安装第一个扩展
+                      {t('plugin.installFirst')}
                     </button>
                   )}
                 </div>
@@ -235,19 +237,19 @@ export default function PluginMarketplace() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <p className="text-sm text-nova-text-secondary">
-                  通过粘贴 Manifest JSON 和插件代码来安装扩展，或导入插件包文件。
+                  {t('plugin.installDesc')}
                 </p>
                 <button
                   onClick={handleImportFile}
                   className="px-3 py-1.5 text-sm bg-nova-hover border border-nova-border rounded-lg text-nova-text-secondary hover:text-white hover:border-nova-accent/50 transition-colors"
                 >
-                  导入插件包
+                  {t('plugin.importPackage')}
                 </button>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-nova-text-secondary mb-1.5">
-                  Manifest JSON
+                  {t('plugin.manifestJson')}
                 </label>
                 <textarea
                   value={manifestText}
@@ -268,7 +270,7 @@ export default function PluginMarketplace() {
 
               <div>
                 <label className="block text-sm font-medium text-nova-text-secondary mb-1.5">
-                  插件代码 (JavaScript)
+                  {t('plugin.codeLabel')}
                 </label>
                 <textarea
                   value={codeText}
@@ -297,14 +299,14 @@ api.ui.registerPanel('my-panel', 'My Plugin', () => {
                   onClick={() => { setManifestText(''); setCodeText(''); setInstallError(null) }}
                   className="px-4 py-2 text-sm text-nova-text-muted hover:text-nova-text-primary transition-colors"
                 >
-                  清空
+                  {t('plugin.clear')}
                 </button>
                 <button
                   onClick={handleInstallFromFile}
                   disabled={isInstalling || !manifestText.trim() || !codeText.trim()}
                   className="px-5 py-2 text-sm font-medium bg-nova-accent text-white rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
                 >
-                  {isInstalling ? '安装中...' : '安装扩展'}
+                  {isInstalling ? t('plugin.installing') : t('plugin.install')}
                 </button>
               </div>
             </div>
@@ -313,21 +315,21 @@ api.ui.registerPanel('my-panel', 'My Plugin', () => {
 
         {/* Uninstall confirmation */}
         {showConfirmUninstall && (
-          <div role="dialog" aria-modal="true" aria-label="卸载扩展" className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60" onClick={() => setShowConfirmUninstall(null)}>
+          <div role="dialog" aria-modal="true" aria-label={t('plugin.uninstallDialog')} className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60" onClick={() => setShowConfirmUninstall(null)}>
             <div className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl p-6 w-[400px]" onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-lg font-semibold text-nova-text-primary mb-2">卸载扩展</h3>
+              <h3 className="text-lg font-semibold text-nova-text-primary mb-2">{t('plugin.uninstallDialog')}</h3>
               <p className="text-sm text-nova-text-secondary mb-1">
-                确定要卸载此扩展吗？
+                {t('plugin.uninstallConfirm')}
               </p>
               <p className="text-xs text-nova-text-muted mb-6">
-                扩展 <code className="bg-nova-bg px-1 py-0.5 rounded">{showConfirmUninstall}</code> 将被停用并移除。
+                {t('plugin.uninstallDesc', { id: showConfirmUninstall })}
               </p>
               <div className="flex items-center justify-end gap-3">
                 <button
                   onClick={() => setShowConfirmUninstall(null)}
                   className="px-4 py-2 text-sm text-nova-text-muted hover:text-nova-text-primary transition-colors"
                 >
-                  取消
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={async () => {
@@ -336,7 +338,7 @@ api.ui.registerPanel('my-panel', 'My Plugin', () => {
                   }}
                   className="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
                 >
-                  卸载
+                  {t('plugin.uninstall')}
                 </button>
               </div>
             </div>
@@ -361,6 +363,7 @@ function PluginCard({
   getStatusBadge: (s: PluginInfo['status']) => JSX.Element
 }) {
   const [expanded, setExpanded] = useState(false)
+  const t = useI18n()
 
   return (
     <div className="bg-nova-bg border border-nova-border rounded-lg overflow-hidden hover:border-nova-accent/30 transition-colors">
@@ -382,10 +385,10 @@ function PluginCard({
             {getStatusBadge(plugin.status)}
           </div>
           <p className="text-xs text-nova-text-muted mt-0.5 truncate">
-            {plugin.manifest.description || '无描述'}
+            {plugin.manifest.description || t('plugin.noDescription')}
           </p>
           <p className="text-[10px] text-nova-text-muted mt-1">
-            {plugin.manifest.author} &middot; {plugin.manifest.permissions.length} 项权限
+            {plugin.manifest.author} &middot; {t('plugin.permissionsCount', { count: plugin.manifest.permissions.length })}
           </p>
         </div>
 
@@ -394,7 +397,7 @@ function PluginCard({
           <button
             onClick={() => setExpanded(!expanded)}
             className="p-1.5 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
-            title="详情"
+            title={t('plugin.details')}
           >
             <svg className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -408,13 +411,13 @@ function PluginCard({
                 : 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30'
             }`}
           >
-            {plugin.status === 'active' ? '停用' : '启用'}
+            {plugin.status === 'active' ? t('plugin.disable') : t('plugin.enable')}
           </button>
           <button
             onClick={onUninstall}
             className="px-3 py-1 text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded-md hover:bg-red-500/20 transition-colors"
           >
-            卸载
+            {t('plugin.uninstall')}
           </button>
         </div>
       </div>
@@ -424,24 +427,24 @@ function PluginCard({
         <div className="px-4 pb-4 border-t border-nova-border pt-3">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <h4 className="text-xs font-medium text-nova-text-muted mb-1.5">基本信息</h4>
+              <h4 className="text-xs font-medium text-nova-text-muted mb-1.5">{t('plugin.basicInfo')}</h4>
               <dl className="text-xs space-y-1">
                 <div className="flex gap-2">
                   <dt className="text-nova-text-muted w-16">ID</dt>
                   <dd className="text-nova-text-secondary font-mono">{plugin.manifest.id}</dd>
                 </div>
                 <div className="flex gap-2">
-                  <dt className="text-nova-text-muted w-16">入口</dt>
+                  <dt className="text-nova-text-muted w-16">{t('plugin.entry')}</dt>
                   <dd className="text-nova-text-secondary font-mono">{plugin.manifest.main}</dd>
                 </div>
                 <div className="flex gap-2">
-                  <dt className="text-nova-text-muted w-16">路径</dt>
+                  <dt className="text-nova-text-muted w-16">{t('plugin.path')}</dt>
                   <dd className="text-nova-text-secondary font-mono truncate">{plugin.installPath}</dd>
                 </div>
               </dl>
             </div>
             <div>
-              <h4 className="text-xs font-medium text-nova-text-muted mb-1.5">权限</h4>
+              <h4 className="text-xs font-medium text-nova-text-muted mb-1.5">{t('plugin.permissions')}</h4>
               <div className="flex flex-wrap gap-1">
                 {plugin.manifest.permissions.map((perm) => (
                   <span
@@ -465,19 +468,19 @@ function PluginCard({
           )}
           {plugin.manifest.contributes && (
             <div className="mt-3">
-              <h4 className="text-xs font-medium text-nova-text-muted mb-1.5">功能贡献</h4>
+              <h4 className="text-xs font-medium text-nova-text-muted mb-1.5">{t('plugin.contributions')}</h4>
               <div className="flex flex-wrap gap-2 text-[10px] text-nova-text-muted">
                 {plugin.manifest.contributes.commands && (
-                  <span className="px-1.5 py-0.5 bg-nova-hover rounded">{plugin.manifest.contributes.commands.length} 个命令</span>
+                  <span className="px-1.5 py-0.5 bg-nova-hover rounded">{t('plugin.countCommands', { count: plugin.manifest.contributes.commands.length })}</span>
                 )}
                 {plugin.manifest.contributes.keybindings && (
-                  <span className="px-1.5 py-0.5 bg-nova-hover rounded">{plugin.manifest.contributes.keybindings.length} 个快捷键</span>
+                  <span className="px-1.5 py-0.5 bg-nova-hover rounded">{t('plugin.countKeybindings', { count: plugin.manifest.contributes.keybindings.length })}</span>
                 )}
                 {plugin.manifest.contributes.themes && (
-                  <span className="px-1.5 py-0.5 bg-nova-hover rounded">{plugin.manifest.contributes.themes.length} 个主题</span>
+                  <span className="px-1.5 py-0.5 bg-nova-hover rounded">{t('plugin.countThemes', { count: plugin.manifest.contributes.themes.length })}</span>
                 )}
                 {plugin.manifest.contributes.languages && (
-                  <span className="px-1.5 py-0.5 bg-nova-hover rounded">{plugin.manifest.contributes.languages.length} 个语言</span>
+                  <span className="px-1.5 py-0.5 bg-nova-hover rounded">{t('plugin.countLanguages', { count: plugin.manifest.contributes.languages.length })}</span>
                 )}
               </div>
             </div>

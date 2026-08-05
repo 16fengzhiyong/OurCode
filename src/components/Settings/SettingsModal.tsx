@@ -6,16 +6,19 @@ import { useUIStore } from '@/stores/uiStore'
 import { useShortcutStore, ShortcutPreset } from '@/stores/shortcutStore'
 import { ApiConfigGroup } from '@/types'
 import { monaco, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
+import { useI18n } from '@/i18n/useI18n'
 
-const SYSTEM_PROMPT_TEMPLATES = [
-  { name: 'Universal Assistant', prompt: 'You are a professional programming assistant. Current project uses {{language}}, project name: {{projectName}}.' },
-  { name: 'Python Expert', prompt: 'You are a senior Python developer. Follow PEP 8, use type hints. Current file: {{currentFile}}' },
-  { name: 'Code Reviewer', prompt: 'You are a strict code reviewer. Review code for quality, bugs, performance, and security.' },
-  { name: 'Frontend Expert', prompt: 'You are a frontend expert in React, TypeScript, CSS. Framework: {{framework}}.' },
-  { name: 'API Designer', prompt: 'You are an API design expert. Help design RESTful APIs with proper naming and HTTP methods.' },
-  { name: 'Doc Writer', prompt: 'You are a technical documentation expert. Project: {{projectName}}, Language: {{language}}' },
-  { name: 'Bug Fixer', prompt: 'You are a debugging expert. Analyze errors, identify root causes, provide fixes. File: {{currentFile}}' },
-  { name: 'SQL Expert', prompt: 'You are a database expert. Help write efficient SQL queries and optimize performance.' },
+// System-prompt template ids are stable (used as the select value and to look
+// up the prompt); display names come from the i18n dictionary.
+const SYSTEM_PROMPT_TEMPLATES: Array<{ id: 'universal' | 'python' | 'reviewer' | 'frontend' | 'api' | 'doc' | 'bugfix' | 'sql'; prompt: string }> = [
+  { id: 'universal', prompt: 'You are a professional programming assistant. Current project uses {{language}}, project name: {{projectName}}.' },
+  { id: 'python', prompt: 'You are a senior Python developer. Follow PEP 8, use type hints. Current file: {{currentFile}}' },
+  { id: 'reviewer', prompt: 'You are a strict code reviewer. Review code for quality, bugs, performance, and security.' },
+  { id: 'frontend', prompt: 'You are a frontend expert in React, TypeScript, CSS. Framework: {{framework}}.' },
+  { id: 'api', prompt: 'You are an API design expert. Help design RESTful APIs with proper naming and HTTP methods.' },
+  { id: 'doc', prompt: 'You are a technical documentation expert. Project: {{projectName}}, Language: {{language}}' },
+  { id: 'bugfix', prompt: 'You are a debugging expert. Analyze errors, identify root causes, provide fixes. File: {{currentFile}}' },
+  { id: 'sql', prompt: 'You are a database expert. Help write efficient SQL queries and optimize performance.' },
 ]
 
 // Accent color presets for the Appearance section (the picker writes the
@@ -34,6 +37,7 @@ export default function SettingsModal() {
   const { isSettingsOpen, closeSettings, setTheme, setThemeColor } = useUIStore()
   const themeColor = useUIStore((s) => s.themeColor)
   const shortcutStore = useShortcutStore()
+  const t = useI18n()
 
   const [activeTab, setActiveTab] = useState<'api' | 'preferences' | 'shortcuts'>('api')
   const [editingGroup, setEditingGroup] = useState<Partial<ApiConfigGroup> | null>(null)
@@ -122,7 +126,7 @@ export default function SettingsModal() {
 
   const handleCreateGroup = () => {
     setIsCreating(true)
-    setEditingGroup({ name: 'New Config', baseUrl: 'https://api.openai.com/v1', apiKey: '', systemPrompt: '', defaultModel: '', provider: 'openai', customHeaders: {} })
+    setEditingGroup({ name: t('settings.configGroup.newDefaultName'), baseUrl: 'https://api.openai.com/v1', apiKey: '', systemPrompt: '', defaultModel: '', provider: 'openai', customHeaders: {} })
   }
 
   const handleSaveGroup = async () => {
@@ -132,7 +136,7 @@ export default function SettingsModal() {
       g.name === editingGroup.name && g.id !== editingGroup.id
     )
     if (nameExists) {
-      alert('配置组名称已存在，请使用其他名称')
+      alert(t('settings.configGroup.duplicateName'))
       return
     }
     if (editingGroup.systemPrompt && editingGroup.id) savePromptVersion(editingGroup.id, editingGroup.systemPrompt)
@@ -149,7 +153,7 @@ export default function SettingsModal() {
   }
 
   const handleDeleteGroup = async (id: string) => {
-    if (confirm('Delete this config group?')) await deleteConfigGroup(id)
+    if (confirm(t('settings.configGroups.deleteConfirm'))) await deleteConfigGroup(id)
   }
 
   const providers = [
@@ -175,17 +179,17 @@ export default function SettingsModal() {
   ]
 
   return (
-    <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="设置" className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={t('settings.dialog')} className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="glass-panel rounded-xl shadow-2xl w-[900px] max-h-[85vh] flex flex-col animate-fade-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-nova-border">
-          <h2 className="text-lg font-semibold text-nova-text-primary">Settings</h2>
+          <h2 className="text-lg font-semibold text-nova-text-primary">{t('settings.title')}</h2>
           <button onClick={closeSettings} className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
 
         <div className="flex border-b border-nova-border px-6">
-          {([{ key: 'api', label: 'API Config' }, { key: 'preferences', label: 'Preferences' }, { key: 'shortcuts', label: 'Shortcuts' }] as const).map((tab) => (
+          {([{ key: 'api', label: t('settings.tab.api') }, { key: 'preferences', label: t('settings.tab.preferences') }, { key: 'shortcuts', label: t('settings.tab.shortcuts') }] as const).map((tab) => (
             <button key={tab.key} className={`px-4 py-3 text-sm transition-colors border-b-2 ${activeTab === tab.key ? 'text-nova-accent border-nova-accent' : 'text-nova-text-secondary border-transparent hover:text-nova-text-primary'}`} onClick={() => setActiveTab(tab.key as any)}>{tab.label}</button>
           ))}
         </div>
@@ -195,48 +199,48 @@ export default function SettingsModal() {
             <div className="space-y-4">
               {editingGroup ? (
                 <div className="space-y-4 p-4 bg-nova-bg rounded-lg border border-nova-border">
-                  <h3 className="text-sm font-medium text-nova-text-primary">{isCreating ? 'New Config Group' : 'Edit Config Group'}</h3>
+                  <h3 className="text-sm font-medium text-nova-text-primary">{isCreating ? t('settings.configGroup.new') : t('settings.configGroup.edit')}</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs text-nova-text-secondary mb-1">Group Name</label>
+                      <label className="block text-xs text-nova-text-secondary mb-1">{t('settings.configGroup.name')}</label>
                       <input type="text" value={editingGroup.name || ''} onChange={(e) => setEditingGroup({ ...editingGroup, name: e.target.value })} className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-lg text-sm text-nova-text-primary outline-none focus:border-nova-accent/50" />
                     </div>
                     <div>
-                      <label className="block text-xs text-nova-text-secondary mb-1">Provider</label>
+                      <label className="block text-xs text-nova-text-secondary mb-1">{t('settings.configGroup.provider')}</label>
                       <select value={editingGroup.provider || 'openai'} onChange={(e) => setEditingGroup({ ...editingGroup, provider: e.target.value as any })} className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-lg text-sm text-nova-text-primary outline-none focus:border-nova-accent/50">
                         {providers.map((p) => (<option key={p.value} value={p.value}>{p.label}</option>))}
                       </select>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-nova-text-secondary mb-1">API Base URL</label>
+                    <label className="block text-xs text-nova-text-secondary mb-1">{t('settings.configGroup.baseUrl')}</label>
                     <input type="text" value={editingGroup.baseUrl || ''} onChange={(e) => setEditingGroup({ ...editingGroup, baseUrl: e.target.value })} className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-lg text-sm text-nova-text-primary outline-none focus:border-nova-accent/50 font-mono" />
                   </div>
                   <div>
-                    <label className="block text-xs text-nova-text-secondary mb-1">API Key</label>
+                    <label className="block text-xs text-nova-text-secondary mb-1">{t('settings.configGroup.apiKey')}</label>
                     <input type="password" value={editingGroup.apiKey || ''} onChange={(e) => setEditingGroup({ ...editingGroup, apiKey: e.target.value })} className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-lg text-sm text-nova-text-primary outline-none focus:border-nova-accent/50 font-mono" />
                   </div>
                   <div>
-                    <label className="block text-xs text-nova-text-secondary mb-1">Default Model</label>
+                    <label className="block text-xs text-nova-text-secondary mb-1">{t('settings.configGroup.defaultModel')}</label>
                     <input type="text" value={editingGroup.defaultModel || ''} onChange={(e) => setEditingGroup({ ...editingGroup, defaultModel: e.target.value })} className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-lg text-sm text-nova-text-primary outline-none focus:border-nova-accent/50" />
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs text-nova-text-secondary">System Prompt</label>
-                      <select className="px-2 py-0.5 bg-nova-input-bg border border-nova-border rounded text-[10px] text-nova-text-muted outline-none" onChange={(e) => { const t = SYSTEM_PROMPT_TEMPLATES.find((t) => t.name === e.target.value); if (t) setEditingGroup({ ...editingGroup, systemPrompt: t.prompt }); e.target.value = '' }} defaultValue="">
-                        <option value="" disabled>Insert Template...</option>
-                        {SYSTEM_PROMPT_TEMPLATES.map((t) => (<option key={t.name} value={t.name}>{t.name}</option>))}
+                      <label className="text-xs text-nova-text-secondary">{t('settings.configGroup.systemPrompt')}</label>
+                      <select className="px-2 py-0.5 bg-nova-input-bg border border-nova-border rounded text-[10px] text-nova-text-muted outline-none" onChange={(e) => { const tpl = SYSTEM_PROMPT_TEMPLATES.find((x) => x.id === e.target.value); if (tpl) setEditingGroup({ ...editingGroup, systemPrompt: tpl.prompt }); e.target.value = '' }} defaultValue="">
+                        <option value="" disabled>{t('settings.configGroup.insertTemplate')}</option>
+                        {SYSTEM_PROMPT_TEMPLATES.map((tpl) => (<option key={tpl.id} value={tpl.id}>{t(`settings.template.${tpl.id}`)}</option>))}
                       </select>
                     </div>
                     <div ref={promptEditorRef} className="w-full border border-nova-border rounded-lg overflow-hidden" style={{ height: 140 }} />
                     <div className="flex items-center justify-between mt-1">
                       <div className="text-[10px] text-nova-text-muted flex items-center gap-2">
-                        <span>Vars: <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{language}}'}</code> <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{framework}}'}</code> <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{projectName}}'}</code> <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{currentFile}}'}</code> <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{gitBranch}}'}</code> <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{date}}'}</code></span>
+                        <span>{t('settings.configGroup.vars')} <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{language}}'}</code> <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{framework}}'}</code> <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{projectName}}'}</code> <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{currentFile}}'}</code> <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{gitBranch}}'}</code> <code className="px-1 py-0.5 bg-nova-hover rounded">{'{{date}}'}</code></span>
                         <span className="text-nova-text-muted/60">|</span>
-                        <span className={(editingGroup.systemPrompt?.length || 0) > 4000 ? 'text-yellow-400' : ''}>{(editingGroup.systemPrompt?.length || 0)} chars · ~{Math.ceil((editingGroup.systemPrompt?.length || 0) / 4)} tokens</span>
+                        <span className={(editingGroup.systemPrompt?.length || 0) > 4000 ? 'text-yellow-400' : ''}>{t('settings.configGroup.charCount', { count: editingGroup.systemPrompt?.length || 0, tokens: Math.ceil((editingGroup.systemPrompt?.length || 0) / 4) })}</span>
                       </div>
                       <div className="flex gap-1">
-                        <button onClick={() => setEditingGroup({ ...editingGroup, systemPrompt: '' })} className="px-2 py-0.5 text-[10px] rounded bg-nova-hover text-nova-text-muted hover:text-red-400" title="重置为空">重置</button>
+                        <button onClick={() => setEditingGroup({ ...editingGroup, systemPrompt: '' })} className="px-2 py-0.5 text-[10px] rounded bg-nova-hover text-nova-text-muted hover:text-red-400" title={t('settings.configGroup.resetTitle')}>{t('settings.configGroup.reset')}</button>
                         <button onClick={() => {
                           const blob = new Blob([editingGroup.systemPrompt || ''], { type: 'text/plain' })
                           const url = URL.createObjectURL(blob)
@@ -245,7 +249,7 @@ export default function SettingsModal() {
                           a.download = `prompt-${editingGroup.name || 'system'}.txt`
                           a.click()
                           URL.revokeObjectURL(url)
-                        }} className="px-2 py-0.5 text-[10px] rounded bg-nova-hover text-nova-text-muted" title="导出Prompt">导出</button>
+                        }} className="px-2 py-0.5 text-[10px] rounded bg-nova-hover text-nova-text-muted" title={t('settings.configGroup.exportTitle')}>{t('settings.configGroup.export')}</button>
                         <button onClick={() => {
                           const input = document.createElement('input')
                           input.type = 'file'
@@ -257,9 +261,9 @@ export default function SettingsModal() {
                             setEditingGroup({ ...editingGroup, systemPrompt: text })
                           }
                           input.click()
-                        }} className="px-2 py-0.5 text-[10px] rounded bg-nova-hover text-nova-text-muted" title="导入Prompt">导入</button>
-                        <button onClick={() => setShowPromptPreview(!showPromptPreview)} className={`px-2 py-0.5 text-[10px] rounded ${showPromptPreview ? 'bg-nova-accent/20 text-nova-accent' : 'bg-nova-hover text-nova-text-muted'}`}>Preview</button>
-                        {editingGroup.id && <button onClick={() => setShowPromptHistory(!showPromptHistory)} className="px-2 py-0.5 text-[10px] rounded bg-nova-hover text-nova-text-muted">History ({getPromptHistory(editingGroup.id).length})</button>}
+                        }} className="px-2 py-0.5 text-[10px] rounded bg-nova-hover text-nova-text-muted" title={t('settings.configGroup.importTitle')}>{t('settings.configGroup.import')}</button>
+                        <button onClick={() => setShowPromptPreview(!showPromptPreview)} className={`px-2 py-0.5 text-[10px] rounded ${showPromptPreview ? 'bg-nova-accent/20 text-nova-accent' : 'bg-nova-hover text-nova-text-muted'}`}>{t('settings.configGroup.preview')}</button>
+                        {editingGroup.id && <button onClick={() => setShowPromptHistory(!showPromptHistory)} className="px-2 py-0.5 text-[10px] rounded bg-nova-hover text-nova-text-muted">{t('settings.configGroup.history', { count: getPromptHistory(editingGroup.id).length })}</button>}
                       </div>
                     </div>
                     {showPromptPreview && editingGroup.systemPrompt && (
@@ -280,36 +284,36 @@ export default function SettingsModal() {
                     )}
                     {showPromptHistory && editingGroup.id && (
                       <div className="mt-2 p-2 bg-nova-surface rounded-lg border border-nova-border max-h-[150px] overflow-y-auto">
-                        {getPromptHistory(editingGroup.id).length === 0 ? <div className="text-[10px] text-nova-text-muted py-2 text-center">No history</div> : getPromptHistory(editingGroup.id).map((v, i) => (
+                        {getPromptHistory(editingGroup.id).length === 0 ? <div className="text-[10px] text-nova-text-muted py-2 text-center">{t('settings.configGroup.noHistory')}</div> : getPromptHistory(editingGroup.id).map((v, i) => (
                           <div key={v.timestamp} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-nova-hover cursor-pointer" onClick={() => { restorePromptVersion(editingGroup.id!, i); setEditingGroup({ ...editingGroup, systemPrompt: v.content }) }}>
                             <span className="text-[10px] text-nova-text-muted shrink-0">{new Date(v.timestamp).toLocaleDateString()}</span>
                             <span className="text-[10px] text-nova-text-secondary truncate flex-1">{v.content.slice(0, 60)}...</span>
-                            <span className="text-[10px] text-nova-accent">Restore</span>
+                            <span className="text-[10px] text-nova-accent">{t('settings.configGroup.restore')}</span>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs text-nova-text-secondary mb-1">Color Label</label>
+                    <label className="block text-xs text-nova-text-secondary mb-1">{t('settings.configGroup.colorLabel')}</label>
                     <div className="flex items-center gap-2 flex-wrap">
                       {configColors.map((c) => (<button key={c.value} onClick={() => setEditingGroup({ ...editingGroup, color: c.value })} className={`w-6 h-6 rounded-full border-2 transition-all ${editingGroup.color === c.value ? 'border-white scale-110' : 'border-transparent hover:border-nova-border'}`} style={{ backgroundColor: c.value }} />))}
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-nova-text-secondary mb-1">Custom Headers (JSON)</label>
+                    <label className="block text-xs text-nova-text-secondary mb-1">{t('settings.configGroup.customHeaders')}</label>
                     <textarea value={JSON.stringify(editingGroup.customHeaders || {}, null, 2)} onChange={(e) => { try { setEditingGroup({ ...editingGroup, customHeaders: JSON.parse(e.target.value) }) } catch { /* invalid JSON */ } }} className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-lg text-xs text-nova-text-primary outline-none focus:border-nova-accent/50 resize-none font-mono" rows={2} />
                   </div>
-                  <div className="text-[10px] text-nova-text-muted">API Key supports env vars: <code className="px-1 py-0.5 bg-nova-hover rounded">$ENV_VAR_NAME</code></div>
+                  <div className="text-[10px] text-nova-text-muted">{t('settings.configGroup.envVars')} <code className="px-1 py-0.5 bg-nova-hover rounded">$ENV_VAR_NAME</code></div>
                   <div className="flex justify-end gap-3">
-                    <button onClick={() => { setEditingGroup(null); setIsCreating(false) }} className="px-4 py-2 text-sm bg-nova-hover rounded-lg text-nova-text-secondary hover:text-nova-text-primary transition-colors">Cancel</button>
-                    <button onClick={handleSaveGroup} className="px-4 py-2 text-sm bg-nova-accent rounded-lg text-white hover:opacity-90 transition-opacity">Save</button>
+                    <button onClick={() => { setEditingGroup(null); setIsCreating(false) }} className="px-4 py-2 text-sm bg-nova-hover rounded-lg text-nova-text-secondary hover:text-nova-text-primary transition-colors">{t('common.cancel')}</button>
+                    <button onClick={handleSaveGroup} className="px-4 py-2 text-sm bg-nova-accent rounded-lg text-white hover:opacity-90 transition-opacity">{t('common.save')}</button>
                   </div>
                 </div>
               ) : (
                 <>
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-nova-text-primary">Config Groups</h3>
+                    <h3 className="text-sm font-medium text-nova-text-primary">{t('settings.configGroups.title')}</h3>
                     <div className="flex items-center gap-2">
                       <button onClick={async () => {
                         const input = document.createElement('input')
@@ -320,15 +324,15 @@ export default function SettingsModal() {
                           if (!file) return
                           const text = await file.text()
                           // Prompt for decryption password
-                          const password = prompt('输入导出时设置的密码（如果有的话）:')
+                          const password = prompt(t('settings.configGroups.importPasswordPrompt'))
                           const { importConfigGroups } = useConfigStore.getState()
                           await importConfigGroups(text, password || undefined)
                           loadConfigGroups()
                         }
                         input.click()
-                      }} className="px-3 py-1.5 text-xs bg-nova-hover rounded-lg text-nova-text-secondary hover:text-nova-text-primary transition-colors">导入</button>
+                      }} className="px-3 py-1.5 text-xs bg-nova-hover rounded-lg text-nova-text-secondary hover:text-nova-text-primary transition-colors">{t('settings.configGroups.importTitle')}</button>
                       <button onClick={async () => {
-                        const password = prompt('设置导出密码（留空则不加密，仅mask密钥）:')
+                        const password = prompt(t('settings.configGroups.exportPasswordPrompt'))
                         const { exportConfigGroups } = useConfigStore.getState()
                         const data = await exportConfigGroups(password || undefined)
                         const blob = new Blob([data], { type: 'application/json' })
@@ -338,11 +342,11 @@ export default function SettingsModal() {
                         a.download = `ourcode-configs-${Date.now()}.json`
                         a.click()
                         URL.revokeObjectURL(url)
-                      }} className="px-3 py-1.5 text-xs bg-nova-hover rounded-lg text-nova-text-secondary hover:text-nova-text-primary transition-colors">导出</button>
-                      <button onClick={handleCreateGroup} className="px-3 py-1.5 text-xs bg-nova-accent rounded-lg text-white hover:opacity-90 transition-opacity">New Group</button>
+                      }} className="px-3 py-1.5 text-xs bg-nova-hover rounded-lg text-nova-text-secondary hover:text-nova-text-primary transition-colors">{t('settings.configGroups.exportTitle')}</button>
+                      <button onClick={handleCreateGroup} className="px-3 py-1.5 text-xs bg-nova-accent rounded-lg text-white hover:opacity-90 transition-opacity">{t('settings.configGroups.new')}</button>
                     </div>
                   </div>
-                  {configGroups.length === 0 ? <div className="p-8 text-center text-nova-text-muted text-sm">No config groups yet</div> : (
+                  {configGroups.length === 0 ? <div className="p-8 text-center text-nova-text-muted text-sm">{t('settings.configGroups.empty')}</div> : (
                     <div className="space-y-2">
                       {configGroups.map((group, index) => {
                         const isActive = group.id === activeConfigGroupId
@@ -365,7 +369,7 @@ export default function SettingsModal() {
                           >
                             <div className="flex items-start justify-between">
                               {/* Drag handle */}
-                              <div className="flex items-center pr-2 pt-1 cursor-grab text-nova-text-muted hover:text-nova-text-secondary" title="拖拽排序">
+                              <div className="flex items-center pr-2 pt-1 cursor-grab text-nova-text-muted hover:text-nova-text-secondary" title={t('settings.configGroups.dragHint')}>
                                 <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
                                   <circle cx="5" cy="3" r="1.5"/><circle cx="11" cy="3" r="1.5"/>
                                   <circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/>
@@ -377,11 +381,11 @@ export default function SettingsModal() {
                                   {group.color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: group.color }}></span>}
                                   <span className="text-sm font-medium text-nova-text-primary">{group.name}</span>
                                   <span className="text-[10px] px-1.5 py-0.5 bg-nova-hover rounded text-nova-text-muted">{group.provider}</span>
-                                  {isActive && <span className="text-[10px] px-1.5 py-0.5 bg-nova-accent/20 rounded text-nova-accent">Active</span>}
+                                  {isActive && <span className="text-[10px] px-1.5 py-0.5 bg-nova-accent/20 rounded text-nova-accent">{t('settings.configGroups.active')}</span>}
                                 </div>
                                 <div className="text-xs text-nova-text-muted mt-1 font-mono truncate">{group.baseUrl}</div>
                                 <div className="text-xs text-nova-text-muted mt-0.5 flex items-center gap-1">
-                                  <span>Key: {showApiKey[group.id]
+                                  <span>{t('settings.configGroups.key')} {showApiKey[group.id]
                                     ? group.apiKey
                                     : group.apiKey && group.apiKey.startsWith('$')
                                       ? group.apiKey
@@ -393,17 +397,17 @@ export default function SettingsModal() {
                                 {testResults[group.id] && <div className={`text-xs mt-1 ${testResults[group.id].success ? 'text-green-400' : 'text-red-400'}`}>{testResults[group.id].success ? '✓' : '✗'} {testResults[group.id].message}</div>}
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0 ml-3">
-                                <button onClick={() => setActiveConfigGroup(group.id)} className={`px-2.5 py-1 text-xs rounded-md ${isActive ? 'bg-nova-accent/20 text-nova-accent' : 'bg-nova-hover text-nova-text-secondary hover:text-nova-text-primary'}`}>Use</button>
-                                <button onClick={() => handleTestConnection(group.id)} className="px-2.5 py-1 text-xs bg-nova-hover rounded-md text-nova-text-secondary hover:text-nova-text-primary">Test</button>
-                                <button onClick={() => { setEditingGroup(group); setIsCreating(false) }} className="px-2.5 py-1 text-xs bg-nova-hover rounded-md text-nova-text-secondary hover:text-nova-text-primary">Edit</button>
-                                <button onClick={() => handleDeleteGroup(group.id)} className="px-2.5 py-1 text-xs bg-nova-hover rounded-md text-red-400 hover:text-red-300">Delete</button>
+                                <button onClick={() => setActiveConfigGroup(group.id)} className={`px-2.5 py-1 text-xs rounded-md ${isActive ? 'bg-nova-accent/20 text-nova-accent' : 'bg-nova-hover text-nova-text-secondary hover:text-nova-text-primary'}`}>{t('settings.configGroups.use')}</button>
+                                <button onClick={() => handleTestConnection(group.id)} className="px-2.5 py-1 text-xs bg-nova-hover rounded-md text-nova-text-secondary hover:text-nova-text-primary">{t('settings.configGroups.test')}</button>
+                                <button onClick={() => { setEditingGroup(group); setIsCreating(false) }} className="px-2.5 py-1 text-xs bg-nova-hover rounded-md text-nova-text-secondary hover:text-nova-text-primary">{t('settings.configGroups.edit')}</button>
+                                <button onClick={() => handleDeleteGroup(group.id)} className="px-2.5 py-1 text-xs bg-nova-hover rounded-md text-red-400 hover:text-red-300">{t('common.delete')}</button>
                               </div>
                             </div>
                             {isActive && models.length > 0 && (
                               <div className="mt-3 pt-3 border-t border-nova-border">
-                                <div className="text-xs text-nova-text-muted mb-1.5">Models ({models.length})</div>
+                                <div className="text-xs text-nova-text-muted mb-1.5">{t('settings.configGroups.models', { count: models.length })}</div>
                                 <div className="flex flex-wrap gap-1 max-h-[60px] overflow-y-auto">
-                                  {models.slice(0, 20).map((m) => (<span key={m.id} className="text-[10px] px-1.5 py-0.5 bg-nova-hover rounded text-nova-text-secondary">{m.id}{m.isFree && <span className="text-green-400 ml-0.5">(Free)</span>}</span>))}
+                                  {models.slice(0, 20).map((m) => (<span key={m.id} className="text-[10px] px-1.5 py-0.5 bg-nova-hover rounded text-nova-text-secondary">{m.id}{m.isFree && <span className="text-green-400 ml-0.5">{t('settings.configGroups.free')}</span>}</span>))}
                                 </div>
                               </div>
                             )}
@@ -420,29 +424,30 @@ export default function SettingsModal() {
           {activeTab === 'preferences' && (
             <div className="space-y-6">
               <div>
-                <h3 className="text-sm font-medium text-nova-text-primary mb-3">Appearance</h3>
+                <h3 className="text-sm font-medium text-nova-text-primary mb-3">{t('settings.preferences.appearance')}</h3>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-nova-text-secondary">Theme</label>
-                    <select value={preferences.theme} onChange={(e) => { const t = e.target.value as 'light' | 'dark' | 'system'; savePreferences({ theme: t }); setTheme(t) }} className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-lg text-sm text-nova-text-primary outline-none">
-                      <option value="dark">Dark</option>
-                      <option value="light">Light</option>
-                      <option value="system">System</option>
+                    <label className="text-sm text-nova-text-secondary">{t('settings.preferences.theme')}</label>
+                    <select value={preferences.theme} onChange={(e) => { const th = e.target.value as 'light' | 'dark' | 'system'; savePreferences({ theme: th }); setTheme(th) }} className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-lg text-sm text-nova-text-primary outline-none">
+                      <option value="dark">{t('settings.preferences.themeDark')}</option>
+                      <option value="light">{t('settings.preferences.themeLight')}</option>
+                      <option value="system">{t('settings.preferences.themeSystem')}</option>
                     </select>
                   </div>
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-nova-text-secondary">Language</label>
+                    <label className="text-sm text-nova-text-secondary">{t('settings.preferences.language')}</label>
                     <select
                       value={preferences.language}
-                      onChange={(e) => savePreferences({ language: e.target.value as 'zh-CN' | 'en-US' })}
+                      onChange={(e) => savePreferences({ language: e.target.value as 'zh-CN' | 'en-US' | 'system' })}
                       className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-lg text-sm text-nova-text-primary outline-none"
                     >
-                      <option value="zh-CN">简体中文</option>
-                      <option value="en-US">English</option>
+                      <option value="system">{t('settings.preferences.languageSystem')}</option>
+                      <option value="zh-CN">{t('settings.preferences.languageZh')}</option>
+                      <option value="en-US">{t('settings.preferences.languageEn')}</option>
                     </select>
                   </div>
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-nova-text-secondary">主题色</label>
+                    <label className="text-sm text-nova-text-secondary">{t('settings.preferences.accentColor')}</label>
                     <div className="flex items-center gap-1.5">
                       {THEME_COLOR_PRESETS.map((c) => (
                         <button
@@ -458,40 +463,40 @@ export default function SettingsModal() {
                         value={themeColor}
                         onChange={(e) => setThemeColor(e.target.value)}
                         className="w-6 h-6 rounded cursor-pointer border-none bg-transparent p-0"
-                        title="自定义颜色"
+                        title={t('settings.preferences.customColor')}
                       />
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-nova-text-secondary">Font Size</label>
+                    <label className="text-sm text-nova-text-secondary">{t('settings.preferences.fontSize')}</label>
                     <div className="flex items-center gap-2">
                       <input type="range" min={10} max={24} value={preferences.fontSize} onChange={(e) => savePreferences({ fontSize: Number(e.target.value) })} className="w-32" />
                       <span className="text-xs text-nova-text-muted w-8 text-right">{preferences.fontSize}px</span>
                     </div>
                   </div>
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-nova-text-secondary">Tab Size</label>
+                    <label className="text-sm text-nova-text-secondary">{t('settings.preferences.tabSize')}</label>
                     <select value={preferences.tabSize} onChange={(e) => savePreferences({ tabSize: Number(e.target.value) })} className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-lg text-sm text-nova-text-primary outline-none">
-                      <option value={2}>2 spaces</option>
-                      <option value={4}>4 spaces</option>
-                      <option value={8}>8 spaces</option>
+                      <option value={2}>{t('settings.preferences.spaces', { count: 2 })}</option>
+                      <option value={4}>{t('settings.preferences.spaces', { count: 4 })}</option>
+                      <option value={8}>{t('settings.preferences.spaces', { count: 8 })}</option>
                     </select>
                   </div>
                 </div>
               </div>
               <div>
-                <h3 className="text-sm font-medium text-nova-text-primary mb-3">Editor</h3>
+                <h3 className="text-sm font-medium text-nova-text-primary mb-3">{t('settings.preferences.editor')}</h3>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-nova-text-secondary">Minimap</label>
+                    <label className="text-sm text-nova-text-secondary">{t('settings.preferences.minimap')}</label>
                     <button onClick={() => savePreferences({ showMinimap: !preferences.showMinimap })} className={`w-10 h-5 rounded-full transition-colors ${preferences.showMinimap ? 'bg-nova-accent' : 'bg-nova-border'}`}><div className={`w-4 h-4 rounded-full bg-white transition-transform ${preferences.showMinimap ? 'translate-x-5' : 'translate-x-0.5'}`} /></button>
                   </div>
                   <div className="flex items-center justify-between">
-                    <label className="text-sm text-nova-text-secondary">Auto Save</label>
+                    <label className="text-sm text-nova-text-secondary">{t('settings.preferences.autoSave')}</label>
                     <button onClick={() => savePreferences({ autoSave: !preferences.autoSave })} className={`w-10 h-5 rounded-full transition-colors ${preferences.autoSave ? 'bg-nova-accent' : 'bg-nova-border'}`}><div className={`w-4 h-4 rounded-full bg-white transition-transform ${preferences.autoSave ? 'translate-x-5' : 'translate-x-0.5'}`} /></button>
                   </div>
                   <div>
-                    <label className="text-sm text-nova-text-secondary block mb-1.5">LSP 服务器（每行 language:command）</label>
+                    <label className="text-sm text-nova-text-secondary block mb-1.5">{t('settings.preferences.lspServers')}</label>
                     <textarea
                       value={lspServersText}
                       onChange={(e) => setLspServersText(e.target.value)}
@@ -509,28 +514,28 @@ export default function SettingsModal() {
                       spellCheck={false}
                       className="w-full h-20 p-2 bg-nova-bg border border-nova-border rounded-lg text-xs text-nova-text-primary font-mono resize-none placeholder-nova-text-muted focus:outline-none focus:border-nova-accent/50"
                     />
-                    <p className="text-[10px] text-nova-text-muted mt-1">打开对应语言文件时自动启动；诊断会显示在「问题」面板。</p>
+                    <p className="text-[10px] text-nova-text-muted mt-1">{t('settings.preferences.lspHint')}</p>
                   </div>
                 </div>
               </div>
               <div>
-                <h3 className="text-sm font-medium text-nova-text-primary mb-3">File Explorer</h3>
+                <h3 className="text-sm font-medium text-nova-text-primary mb-3">{t('settings.preferences.fileExplorer')}</h3>
                 <div className="flex items-center justify-between">
-                  <label className="text-sm text-nova-text-secondary">Show Hidden Files</label>
+                  <label className="text-sm text-nova-text-secondary">{t('settings.preferences.showHiddenFiles')}</label>
                   <button onClick={() => savePreferences({ showHiddenFiles: !preferences.showHiddenFiles })} className={`w-10 h-5 rounded-full transition-colors ${preferences.showHiddenFiles ? 'bg-nova-accent' : 'bg-nova-border'}`}><div className={`w-4 h-4 rounded-full bg-white transition-transform ${preferences.showHiddenFiles ? 'translate-x-5' : 'translate-x-0.5'}`} /></button>
                 </div>
               </div>
 
               {/* Reset */}
               <div className="border-t border-nova-border pt-4 mt-4">
-                <h3 className="text-sm font-medium text-red-400 mb-2">Danger Zone</h3>
+                <h3 className="text-sm font-medium text-red-400 mb-2">{t('settings.preferences.dangerZone')}</h3>
                 <p className="text-xs text-nova-text-muted mb-3">
-                  This will delete all config groups, chat history, and preferences. This action cannot be undone.
+                  {t('settings.preferences.dangerZoneDesc')}
                 </p>
                 <button
                   onClick={() => {
-                    if (confirm('Are you sure you want to reset all settings? This will delete all config groups, chat history, and preferences. This cannot be undone.')) {
-                      if (confirm('Final confirmation: ALL data will be permanently deleted. Continue?')) {
+                    if (confirm(t('settings.preferences.resetConfirm'))) {
+                      if (confirm(t('settings.preferences.resetFinalConfirm'))) {
                         window.electronAPI.resetAll().then(() => {
                           useConfigStore.getState().resetStore()
                           useChatStore.getState().resetStore()
@@ -542,7 +547,7 @@ export default function SettingsModal() {
                   }}
                   className="px-4 py-2 text-sm font-medium bg-red-600/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-600/30 transition-colors"
                 >
-                  Reset All Settings
+                  {t('settings.preferences.resetAll')}
                 </button>
               </div>
             </div>
@@ -551,20 +556,26 @@ export default function SettingsModal() {
           {activeTab === 'shortcuts' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-nova-text-primary">Keyboard Shortcuts</h3>
+                <h3 className="text-sm font-medium text-nova-text-primary">{t('settings.shortcuts.title')}</h3>
                 <div className="flex items-center gap-2">
                   <select value={shortcutStore.preset} onChange={(e) => shortcutStore.setPreset(e.target.value as ShortcutPreset)} className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-lg text-xs text-nova-text-primary outline-none">
-                    <option value="vscode">VS Code</option>
-                    <option value="jetbrains">JetBrains</option>
-                    <option value="custom">Custom</option>
+                    <option value="vscode">{t('settings.shortcuts.presetVscode')}</option>
+                    <option value="jetbrains">{t('settings.shortcuts.presetJetbrains')}</option>
+                    <option value="custom">{t('settings.shortcuts.presetCustom')}</option>
                   </select>
-                  {shortcutStore.preset === 'custom' && <button onClick={() => shortcutStore.resetToPreset('vscode')} className="px-2 py-1 text-[10px] bg-nova-hover text-nova-text-muted rounded">Reset</button>}
+                  {shortcutStore.preset === 'custom' && <button onClick={() => shortcutStore.resetToPreset('vscode')} className="px-2 py-1 text-[10px] bg-nova-hover text-nova-text-muted rounded">{t('settings.shortcuts.reset')}</button>}
                 </div>
               </div>
               {(['file', 'edit', 'view', 'chat', 'ai'] as const).map((category) => {
                 const items = shortcutStore.shortcuts.filter((s) => s.category === category)
                 if (items.length === 0) return null
-                const labels: Record<string, string> = { file: 'File', edit: 'Edit', view: 'View', chat: 'Chat', ai: 'AI' }
+                const labels: Record<string, string> = {
+                  file: t('settings.shortcuts.catFile'),
+                  edit: t('settings.shortcuts.catEdit'),
+                  view: t('settings.shortcuts.catView'),
+                  chat: t('settings.shortcuts.catChat'),
+                  ai: t('settings.shortcuts.catAi'),
+                }
                 return (
                   <div key={category}>
                     <h4 className="text-xs font-semibold text-nova-text-muted uppercase mb-1.5">{labels[category]}</h4>
@@ -572,7 +583,7 @@ export default function SettingsModal() {
                       {items.map((s) => (
                         <div key={s.id} className="flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-nova-hover">
                           <span className="text-xs text-nova-text-secondary">{s.description}</span>
-                          <kbd className={`px-2 py-0.5 bg-nova-bg border border-nova-border rounded text-[10px] font-mono ${shortcutStore.preset === 'custom' ? 'text-nova-accent cursor-pointer' : 'text-nova-text-muted'}`} onClick={() => { if (shortcutStore.preset !== 'custom') return; const k = prompt('New shortcut:', s.keys); if (k?.trim()) shortcutStore.updateShortcut(s.id, k.trim()) }}>{s.keys}</kbd>
+                          <kbd className={`px-2 py-0.5 bg-nova-bg border border-nova-border rounded text-[10px] font-mono ${shortcutStore.preset === 'custom' ? 'text-nova-accent cursor-pointer' : 'text-nova-text-muted'}`} onClick={() => { if (shortcutStore.preset !== 'custom') return; const k = prompt(t('settings.shortcuts.newShortcut'), s.keys); if (k?.trim()) shortcutStore.updateShortcut(s.id, k.trim()) }}>{s.keys}</kbd>
                         </div>
                       ))}
                     </div>

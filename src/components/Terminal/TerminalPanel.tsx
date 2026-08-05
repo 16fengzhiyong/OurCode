@@ -4,6 +4,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 import { useUIStore } from '@/stores/uiStore'
+import { useI18n } from '@/i18n/useI18n'
+import { t as moduleT } from '@/i18n'
 
 interface TerminalTab {
   id: string
@@ -21,6 +23,7 @@ interface TerminalPanelProps {
 
 export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
   const { terminalHeight, setTerminalHeight, isTerminalVisible } = useUIStore()
+  const t = useI18n()
 
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
@@ -71,7 +74,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     const tabId = `term-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
     setTabs((prev) => [...prev, {
       id: tabId,
-      title: `Terminal ${prev.length + 1}`,
+      title: t('terminal.tabTitle', { count: prev.length + 1 }),
       isReady: false,
       isActive: true,
       splitDirection: 'none',
@@ -80,7 +83,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     }])
     setActiveTabId(tabId)
     return tabId
-  }, [])
+  }, [t])
 
   const disposeTerminal = useCallback((tabId: string) => {
     const entry = terminalsRef.current.get(tabId)
@@ -136,7 +139,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     if (!currentTab || currentTab.splitDirection !== 'none') return
 
     const newTabId = `term-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    const newTitle = `Terminal ${tabs.length + 1}`
+    const newTitle = t('terminal.tabTitle', { count: tabs.length + 1 })
 
     setTabs((prev) => [
       ...prev.map((t) =>
@@ -155,7 +158,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
       },
     ])
     setActiveTabId(newTabId)
-  }, [activeTabId, tabs])
+  }, [activeTabId, tabs, t])
 
   // Split ratio drag handler (horizontal)
   const handleSplitDragStart = useCallback((primaryTabId: string, e: React.MouseEvent) => {
@@ -281,7 +284,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     }))
 
     cleanup.push(window.electronAPI.onTermExit(tabId, () => {
-      if (!localDisposed) term.write('\r\n[Process exited]')
+      if (!localDisposed) term.write('\r\n' + moduleT('terminal.processExited'))
     }))
 
     term.onData((data) => {
@@ -422,7 +425,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
             <button
               className="ml-1 text-nova-text-muted hover:text-nova-text-primary text-[10px]"
               onClick={(e) => { e.stopPropagation(); closeTab(tab.id) }}
-              title={tab.splitDirection !== 'none' ? '取消分屏' : '关闭'}
+              title={tab.splitDirection !== 'none' ? t('terminal.unsplit') : t('common.close')}
             >
               ×
             </button>
@@ -431,7 +434,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
         <button
           className="px-2 h-full text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover text-sm shrink-0"
           onClick={createTab}
-          title="新建终端"
+          title={t('terminal.new')}
         >
           +
         </button>
@@ -440,7 +443,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
           <button
             className="px-2 h-full text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover text-xs shrink-0"
             onClick={splitTerminal}
-            title="分屏"
+            title={t('terminal.split')}
           >
             ⧉
           </button>

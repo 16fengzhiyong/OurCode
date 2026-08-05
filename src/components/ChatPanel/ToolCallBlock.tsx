@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useI18n } from '@/i18n/useI18n'
+import type { TranslationKey } from '@/i18n'
 
 interface ToolCallBlockProps {
   toolCalls: Array<{ id: string; name: string; arguments: Record<string, any> }>
@@ -23,26 +25,27 @@ const TOOL_ICONS: Record<string, string> = {
   read_url: '🔗',
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  read_file: '读取文件',
-  list_directory: '列出目录',
-  get_directory_tree: '目录树',
-  search_files: '搜索文件',
-  search_in_files: '搜索内容',
-  write_file: '写入文件',
-  edit_file: '编辑文件',
-  create_directory: '创建目录',
-  delete_file: '删除',
-  run_command: '执行命令',
-  manage_todo: '任务列表',
-  submit_plan: '提交计划',
-  ask_user_question: '询问用户',
-  web_search: '网络搜索',
-  read_url: '读取网页',
+const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
+  read_file: 'tool.readFile',
+  list_directory: 'tool.listDirectory',
+  get_directory_tree: 'tool.getDirectoryTree',
+  search_files: 'tool.searchFiles',
+  search_in_files: 'tool.searchInFiles',
+  write_file: 'tool.writeFile',
+  edit_file: 'tool.editFile',
+  create_directory: 'tool.createDirectory',
+  delete_file: 'tool.deleteFile',
+  run_command: 'tool.runCommand',
+  manage_todo: 'tool.manageTodo',
+  submit_plan: 'tool.submitPlan',
+  ask_user_question: 'tool.askUserQuestion',
+  web_search: 'tool.webSearch',
+  read_url: 'tool.readUrl',
 }
 
 export default function ToolCallBlock({ toolCalls, toolResults }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const t = useI18n()
 
   const toggle = (id: string) => {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))
@@ -57,7 +60,8 @@ export default function ToolCallBlock({ toolCalls, toolResults }: ToolCallBlockP
       {toolCalls.map((tc) => {
         const result = getResult(tc.id)
         const icon = TOOL_ICONS[tc.name] || '🔧'
-        const label = TOOL_LABELS[tc.name] || tc.name
+        const labelKey = TOOL_LABEL_KEYS[tc.name]
+        const label = labelKey ? t(labelKey) : tc.name
         const isExpanded = expanded[tc.id]
         const hasResult = !!result
         const isError = result?.isError
@@ -80,7 +84,7 @@ export default function ToolCallBlock({ toolCalls, toolResults }: ToolCallBlockP
               <span>{icon}</span>
               <span className="text-nova-text-primary font-medium">{label}</span>
               <span className="text-nova-text-muted truncate flex-1">
-                {getToolSummary(tc.name, tc.arguments)}
+                {getToolSummary(tc.name, tc.arguments, t)}
               </span>
               <span className="text-nova-text-muted">
                 {hasResult ? (isError ? '✗' : '✓') : '⏳'}
@@ -97,13 +101,13 @@ export default function ToolCallBlock({ toolCalls, toolResults }: ToolCallBlockP
 
             {isExpanded && (
               <div className="border-t border-nova-border/50 px-3 py-2">
-                <div className="text-nova-text-muted mb-1">参数:</div>
+                <div className="text-nova-text-muted mb-1">{t('tool.params')}</div>
                 <pre className="text-nova-text-secondary whitespace-pre-wrap break-all bg-nova-bg/50 rounded p-2 mb-2">
                   {JSON.stringify(tc.arguments, null, 2)}
                 </pre>
                 {result && (
                   <>
-                    <div className="text-nova-text-muted mb-1">结果:</div>
+                    <div className="text-nova-text-muted mb-1">{t('tool.result')}</div>
                     <pre className={`whitespace-pre-wrap break-all rounded p-2 ${
                       isError ? 'text-red-400 bg-red-500/10' : 'text-nova-text-secondary bg-nova-bg/50'
                     }`}>
@@ -120,7 +124,7 @@ export default function ToolCallBlock({ toolCalls, toolResults }: ToolCallBlockP
   )
 }
 
-function getToolSummary(name: string, args: Record<string, any>): string {
+function getToolSummary(name: string, args: Record<string, any>, t: (key: TranslationKey, vars?: Record<string, string | number>) => string): string {
   switch (name) {
     case 'read_file':
       return args.path?.split(/[/\\]/).pop() || args.path
@@ -143,7 +147,7 @@ function getToolSummary(name: string, args: Record<string, any>): string {
     case 'run_command':
       return args.command?.slice(0, 50) || ''
     case 'manage_todo':
-      return `${Array.isArray(args.todos) ? args.todos.length : 0} 项任务`
+      return t('tool.todoCount', { count: Array.isArray(args.todos) ? args.todos.length : 0 })
     case 'submit_plan':
       return args.title || ''
     case 'ask_user_question':

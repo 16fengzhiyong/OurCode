@@ -18,7 +18,7 @@ import { ensureProblemsSubscription, useProblemsStore } from './stores/problemsS
 import { ensureLspDiagnosticsSubscription } from './services/lsp/lspClient'
 import { ensureDebugEventSubscription } from './stores/debugStore'
 import { registerCoreCommands } from './services/commands/coreCommands'
-import { setLocale, type Locale } from './i18n'
+import { setLocale, resolveLocale, getSystemLocale, type LanguagePreference } from './i18n'
 
 export default function App() {
   const loadConfigGroups = useConfigStore((s) => s.loadConfigGroups)
@@ -33,6 +33,16 @@ export default function App() {
   const [ready, setReady] = useState(false)
   const [pendingBackups, setPendingBackups] = useState<BackupEntry[]>([])
 
+  // Re-resolve the UI language (and re-register command titles/categories, which
+  // are captured as resolved strings) whenever the preference changes.
+  const language = useEditorStore((s) => s.preferences.language)
+  useEffect(() => {
+    setLocale(resolveLocale((language ?? 'system') as LanguagePreference, getSystemLocale()))
+    registerCoreCommands()
+    loadCommands()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only refresh on language change
+  }, [language])
+
   useEffect(() => {
     const hasCompleted = localStorage.getItem('hasCompletedOnboarding')
     // Register the shared command surface (shortcuts / palette / plugins)
@@ -40,8 +50,12 @@ export default function App() {
     loadConfigGroups().then(async () => {
       loadSessions()
       await loadPreferences()
-      // Apply the persisted UI language to the document
-      setLocale((useEditorStore.getState().preferences.language ?? 'zh-CN') as Locale)
+      // Apply the persisted UI language to the document ('system' resolves to
+      // the OS locale captured at bootstrap)
+      setLocale(resolveLocale(
+        (useEditorStore.getState().preferences.language ?? 'system') as LanguagePreference,
+        getSystemLocale(),
+      ))
       // Restore the persisted theme (initTheme used to hardcode 'dark' on startup)
       initTheme(useEditorStore.getState().preferences.theme)
       loadCommands()

@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useEditorStore } from '@/stores/editorStore'
 import { getFileIconHTML } from '@/utils/fileIcons'
 import ConfirmDialog from '@/components/Common/ConfirmDialog'
+import { useI18n } from '@/i18n/useI18n'
 
 interface TabBarProps {
   panelId: string
@@ -34,6 +35,7 @@ export default function TabBar({ panelId }: TabBarProps) {
   const [dropIndex, setDropIndex] = useState<number | null>(null)
   const [confirmClose, setConfirmClose] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
+  const t = useI18n()
 
   const orderedFiles = tabOrder
     .map((path) => openFiles.find((f) => f.path === path))
@@ -178,7 +180,7 @@ export default function TabBar({ panelId }: TabBarProps) {
                 <button
                   onClick={(e) => handleSave(e, file.path)}
                   className="w-2 h-2 rounded-full bg-yellow-500 hover:bg-yellow-400 flex-shrink-0"
-                  title="保存文件"
+                  title={t('editor.saveFile')}
                 />
               )}
 
@@ -204,7 +206,7 @@ export default function TabBar({ panelId }: TabBarProps) {
             onDragOver={handleTabBarDragOver}
             onDrop={(e) => handleDrop(e)}
           >
-            拖拽标签到此处
+            {t('editor.dragTabHint')}
           </div>
         )}
 
@@ -213,7 +215,7 @@ export default function TabBar({ panelId }: TabBarProps) {
           <button
             onClick={() => splitPanel('horizontal')}
             className="p-1.5 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover rounded transition-colors"
-            title="左右分屏 (Ctrl+\)"
+            title={t('editor.splitLeftRight')}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -223,7 +225,7 @@ export default function TabBar({ panelId }: TabBarProps) {
           <button
             onClick={() => splitPanel('vertical')}
             className="p-1.5 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover rounded transition-colors"
-            title="上下分屏"
+            title={t('editor.splitUpDown')}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -234,7 +236,7 @@ export default function TabBar({ panelId }: TabBarProps) {
             <button
               onClick={() => closePanel(panelId)}
               className="p-1.5 text-nova-text-muted hover:text-red-400 hover:bg-nova-hover rounded transition-colors"
-              title="关闭此分屏"
+              title={t('editor.closePanel')}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -248,10 +250,10 @@ export default function TabBar({ panelId }: TabBarProps) {
 
       <ConfirmDialog
         isOpen={!!confirmClose}
-        title="未保存的更改"
-        message={`文件 "${confirmClose ? getFileName(confirmClose) : ''}" 有未保存的更改。确定关闭而不保存？`}
-        confirmText="不保存，关闭"
-        cancelText="取消"
+        title={t('editor.unsavedTitle')}
+        message={t('editor.unsavedMessage', { name: confirmClose ? getFileName(confirmClose) : '' })}
+        confirmText={t('editor.discardAndClose')}
+        cancelText={t('common.cancel')}
         variant="warning"
         onConfirm={handleConfirmClose}
         onCancel={() => setConfirmClose(null)}

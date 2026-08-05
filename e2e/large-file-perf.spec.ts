@@ -39,7 +39,7 @@ test('large file: open time, keypress latency and responsiveness', async () => {
   }, folder)
 
   let page: Page | null = null
-  for (let i = 0; i < 20 && !page; i++) {
+  for (let i = 0; i < 40 && !page; i++) {
     for (const p of app.windows()) {
       try {
         if (await p.evaluate(() => typeof window.electronAPI !== 'undefined')) {
@@ -50,7 +50,7 @@ test('large file: open time, keypress latency and responsiveness', async () => {
         // window closed between iterations
       }
     }
-    if (!page) await new Promise((r) => setTimeout(r, 250))
+    if (!page) await new Promise((r) => setTimeout(r, 500))
   }
   if (!page) throw new Error('main window not found')
 

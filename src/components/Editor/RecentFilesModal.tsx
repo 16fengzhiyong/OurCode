@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRecentFilesStore } from '@/stores/recentFilesStore'
 import { useEditorStore } from '@/stores/editorStore'
+import { useI18n } from '@/i18n/useI18n'
 
 /** VS Code Ctrl+R: quick list of recently opened files. */
 export default function RecentFilesModal() {
@@ -11,6 +12,7 @@ export default function RecentFilesModal() {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
+  const t = useI18n()
 
   const filtered = files.filter((f) => {
     const name = f.split(/[/\\]/).pop() || f
@@ -54,7 +56,7 @@ export default function RecentFilesModal() {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="最近打开的文件"
+        aria-label={t('editor.recentFilesDialog')}
         className="w-[520px] bg-nova-surface rounded-2xl shadow-2xl border border-nova-border overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
@@ -65,14 +67,14 @@ export default function RecentFilesModal() {
             value={query}
             onChange={(e) => { setQuery(e.target.value); setSelectedIndex(0) }}
             onKeyDown={handleKeyDown}
-            placeholder="最近打开的文件 — 回车打开，Delete 移除"
+            placeholder={t('editor.recentFilesPlaceholder')}
             className="w-full bg-transparent text-nova-text-primary outline-none placeholder:text-nova-text-muted text-sm"
           />
         </div>
 
         <div className="max-h-[320px] overflow-y-auto py-1">
           {filtered.length === 0 ? (
-            <div className="px-4 py-6 text-center text-nova-text-muted text-sm">暂无最近文件</div>
+            <div className="px-4 py-6 text-center text-nova-text-muted text-sm">{t('editor.noRecentFiles')}</div>
           ) : (
             filtered.map((path, index) => (
               <div
@@ -96,12 +98,12 @@ export default function RecentFilesModal() {
 
         {files.length > 0 && (
           <div className="flex items-center justify-between px-4 py-2 border-t border-nova-border">
-            <span className="text-[10px] text-nova-text-muted">共 {files.length} 条 · Delete 移除</span>
+            <span className="text-[10px] text-nova-text-muted">{t('editor.recentCount', { count: files.length })}</span>
             <button
               onClick={clearRecentFiles}
               className="text-[10px] text-red-400 hover:text-red-300 transition-colors"
             >
-              清空记录
+              {t('editor.clearRecent')}
             </button>
           </div>
         )}

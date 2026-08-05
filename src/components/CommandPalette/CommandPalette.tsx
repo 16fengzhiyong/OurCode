@@ -6,6 +6,8 @@ import { useConfigStore } from '@/stores/configStore'
 import { useAICommandsStore } from '@/stores/aiCommandsStore'
 import { useShortcutStore } from '@/stores/shortcutStore'
 import { getCommands, executeCommand } from '@/services/commands/commandRegistry'
+import { useI18n } from '@/i18n/useI18n'
+import type { TranslationKey } from '@/i18n'
 
 interface PaletteItem {
   id: string
@@ -16,11 +18,25 @@ interface PaletteItem {
   icon?: string
 }
 
+// Default AI commands are localized via i18n; custom commands keep their names.
+const AI_COMMAND_KEYS: Record<string, TranslationKey> = {
+  'default-explain': 'aiCommands.default-explain',
+  'default-refactor': 'aiCommands.default-refactor',
+  'default-test': 'aiCommands.default-test',
+  'default-docs': 'aiCommands.default-docs',
+  'default-fix': 'aiCommands.default-fix',
+  'default-optimize': 'aiCommands.default-optimize',
+  'default-translate': 'aiCommands.default-translate',
+  'default-simplify': 'aiCommands.default-simplify',
+  'default-security': 'aiCommands.default-security',
+}
+
 export default function CommandPalette() {
   const { isCommandPaletteOpen, closeCommandPalette } = useUIStore()
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
+  const t = useI18n()
 
   const aiCommands = useAICommandsStore((s) => s.commands)
   const executeAICommand = useAICommandsStore((s) => s.executeCommand)
@@ -45,9 +61,9 @@ export default function CommandPalette() {
 
     const aiItems: PaletteItem[] = aiCommands.map((cmd) => ({
       id: `ai-${cmd.id}`,
-      label: `AI: ${cmd.name}`,
+      label: `AI: ${AI_COMMAND_KEYS[cmd.id] ? t(AI_COMMAND_KEYS[cmd.id]) : cmd.name}`,
       icon: cmd.icon,
-      category: 'AI 命令',
+      category: t('palette.aiCategory'),
       action: () => {
         const selection = window.getSelection()?.toString() || ''
         const activeFile = useEditorStore.getState().getActiveFile()
@@ -103,7 +119,7 @@ export default function CommandPalette() {
   if (!isCommandPaletteOpen) return null
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="命令面板" className="fixed inset-0 bg-black/60 flex items-start justify-center pt-[15%] z-[100] backdrop-blur-sm" onClick={closeCommandPalette}>
+    <div role="dialog" aria-modal="true" aria-label={t('palette.dialog')} className="fixed inset-0 bg-black/60 flex items-start justify-center pt-[15%] z-[100] backdrop-blur-sm" onClick={closeCommandPalette}>
       <div
         className="w-[550px] bg-nova-card rounded-2xl shadow-2xl border border-nova-border overflow-hidden"
         onClick={(e) => e.stopPropagation()}
@@ -119,7 +135,7 @@ export default function CommandPalette() {
               setSelectedIndex(0)
             }}
             onKeyDown={handleKeyDown}
-            placeholder="输入命令或搜索..."
+            placeholder={t('palette.placeholder')}
             className="w-full bg-transparent text-nova-text-primary outline-none placeholder:text-nova-text-muted text-sm"
           />
         </div>
@@ -127,7 +143,7 @@ export default function CommandPalette() {
         {/* Command List */}
         <div className="max-h-[350px] overflow-y-auto py-1">
           {filteredCommands.length === 0 ? (
-            <div className="px-4 py-6 text-center text-nova-text-muted text-sm">无匹配命令</div>
+            <div className="px-4 py-6 text-center text-nova-text-muted text-sm">{t('palette.noMatch')}</div>
           ) : (
             filteredCommands.map((cmd, index) => (
               <div

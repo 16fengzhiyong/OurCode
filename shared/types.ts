@@ -198,7 +198,8 @@ export interface UserPreferences {
   showMinimap: boolean
   showHiddenFiles: boolean
   chatPosition: 'right' | 'bottom'
-  language: 'zh-CN' | 'en-US'
+  /** 'system' follows the OS locale (zh-* → zh-CN, otherwise en-US) */
+  language: 'zh-CN' | 'en-US' | 'system'
   encryptChatData: boolean
   /** LSP servers by Monaco language id, e.g. { python: "pylsp", go: "gopls -mode stdio" } */
   lspServers?: Record<string, string>

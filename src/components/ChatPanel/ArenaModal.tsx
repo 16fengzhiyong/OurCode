@@ -3,6 +3,7 @@ import { useConfigStore } from '@/stores/configStore'
 import { useChatStore } from '@/stores/chatStore'
 import { runArenaPrompt, ArenaResult } from '@/services/arena'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
+import { useI18n } from '@/i18n/useI18n'
 
 /**
  * Arena — parallel model comparison (Windsurf-style). Run the same prompt on
@@ -15,6 +16,7 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
   const activeSession = useChatStore((s) => s.getActiveSession())
   const addMessage = useChatStore((s) => s.addMessage)
   const saveSession = useChatStore((s) => s.saveSession)
+  const t = useI18n()
 
   // Default prompt = last user message
   const lastUserMessage = [...(activeSession?.messages || [])].reverse().find((m) => m.role === 'user')
@@ -39,11 +41,11 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
       const res = await runArenaPrompt(prompt.trim(), selected, configGroup)
       setResults(res)
     } catch (e: any) {
-      setError(e.message || 'Arena 运行失败')
+      setError(e.message || t('chat.arenaRunFailed'))
     } finally {
       setRunning(false)
     }
-  }, [prompt, selected, getActiveConfigGroup])
+  }, [prompt, selected, getActiveConfigGroup, t])
 
   const adopt = (result: ArenaResult) => {
     if (!activeSession || !result.content) return
@@ -66,8 +68,8 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-nova-border">
           <div className="flex items-center gap-2">
             <span className="text-lg">⚖️</span>
-            <strong className="text-sm text-nova-text-primary">Arena 模型对比</strong>
-            <span className="text-[10px] text-nova-text-muted">同一 prompt 多模型并行，选择最佳回答</span>
+            <strong className="text-sm text-nova-text-primary">{t('chat.arenaCompare')}</strong>
+            <span className="text-[10px] text-nova-text-muted">{t('chat.arenaSubtitle')}</span>
           </div>
           <button onClick={onClose} className="text-nova-text-muted hover:text-nova-text-primary transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -80,15 +82,15 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="输入要比对的 prompt...（默认取对话最后一条用户消息）"
+            placeholder={t('chat.arenaPlaceholder')}
             rows={2}
             className="w-full px-3 py-2 text-sm bg-nova-bg border border-nova-border rounded-lg outline-none focus:border-nova-accent/60 text-nova-text-primary placeholder:text-nova-text-muted resize-none"
           />
           <div>
-            <div className="text-xs text-nova-text-muted mb-1.5">选择模型（至少 2 个）</div>
+            <div className="text-xs text-nova-text-muted mb-1.5">{t('chat.arenaSelectModels')}</div>
             <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
               {models.length === 0 && (
-                <span className="text-xs text-nova-text-muted">暂无模型列表（请先在设置中拉取模型）</span>
+                <span className="text-xs text-nova-text-muted">{t('chat.arenaNoModels')}</span>
               )}
               {models.map((m) => (
                 <label
@@ -119,7 +121,7 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
               className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
               style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
             >
-              {running ? '对比中...' : `▶ 开始对比 (${selected.length})`}
+              {running ? t('chat.arenaRunning') : t('chat.arenaStart', { count: selected.length })}
             </button>
           </div>
         </div>
@@ -128,7 +130,7 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {results.length === 0 && !running && (
             <div className="text-center text-nova-text-muted text-sm py-8">
-              选择至少 2 个模型并运行，结果会并排显示在这里。
+              {t('chat.arenaEmpty')}
             </div>
           )}
           <div className="grid gap-3" style={{ gridTemplateColumns: results.length > 1 ? 'repeat(auto-fit, minmax(280px, 1fr))' : '1fr' }}>
@@ -152,13 +154,13 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
                       className="px-3 py-1 text-xs text-white rounded hover:opacity-90 transition-opacity"
                       style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
                     >
-                      采用此回答
+                      {t('chat.arenaAdopt')}
                     </button>
                     <button
                       onClick={() => copy(r)}
                       className="px-3 py-1 text-xs text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
                     >
-                      复制
+                      {t('common.copy')}
                     </button>
                   </div>
                 )}
@@ -170,7 +172,7 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
               <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485' }} />
               <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.2s' }} />
               <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.4s' }} />
-              <span>模型并行推理中...</span>
+              <span>{t('chat.arenaInferring')}</span>
             </div>
           )}
         </div>

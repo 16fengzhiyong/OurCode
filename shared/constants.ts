@@ -48,6 +48,7 @@ export const IPC_CHANNELS = {
   APP_RESOLVE_ENV_VAR: 'app:resolveEnvVar',
   APP_QUIT: 'app:quit',
   APP_GET_VERSION: 'app:getVersion',
+  APP_GET_LOCALE: 'app:getLocale',
 
   // Window
   WINDOW_MINIMIZE: 'window:minimize',
@@ -107,7 +108,7 @@ export const DEFAULT_PREFERENCES = {
   showMinimap: true,
   showHiddenFiles: false,
   chatPosition: 'right' as const,
-  language: 'zh-CN' as const,
+  language: 'system' as const,
   encryptChatData: false,
 }
 

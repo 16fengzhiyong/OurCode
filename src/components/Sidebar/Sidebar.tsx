@@ -2,9 +2,11 @@ import FileTree from './FileTree'
 import SearchPanel from '../SearchPanel/SearchPanel'
 import GitPanel from '../Git/GitPanel'
 import { useUIStore } from '@/stores/uiStore'
+import { useI18n } from '@/i18n/useI18n'
 
 export default function Sidebar() {
   const { activeSidebarTab, toggleSidebar, rootPath, setRootPath } = useUIStore()
+  const t = useI18n()
 
   const handleOpenFolder = async () => {
     const path = await window.electronAPI.openFolder()
@@ -13,7 +15,7 @@ export default function Sidebar() {
     }
   }
 
-  const headerTitle = activeSidebarTab === 'files' ? '资源管理器' : activeSidebarTab === 'search' ? '搜索' : '源代码管理'
+  const headerTitle = activeSidebarTab === 'files' ? t('sidebar.explorer') : activeSidebarTab === 'search' ? t('sidebar.search') : t('sidebar.scm')
 
   return (
     <div className="h-full flex flex-col bg-nova-sidebar">
@@ -24,7 +26,7 @@ export default function Sidebar() {
           <button
             onClick={handleOpenFolder}
             className="text-nova-text-muted hover:text-nova-accent transition-colors p-0.5 rounded hover:bg-nova-hover/50"
-            title="打开文件夹"
+            title={t('sidebar.openFolder')}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
@@ -36,7 +38,7 @@ export default function Sidebar() {
         <button
           onClick={toggleSidebar}
           className="text-nova-text-muted hover:text-nova-text-primary transition-colors p-0.5 rounded hover:bg-nova-hover/50"
-          title="收起侧边栏 (Ctrl+B)"
+          title={t('sidebar.collapse')}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M15 18l-6-6 6-6" />
@@ -54,15 +56,15 @@ export default function Sidebar() {
               <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-nova-text-muted opacity-50 mb-3">
                 <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
               </svg>
-              <div className="text-nova-text-muted text-xs mb-4">未打开文件夹</div>
+              <div className="text-nova-text-muted text-xs mb-4">{t('sidebar.noFolderOpen')}</div>
               <button
                 onClick={handleOpenFolder}
                 className="px-4 py-2 bg-nova-accent text-white rounded-lg text-sm hover:opacity-90 transition-opacity"
               >
-                打开文件夹
+                {t('sidebar.openFolder')}
               </button>
               <div className="text-nova-text-muted text-[11px] mt-4">
-                或使用 <kbd className="px-1.5 py-0.5 bg-nova-hover rounded text-[10px]">Ctrl+O</kbd>
+                {t('sidebar.orUse')} <kbd className="px-1.5 py-0.5 bg-nova-hover rounded text-[10px]">Ctrl+O</kbd>
               </div>
             </div>
           )

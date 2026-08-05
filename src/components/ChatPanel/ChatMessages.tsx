@@ -5,6 +5,7 @@ import ThinkingBlock from './ThinkingBlock'
 import BranchTreeModal from './BranchTreeModal'
 import { TodoPanel, PlanCard } from './AgentPanel'
 import WaveLogo from './WaveLogo'
+import { useI18n } from '@/i18n/useI18n'
 
 // Common model context windows (in tokens)
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
@@ -13,12 +14,13 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'deepseek-chat': 64000, 'deepseek-coder': 64000, 'gemini-1.5-pro': 2000000, 'gemini-1.5-flash': 1000000,
 }
 
-// Suggested prompts shown on the welcome view (Windsurf-style)
-const SUGGESTED_PROMPTS = [
-  { icon: '✨', text: '解释当前文件', prompt: '请解释当前文件的功能和关键实现' },
-  { icon: '🧪', text: '生成单元测试', prompt: '请为当前文件生成单元测试' },
-  { icon: '🔍', text: '项目概览', prompt: '请分析当前项目的结构并给出概览' },
-  { icon: '♻️', text: '重构代码', prompt: '请帮我重构当前代码，提高可读性和可维护性' },
+// Suggested prompts shown on the welcome view (Windsurf-style). The display text
+// is localized via its key; the prompt content stays as-is (it goes to the LLM).
+const SUGGESTED_PROMPTS: Array<{ icon: string; key: 'chat.suggestExplain' | 'chat.suggestTest' | 'chat.suggestOverview' | 'chat.suggestRefactor'; prompt: string }> = [
+  { icon: '✨', key: 'chat.suggestExplain', prompt: '请解释当前文件的功能和关键实现' },
+  { icon: '🧪', key: 'chat.suggestTest', prompt: '请为当前文件生成单元测试' },
+  { icon: '🔍', key: 'chat.suggestOverview', prompt: '请分析当前项目的结构并给出概览' },
+  { icon: '♻️', key: 'chat.suggestRefactor', prompt: '请帮我重构当前代码，提高可读性和可维护性' },
 ]
 
 export default function ChatMessages() {
@@ -31,6 +33,7 @@ export default function ChatMessages() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isSelectMode, setIsSelectMode] = useState(false)
   const [showBranchTree, setShowBranchTree] = useState(false)
+  const t = useI18n()
 
   // Context truncation warning
   const tokenWarning = useMemo(() => {
@@ -113,16 +116,16 @@ export default function ChatMessages() {
             onClick={() => { setIsSelectMode(!isSelectMode); setSelectedIds(new Set()) }}
             className={`px-2 py-1 text-[10px] rounded transition-colors ${isSelectMode ? 'bg-nova-accent/20 text-nova-accent' : 'bg-nova-hover text-nova-text-muted hover:text-nova-text-secondary'}`}
           >
-            {isSelectMode ? '取消选择' : '多选'}
+            {isSelectMode ? t('chat.cancelSelect') : t('chat.multiSelect')}
           </button>
           {isSelectMode && selectedIds.size > 0 && (
             <>
-              <span className="text-[10px] text-nova-text-muted">已选 {selectedIds.size} 条</span>
+              <span className="text-[10px] text-nova-text-muted">{t('chat.selectedCount', { count: selectedIds.size })}</span>
               <button
                 onClick={handleBatchDelete}
                 className="px-2 py-1 text-[10px] bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 transition-colors"
               >
-                删除选中
+                {t('chat.deleteSelected')}
               </button>
             </>
           )}
@@ -143,7 +146,7 @@ export default function ChatMessages() {
             onChange={(e) => switchBranch(activeSession.id, e.target.value)}
             className="bg-nova-hover text-nova-text-primary text-xs px-2 py-1 rounded border border-nova-border outline-none focus:border-nova-accent/50 cursor-pointer"
           >
-            <option value="main">主分支</option>
+            <option value="main">{t('chat.mainBranch')}</option>
             {activeSession.branches.filter(b => b.id !== 'main').map((branch) => (
               <option key={branch.id} value={branch.id}>
                 {branch.name}
@@ -151,14 +154,14 @@ export default function ChatMessages() {
             ))}
           </select>
           <span className="text-[10px] text-nova-text-muted">
-            共 {activeSession.branches.length} 个分支
+            {t('chat.branchCount', { count: activeSession.branches.length })}
           </span>
           <button
             onClick={() => setShowBranchTree(true)}
             className="text-[10px] text-nova-accent hover:text-white transition-colors bg-nova-accent/15 px-2 py-0.5 rounded"
-            title="以树形查看分支结构"
+            title={t('chat.branchTreeHint')}
           >
-            🌳 分支视图
+            {t('chat.branchView')}
           </button>
         </div>
       )}
@@ -174,8 +177,8 @@ export default function ChatMessages() {
       {/* Queued messages while the agent is working */}
       {queuedMessages.length > 0 && (
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-nova-accent/10 border border-nova-accent/25 text-xs text-nova-accent">
-          <span>⏳ {queuedMessages.length} 条消息已排队，将在当前生成完成后发送</span>
-          <button onClick={clearQueue} className="ml-auto hover:text-nova-text-primary transition-colors">取消</button>
+          <span>⏳ {t('chat.queuedBanner', { count: queuedMessages.length })}</span>
+          <button onClick={clearQueue} className="ml-auto hover:text-nova-text-primary transition-colors">{t('common.cancel')}</button>
         </div>
       )}
 
@@ -187,7 +190,11 @@ export default function ChatMessages() {
             : 'bg-yellow-500/10 border border-yellow-500/30 text-yellow-400'
         }`}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          <span>上下文窗口已使用 {tokenWarning.percent}% (~{(tokenWarning.totalTokens / 1000).toFixed(1)}K / {(tokenWarning.contextWindow / 1000).toFixed(0)}K tokens)。考虑开始新对话以获得更好的响应质量。</span>
+          <span>{t('chat.tokenWarning', {
+            percent: tokenWarning.percent,
+            used: (tokenWarning.totalTokens / 1000).toFixed(1),
+            total: (tokenWarning.contextWindow / 1000).toFixed(0),
+          })}</span>
         </div>
       )}
 
@@ -203,23 +210,22 @@ export default function ChatMessages() {
             </div>
             <div className="text-[13px] font-semibold text-nova-text-primary">OurCode AI</div>
             <div className="text-[11px] text-nova-text-muted mt-1 max-w-[280px] leading-relaxed">
-              我是 OurCode 智能体，可以帮你重构代码、生成单元测试、解释项目、修复 Bug。
-              使用 <strong className="text-nova-accent">@文件名</strong> 引用上下文，或用 <strong className="text-nova-accent">/</strong> 查看命令。
+              {t('chat.welcomeDesc')}
             </div>
           </div>
 
           {/* Suggested prompts */}
           <div className="pb-2">
-            <div className="text-[11px] text-nova-text-muted mb-1.5 px-1">建议</div>
+            <div className="text-[11px] text-nova-text-muted mb-1.5 px-1">{t('chat.suggested')}</div>
             <div className="flex flex-wrap gap-1.5">
               {SUGGESTED_PROMPTS.map((p) => (
                 <button
-                  key={p.text}
+                  key={p.key}
                   onClick={() => useChatStore.getState().sendMessage(p.prompt)}
                   className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-[11px] text-nova-text-secondary bg-nova-card border border-nova-border hover:bg-nova-hover hover:text-nova-text-primary transition-colors"
                 >
                   <span>{p.icon}</span>
-                  {p.text}
+                  {t(p.key)}
                 </button>
               ))}
             </div>
@@ -272,7 +278,7 @@ export default function ChatMessages() {
                   <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.2s' }} />
                   <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.4s' }} />
                 </div>
-                <span>思考中...</span>
+                <span>{t('chat.thinking')}</span>
               </div>
             ) : null}
           </div>
@@ -285,12 +291,12 @@ export default function ChatMessages() {
       {showUndoToast && undoStack.length > 0 && (
         <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
           <div className="flex items-center gap-3 px-4 py-2 bg-nova-surface border border-nova-border rounded-lg shadow-xl">
-            <span className="text-xs text-nova-text-secondary">已删除 {undoStack[undoStack.length - 1].messages.length} 条消息</span>
+            <span className="text-xs text-nova-text-secondary">{t('chat.deletedCount', { count: undoStack[undoStack.length - 1].messages.length })}</span>
             <button
               onClick={() => { undoDelete(); setShowUndoToast(false) }}
               className="px-3 py-1 text-xs bg-nova-accent text-white rounded hover:opacity-90 transition-opacity"
             >
-              撤销
+              {t('chat.undo')}
             </button>
             <button
               onClick={() => setShowUndoToast(false)}

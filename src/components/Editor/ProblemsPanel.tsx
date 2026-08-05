@@ -3,6 +3,8 @@ import { useProblemsStore, Problem, ProblemSeverity } from '@/stores/problemsSto
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useI18n } from '@/i18n/useI18n'
+import type { TranslationKey } from '@/i18n'
 
 const SEVERITY_STYLE: Record<ProblemSeverity, { icon: string; color: string }> = {
   error: { icon: '✕', color: '#f48771' },
@@ -11,17 +13,18 @@ const SEVERITY_STYLE: Record<ProblemSeverity, { icon: string; color: string }> =
   hint: { icon: '💡', color: '#57a3f8' },
 }
 
-const SEVERITY_LABEL: Record<ProblemSeverity, string> = {
-  error: '错误',
-  warning: '警告',
-  info: '信息',
-  hint: '提示',
+const SEVERITY_LABEL_KEY: Record<ProblemSeverity, TranslationKey> = {
+  error: 'editor.severityError',
+  warning: 'editor.severityWarning',
+  info: 'editor.severityInfo',
+  hint: 'editor.severityHint',
 }
 
 export default function ProblemsPanel() {
   const problems = useProblemsStore((s) => s.problems)
   const openProblem = useProblemsStore((s) => s.openProblem)
   const toggle = useProblemsStore((s) => s.toggle)
+  const t = useI18n()
 
   /** Windsurf-style "Explain and Fix": send the diagnostic to the chat agent */
   const explainAndFix = () => {
@@ -34,7 +37,7 @@ export default function ProblemsPanel() {
         chatStore.createSession(configStore.activeConfigGroupId)
       }
     }
-    const label = SEVERITY_LABEL[target.severity]
+    const label = t(SEVERITY_LABEL_KEY[target.severity])
     chatStore.sendMessage(
       `（解释并修复）文件 ${target.filePath} 第 ${target.line} 行有${label}:\n\n` +
       `> ${target.message}\n\n` +
@@ -60,22 +63,22 @@ export default function ProblemsPanel() {
     <div className="h-full flex flex-col bg-nova-bg border-t border-nova-border text-xs overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-nova-border shrink-0">
-        <span className="font-medium text-nova-text-secondary mr-2">问题</span>
-        <span className="px-1.5 rounded text-[10px] text-red-400 bg-red-500/10" title="错误">{count('error')}</span>
-        <span className="px-1.5 rounded text-[10px] text-yellow-400 bg-yellow-500/10" title="警告">{count('warning')}</span>
-        <span className="px-1.5 rounded text-[10px] text-[#57a3f8] bg-[#57a3f8]/10" title="信息">{count('info')}</span>
+        <span className="font-medium text-nova-text-secondary mr-2">{t('editor.problems')}</span>
+        <span className="px-1.5 rounded text-[10px] text-red-400 bg-red-500/10" title={t('editor.severityError')}>{count('error')}</span>
+        <span className="px-1.5 rounded text-[10px] text-yellow-400 bg-yellow-500/10" title={t('editor.severityWarning')}>{count('warning')}</span>
+        <span className="px-1.5 rounded text-[10px] text-[#57a3f8] bg-[#57a3f8]/10" title={t('editor.severityInfo')}>{count('info')}</span>
         <span className="flex-1" />
         <button
           onClick={explainAndFix}
           className="px-2 py-0.5 text-[10px] text-nova-accent hover:bg-nova-accent/15 rounded transition-colors"
-          title="把诊断发送给 AI 解释并修复"
+          title={t('editor.explainFixHint')}
         >
-          ✨ 解释并修复
+          {t('editor.explainFix')}
         </button>
         <button
           onClick={toggle}
           className="p-0.5 text-nova-text-muted hover:text-white rounded"
-          title="关闭面板"
+          title={t('editor.closeButton')}
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeWidth={2} d="M6 6l12 12M6 18L18 6" />
@@ -87,7 +90,7 @@ export default function ProblemsPanel() {
       <div className="flex-1 overflow-y-auto">
         {groups.length === 0 ? (
           <div className="flex items-center justify-center h-full text-nova-text-muted">
-            未检测到问题（语言服务诊断会显示在这里）
+            {t('editor.problemsNone')}
           </div>
         ) : (
           groups.map(([filePath, list]) => (
@@ -112,8 +115,8 @@ export default function ProblemsPanel() {
                     <span className="text-nova-text-primary">{p.message}</span>
                     {p.source && <span className="text-nova-text-muted ml-1">[{p.source}]</span>}
                   </span>
-                  <span className="text-nova-text-muted shrink-0 ml-2" title={SEVERITY_LABEL[p.severity]}>
-                    行 {p.line}, 列 {p.column}
+                  <span className="text-nova-text-muted shrink-0 ml-2" title={t(SEVERITY_LABEL_KEY[p.severity])}>
+                    {t('editor.lineCol', { line: p.line, col: p.column })}
                   </span>
                 </button>
               ))}

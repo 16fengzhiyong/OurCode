@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useMemoryStore } from '@/stores/memoryStore'
+import { useI18n } from '@/i18n/useI18n'
 
 /**
  * Memory manager (Windsurf-style Memories). Memories are injected into the
@@ -11,12 +12,13 @@ export default function MemoryModal({ onClose }: { onClose: () => void }) {
   const [content, setContent] = useState('')
   const [scope, setScope] = useState<'global' | 'project'>('global')
   const [justAdded, setJustAdded] = useState<string | null>(null)
+  const t = useI18n()
 
   const handleAdd = async () => {
     if (!content.trim()) return
     await addMemory(content.trim(), scope)
     setContent('')
-    setJustAdded('已保存到记忆')
+    setJustAdded(t('chat.memorySaved'))
     setTimeout(() => setJustAdded(null), 2000)
   }
 
@@ -26,7 +28,7 @@ export default function MemoryModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-nova-border">
           <div className="flex items-center gap-2">
             <span className="text-lg">🧠</span>
-            <strong className="text-sm text-nova-text-primary">记忆管理</strong>
+            <strong className="text-sm text-nova-text-primary">{t('chat.memory')}</strong>
           </div>
           <button onClick={onClose} className="text-nova-text-muted hover:text-nova-text-primary transition-colors">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -38,7 +40,7 @@ export default function MemoryModal({ onClose }: { onClose: () => void }) {
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
           {memories.length === 0 ? (
             <div className="text-center text-nova-text-muted text-sm py-8">
-              还没有记忆。添加一条记忆（例如「我习惯用单引号和 2 空格缩进」），AI 会在相关对话中自动遵循。
+              {t('chat.memoryEmpty')}
             </div>
           ) : (
             memories.map((m) => (
@@ -51,13 +53,13 @@ export default function MemoryModal({ onClose }: { onClose: () => void }) {
                     m.scope === 'project' ? 'bg-[#57A3F8]/20 text-[#57A3F8]' : 'bg-nova-accent/20 text-nova-accent'
                   }`}
                 >
-                  {m.scope === 'project' ? '项目' : '全局'}
+                  {m.scope === 'project' ? t('chat.scopeProject') : t('chat.scopeGlobal')}
                 </span>
                 <p className="flex-1 text-xs text-nova-text-primary whitespace-pre-wrap break-all">{m.content}</p>
                 <button
                   onClick={() => deleteMemory(m.id)}
                   className="opacity-0 group-hover:opacity-100 text-nova-text-muted hover:text-red-400 transition-all shrink-0"
-                  title="删除记忆"
+                  title={t('chat.deleteMemory')}
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -73,7 +75,7 @@ export default function MemoryModal({ onClose }: { onClose: () => void }) {
             value={content}
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') handleAdd() }}
-            placeholder="例如：我习惯用单引号、2 空格缩进；这个项目使用 React + Zustand..."
+            placeholder={t('chat.memoryPlaceholder')}
             rows={2}
             className="w-full px-3 py-2 text-sm bg-nova-bg border border-nova-border rounded-lg outline-none focus:border-nova-accent/60 text-nova-text-primary placeholder:text-nova-text-muted resize-none"
           />
@@ -83,8 +85,8 @@ export default function MemoryModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => setScope(e.target.value as 'global' | 'project')}
               className="text-xs bg-nova-input-bg text-nova-text-primary border border-nova-border rounded px-2 py-1.5 outline-none"
             >
-              <option value="global">全局（所有项目）</option>
-              <option value="project">仅当前项目</option>
+              <option value="global">{t('chat.scopeGlobalAll')}</option>
+              <option value="project">{t('chat.scopeProjectOnly')}</option>
             </select>
             <div className="flex items-center gap-2">
               {justAdded && <span className="text-xs text-green-400">{justAdded}</span>}
@@ -94,7 +96,7 @@ export default function MemoryModal({ onClose }: { onClose: () => void }) {
                 className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
                 style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
               >
-                保存记忆
+                {t('chat.saveMemory')}
               </button>
             </div>
           </div>

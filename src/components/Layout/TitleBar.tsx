@@ -170,7 +170,7 @@ export default function TitleBar() {
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
             a.href = url
-            a.download = `对话-${Date.now()}.md`
+            a.download = `${t('layout.chatFilePrefix')}-${Date.now()}.md`
             a.click()
             URL.revokeObjectURL(url)
           }
@@ -183,7 +183,7 @@ export default function TitleBar() {
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
             a.href = url
-            a.download = `对话-${Date.now()}.json`
+            a.download = `${t('layout.chatFilePrefix')}-${Date.now()}.json`
             a.click()
             URL.revokeObjectURL(url)
           }
@@ -229,7 +229,7 @@ export default function TitleBar() {
           } catch (e) { console.error(e) }
         }},
         { label: t('menu.help.clearData'), action: () => {
-          if (confirm('确定要清除所有数据？此操作不可恢复！')) {
+          if (confirm(t('layout.clearDataConfirm'))) {
             localStorage.clear()
             window.location.reload()
           }
@@ -314,7 +314,7 @@ export default function TitleBar() {
         className="flex items-center h-full no-drag"
         ref={menuRef}
         role="menubar"
-        aria-label="主菜单"
+        aria-label={t('layout.menubar')}
         onKeyDown={handleMenuKeyDown}
       >
         {menus.map((menu) => (
@@ -378,17 +378,17 @@ export default function TitleBar() {
             backdropFilter: 'var(--backdrop-blur)',
             WebkitBackdropFilter: 'var(--backdrop-blur)',
           }}
-          title={rootPath || '打开文件夹 (Ctrl+O)'}
+          title={rootPath || t('layout.openFolder')}
         >
           <svg className="w-3.5 h-3.5 text-nova-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a5 5 0 11-14 0 5 5 0 0114 0z" />
           </svg>
           <span className="truncate text-nova-text-secondary">
-            {rootPath ? rootPath.split(/[/\\]/).pop() || rootPath : '打开文件夹 (Ctrl+O)'}
+            {rootPath ? rootPath.split(/[/\\]/).pop() || rootPath : t('layout.openFolder')}
           </span>
           <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
           <span className="text-nova-text-muted text-[11px] shrink-0">
-            {isChatVisible ? 'Cascade 已连接' : 'AI'}
+            {isChatVisible ? t('layout.cascadeConnected') : 'AI'}
           </span>
         </button>
       </div>
@@ -399,7 +399,7 @@ export default function TitleBar() {
         <button
           onClick={handleMinimize}
           className="p-2 text-nova-text-muted hover:text-white hover:bg-nova-hover transition-colors"
-          aria-label="最小化" title="最小化"
+          aria-label={t('layout.minimize')} title={t('layout.minimize')}
         >
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeWidth={2} d="M5 12h14" />
@@ -408,7 +408,7 @@ export default function TitleBar() {
         <button
           onClick={handleMaximize}
           className="p-2 text-nova-text-muted hover:text-white hover:bg-nova-hover transition-colors"
-          aria-label={isMaximized ? '还原' : '最大化'} title={isMaximized ? '还原' : '最大化'}
+          aria-label={isMaximized ? t('layout.restore') : t('layout.maximize')} title={isMaximized ? t('layout.restore') : t('layout.maximize')}
         >
           {isMaximized ? (
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -424,7 +424,7 @@ export default function TitleBar() {
         <button
           onClick={handleClose}
           className="p-2 text-nova-text-muted hover:text-white transition-colors"
-          aria-label="关闭" title="关闭"
+          aria-label={t('layout.close')} title={t('layout.close')}
           onMouseEnter={(e) => { e.currentTarget.style.background = '#e81123' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = '' }}
         >

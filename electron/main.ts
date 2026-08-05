@@ -920,6 +920,12 @@ function registerIpcHandlers(): void {
     return process.platform
   })
 
+  // System locale, used by the renderer to pick the default UI language
+  // (the preference defaults to 'system' and resolves against this).
+  ipcMain.handle('app:getLocale', () => {
+    return app.getLocale()
+  })
+
   // Auto Update handlers
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false

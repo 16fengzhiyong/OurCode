@@ -2,6 +2,7 @@ import { useState, useMemo, lazy, Suspense } from 'react'
 import { useConfigStore } from '@/stores/configStore'
 import { useChatStore } from '@/stores/chatStore'
 import { lookupModelMetadata } from '@/types'
+import { useI18n } from '@/i18n/useI18n'
 
 const ModelCompareView = lazy(() => import('./ModelCompareView'))
 
@@ -26,6 +27,7 @@ export default function ModelSelector() {
   const [searchQuery, setSearchQuery] = useState('')
   const [providerFilter, setProviderFilter] = useState<string>('')
   const [contextFilter, setContextFilter] = useState<string>('')
+  const t = useI18n()
   const {
     models,
     isLoadingModels,
@@ -127,7 +129,7 @@ export default function ModelSelector() {
           disabled={isLoadingModels}
         >
           <option value="">
-            {isLoadingModels ? '加载模型中...' : '选择模型'}
+            {isLoadingModels ? t('models.loading') : t('models.select')}
           </option>
           {filteredModels.map((model) => {
             const meta = lookupModelMetadata(model.id)
@@ -135,7 +137,7 @@ export default function ModelSelector() {
             if (meta?.contextWindow) parts.push(`${Math.round(meta.contextWindow / 1000)}K`)
             if (meta?.vision) parts.push('👁')
             if (meta?.functionCall) parts.push('⚡')
-            if (model.isFree) parts.push('免费')
+            if (model.isFree) parts.push(t('models.free'))
             return (
               <option key={model.id} value={model.id}>
                 {model.isFavorite ? '★ ' : ''}{parts.join(' | ')}
@@ -148,7 +150,7 @@ export default function ModelSelector() {
           onClick={() => fetchModels()}
           disabled={isLoadingModels}
           className="p-1.5 rounded-lg text-nova-text-muted hover:text-text-primary hover:bg-nova-hover disabled:opacity-50 transition-colors"
-          title="刷新模型"
+          title={t('models.refresh')}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="23 4 23 10 17 10" />
@@ -160,7 +162,7 @@ export default function ModelSelector() {
           <button
             onClick={() => setShowCompare(true)}
             className="p-1.5 rounded-lg text-nova-text-muted hover:text-text-primary hover:bg-nova-hover transition-colors"
-            title="对比模型"
+            title={t('models.compareShort')}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
@@ -173,7 +175,7 @@ export default function ModelSelector() {
           className={`p-1.5 rounded-lg transition-colors ${
             showParams ? 'bg-accent-btn-primary text-white' : 'text-nova-text-muted hover:text-text-primary hover:bg-nova-hover'
           }`}
-          title="模型参数"
+          title={t('models.params')}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" />
@@ -185,13 +187,13 @@ export default function ModelSelector() {
       {/* Model fetch error */}
       {modelsError && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] bg-red-500/10 border border-red-500/30 text-red-400">
-          <span className="flex-1 truncate" title={modelsError}>模型列表获取失败: {modelsError}</span>
+          <span className="flex-1 truncate" title={modelsError}>{t('models.listFailed')} {modelsError}</span>
           <button
             onClick={() => fetchModels()}
             disabled={isLoadingModels}
             className="shrink-0 px-2 py-0.5 bg-red-500/20 text-red-300 rounded hover:bg-red-500/30 disabled:opacity-50 transition-colors"
           >
-            重试
+            {t('models.retry')}
           </button>
         </div>
       )}
@@ -208,7 +210,7 @@ export default function ModelSelector() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索模型..."
+              placeholder={t('models.searchPlaceholder')}
               className="w-full pl-6 pr-2 py-1 bg-nova-input-bg border border-nova-border rounded text-[10px] text-nova-text-primary outline-none focus:border-nova-accent/50 placeholder-nova-text-muted"
             />
           </div>
@@ -219,7 +221,7 @@ export default function ModelSelector() {
             onChange={(e) => setProviderFilter(e.target.value)}
             className="px-2 py-1 bg-nova-input-bg border border-nova-border rounded text-[10px] text-nova-text-secondary outline-none focus:border-nova-accent/50"
           >
-            <option value="">所有提供商</option>
+            <option value="">{t('models.allProviders')}</option>
             {providers.map((p) => (
               <option key={p} value={p}>{p}</option>
             ))}
@@ -231,7 +233,7 @@ export default function ModelSelector() {
             onChange={(e) => setContextFilter(e.target.value)}
             className="px-2 py-1 bg-nova-input-bg border border-nova-border rounded text-[10px] text-nova-text-secondary outline-none focus:border-nova-accent/50"
           >
-            <option value="">任意上下文</option>
+            <option value="">{t('models.anyContext')}</option>
             <option value="4096">&ge; 4K</option>
             <option value="8192">&ge; 8K</option>
             <option value="32768">&ge; 32K</option>
@@ -249,7 +251,7 @@ export default function ModelSelector() {
                 : 'bg-nova-hover text-nova-text-muted hover:text-nova-text-secondary border border-transparent'
             }`}
           >
-            <span>免费</span>
+            <span>{t('models.free')}</span>
             {freeCount > 0 && <span className="opacity-70">({freeCount})</span>}
           </button>
 
@@ -289,31 +291,31 @@ export default function ModelSelector() {
                     toggleFavorite(model.id)
                   }}
                   className={`shrink-0 ${model.isFavorite ? 'text-yellow-400' : 'text-nova-text-muted hover:text-yellow-400'}`}
-                  title={model.isFavorite ? '取消收藏' : '收藏'}
+                  title={model.isFavorite ? t('models.unfavorite') : t('models.favorite')}
                 >
                   {model.isFavorite ? '★' : '☆'}
                 </button>
                 <span className="flex-1 truncate">{model.alias || model.id}</span>
                 {meta?.contextWindow && (
-                  <span className="shrink-0 text-[9px] text-nova-text-muted" title="上下文窗口">
+                  <span className="shrink-0 text-[9px] text-nova-text-muted" title={t('models.contextWindow')}>
                     {meta.contextWindow >= 1048576 ? `${Math.round(meta.contextWindow / 1048576)}M` : `${Math.round(meta.contextWindow / 1000)}K`}
                   </span>
                 )}
                 {meta?.vision && (
-                  <span className="shrink-0 text-[9px]" title="支持视觉">👁</span>
+                  <span className="shrink-0 text-[9px]" title={t('models.visionSupportTitle')}>👁</span>
                 )}
                 {meta?.functionCall && (
-                  <span className="shrink-0 text-[9px]" title="支持函数调用">⚡</span>
+                  <span className="shrink-0 text-[9px]" title={t('models.functionCallingTitle')}>⚡</span>
                 )}
                 {model.isFree && (
-                  <span className="shrink-0 px-1 py-0.5 bg-green-600/20 text-green-400 rounded text-[9px]">免费</span>
+                  <span className="shrink-0 px-1 py-0.5 bg-green-600/20 text-green-400 rounded text-[9px]">{t('models.free')}</span>
                 )}
               </div>
             )
           })}
           {filteredModels.length > 30 && (
             <div className="text-[10px] text-nova-text-muted text-center py-1">
-              +{filteredModels.length - 30} 更多...
+              {t('models.more', { count: filteredModels.length - 30 })}
             </div>
           )}
         </div>
@@ -321,7 +323,7 @@ export default function ModelSelector() {
 
       {/* Model comparison modal */}
       {showCompare && (
-        <Suspense fallback={<div className="text-xs text-nova-text-muted">加载中...</div>}>
+        <Suspense fallback={<div className="text-xs text-nova-text-muted">{t('models.loading')}</div>}>
           <ModelCompareView onClose={() => setShowCompare(false)} />
         </Suspense>
       )}
@@ -330,16 +332,16 @@ export default function ModelSelector() {
       {showParams && (
         <div className="p-3 bg-nova-bg rounded-xl border border-nova-border space-y-3">
           {[
-            { key: 'temperature', label: '温度 (Temperature)', min: 0, max: 2, step: 0.1 },
-            { key: 'maxTokens', label: '最大令牌数 (Max Tokens)', min: 0, max: 128000, step: 1000 },
-            { key: 'topP', label: '核采样 (Top P)', min: 0, max: 1, step: 0.05 },
-            { key: 'frequencyPenalty', label: '频率惩罚', min: -2, max: 2, step: 0.1 },
-            { key: 'presencePenalty', label: '存在惩罚', min: -2, max: 2, step: 0.1 },
+            { key: 'temperature', label: t('models.temperature'), min: 0, max: 2, step: 0.1 },
+            { key: 'maxTokens', label: t('models.maxTokens'), min: 0, max: 128000, step: 1000 },
+            { key: 'topP', label: t('models.topP'), min: 0, max: 1, step: 0.05 },
+            { key: 'frequencyPenalty', label: t('models.frequencyPenalty'), min: -2, max: 2, step: 0.1 },
+            { key: 'presencePenalty', label: t('models.presencePenalty'), min: -2, max: 2, step: 0.1 },
           ].map(({ key, label, min, max, step }) => (
             <div key={key}>
               <div className="flex justify-between text-xs text-nova-text-muted mb-1">
                 <span>{label}</span>
-                <span>{(modelParams as any)[key] || (key === 'maxTokens' ? '无限制' : '0')}</span>
+                <span>{(modelParams as any)[key] || (key === 'maxTokens' ? t('models.unlimited') : '0')}</span>
               </div>
               <input
                 type="range"

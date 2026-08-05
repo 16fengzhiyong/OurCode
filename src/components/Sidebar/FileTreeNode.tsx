@@ -3,6 +3,7 @@ import { FileEntry } from '@/types'
 import { getFileIconHTML } from '@/utils/fileIcons'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
+import { useI18n } from '@/i18n/useI18n'
 
 // Module-level clipboard for file copy/cut operations
 const fileClipboard: { path: string | null; action: 'copy' | 'cut' | null } = { path: null, action: null }
@@ -31,6 +32,7 @@ export default function FileTreeNode({
   const paddingLeft = depth * 12 + 8
   const { showContextMenu } = useUIStore()
   const [isDragOver, setIsDragOver] = useState(false)
+  const t = useI18n()
 
   const handleClick = () => {
     onClick(entry.path, entry.isDirectory)
@@ -46,21 +48,21 @@ export default function FileTreeNode({
 
     const commonFileItems = [
       {
-        label: '复制',
+        label: t('common.copy'),
         icon: '',
         action: () => { fileClipboard.path = entry.path; fileClipboard.action = 'copy' },
       },
       {
-        label: '剪切',
+        label: t('sidebar.cut'),
         icon: '',
         action: () => { fileClipboard.path = entry.path; fileClipboard.action = 'cut' },
       },
       { separator: true, label: '' },
       {
-        label: '重命名',
+        label: t('common.rename'),
         icon: '',
         action: async () => {
-          const newName = prompt('输入新名称:', entry.name)
+          const newName = prompt(t('sidebar.renamePrompt'), entry.name)
           if (newName && newName !== entry.name) {
             await window.electronAPI.rename(entry.path, getDestPath(parentPath, newName))
             onRefresh?.()
@@ -68,10 +70,10 @@ export default function FileTreeNode({
         },
       },
       {
-        label: '删除',
+        label: t('common.delete'),
         icon: '',
         action: async () => {
-          if (confirm(`确定删除 "${entry.name}"？`)) {
+          if (confirm(t('sidebar.deleteConfirm', { name: entry.name }))) {
             await window.electronAPI.delete(entry.path)
             onRefresh?.()
           }
@@ -79,19 +81,19 @@ export default function FileTreeNode({
       },
       { separator: true, label: '' },
       {
-        label: '复制路径',
+        label: t('sidebar.copyPath'),
         icon: '',
         action: () => window.electronAPI.copyPath(entry.path),
       },
       {
-        label: '在资源管理器中打开',
+        label: t('sidebar.revealInExplorer'),
         icon: '',
         action: () => window.electronAPI.openInFinder(entry.path),
       },
     ]
 
     const pasteItem = fileClipboard.path ? {
-      label: `粘贴${fileClipboard.action === 'cut' ? ' (移动)' : ''}`,
+      label: fileClipboard.action === 'cut' ? t('sidebar.pasteMove') : t('sidebar.paste'),
       icon: '',
       action: async () => {
         if (!fileClipboard.path) return
@@ -107,17 +109,17 @@ export default function FileTreeNode({
           }
           onRefresh?.()
         } catch (err) {
-          alert(`操作失败: ${err}`)
+          alert(t('sidebar.operationFailed', { error: String(err) }))
         }
       },
     } : null
 
     const items = entry.isDirectory ? [
       {
-        label: '新建文件',
+        label: t('sidebar.newFile'),
         icon: '',
         action: async () => {
-          const name = prompt('输入文件名:')
+          const name = prompt(t('sidebar.newFileNamePrompt'))
           if (name) {
             await window.electronAPI.createFile(getDestPath(entry.path, name))
             onRefresh?.()
@@ -125,10 +127,10 @@ export default function FileTreeNode({
         },
       },
       {
-        label: '新建文件夹',
+        label: t('sidebar.newFolder'),
         icon: '',
         action: async () => {
-          const name = prompt('输入文件夹名:')
+          const name = prompt(t('sidebar.newFolderNamePrompt'))
           if (name) {
             await window.electronAPI.createDir(getDestPath(entry.path, name))
             onRefresh?.()
@@ -141,7 +143,7 @@ export default function FileTreeNode({
       ...commonFileItems.slice(2),    // separator + rename + delete + separator + copyPath + openInFinder
     ] : [
       {
-        label: '打开',
+        label: t('sidebar.open'),
         icon: '',
         action: () => useEditorStore.getState().openFile(entry.path),
       },
@@ -195,7 +197,7 @@ export default function FileTreeNode({
       await window.electronAPI.move(src, dest)
       onRefresh?.()
     } catch (err) {
-      alert(`移动失败: ${err}`)
+      alert(t('sidebar.moveFailed', { error: String(err) }))
     }
   }
 

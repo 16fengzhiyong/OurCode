@@ -11,6 +11,8 @@ import { setPendingVibeReplace } from '@/services/vibeReplace'
 import { attachLsp, detachLsp } from '@/services/lsp/lspClient'
 import BreadcrumbBar from './BreadcrumbBar'
 import type { UserPreferences } from '@/types'
+import { useI18n } from '@/i18n/useI18n'
+import { t as moduleT } from '@/i18n'
 
 // Files above this size get large-file editor settings (no word wrap / minimap)
 const LARGE_FILE_OPTIMIZE_BYTES = 10 * 1024 * 1024
@@ -103,6 +105,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   const activeFileSize = useEditorStore((s) => s.openFiles.find((f) => f.path === activeFilePath)?.size)
 
   const { openCommandPalette, showContextMenu, theme: uiTheme } = useUIStore()
+  const t = useI18n()
 
   // AI inline completion (ghost text, Tab to accept / Esc to reject)
   const { triggerCompletion } = useInlineCompletion(editor)
@@ -188,27 +191,27 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
       const ext = fileName.split('.').pop() || ''
 
       const items = [
-        { label: '剪切', shortcut: 'Ctrl+X', action: () => editor.trigger('keyboard', 'editor.action.clipboardCutAction', null) },
-        { label: '复制', shortcut: 'Ctrl+C', action: () => editor.trigger('keyboard', 'editor.action.clipboardCopyAction', null) },
-        { label: '粘贴', shortcut: 'Ctrl+V', action: () => editor.trigger('keyboard', 'editor.action.clipboardPasteAction', null) },
+        { label: moduleT('editor.cut'), shortcut: 'Ctrl+X', action: () => editor.trigger('keyboard', 'editor.action.clipboardCutAction', null) },
+        { label: moduleT('editor.copy'), shortcut: 'Ctrl+C', action: () => editor.trigger('keyboard', 'editor.action.clipboardCopyAction', null) },
+        { label: moduleT('editor.paste'), shortcut: 'Ctrl+V', action: () => editor.trigger('keyboard', 'editor.action.clipboardPasteAction', null) },
         { separator: true, label: '' },
-        { label: '折叠', shortcut: 'Ctrl+Shift+[', action: () => editor.trigger('keyboard', 'editor.fold', null) },
-        { label: '展开', shortcut: 'Ctrl+Shift+]', action: () => editor.trigger('keyboard', 'editor.unfold', null) },
+        { label: moduleT('editor.fold'), shortcut: 'Ctrl+Shift+[', action: () => editor.trigger('keyboard', 'editor.fold', null) },
+        { label: moduleT('editor.unfold'), shortcut: 'Ctrl+Shift+]', action: () => editor.trigger('keyboard', 'editor.unfold', null) },
         { separator: true, label: '' },
         ...(selectedText ? [
-          { label: '--- AI 操作 ---', disabled: true },
-          { label: 'AI: 解释这段代码', icon: '🤖', action: () => sendToAI('请解释以下代码的含义和功能：\n\n```' + ext + '\n' + selectedText + '\n```') },
-          { label: 'AI: 重构建议', icon: '🔧', action: () => sendToAI('请对以下代码提供重构建议，优化其可读性和性能：\n\n```' + ext + '\n' + selectedText + '\n```') },
-          { label: '✨ Vibe 替换: 重写所选内容', icon: '✨', action: () => vibeReplace(selectedText, ext) },
-          { label: 'AI: 生成单元测试', icon: '🧪', action: () => sendToAI('请为以下代码生成单元测试：\n\n```' + ext + '\n' + selectedText + '\n```') },
-          { label: 'AI: 生成文档注释', icon: '📝', action: () => sendToAI('请为以下代码生成详细的文档注释（JSDoc/Docstring）：\n\n```' + ext + '\n' + selectedText + '\n```') },
-          { label: 'AI: 修复问题', icon: '🩹', action: () => sendToAI('请检查以下代码中的问题并提供修复方案：\n\n```' + ext + '\n' + selectedText + '\n```') },
-          { label: 'AI: 优化性能', icon: '⚡', action: () => sendToAI('请分析以下代码的性能瓶颈并提供优化方案：\n\n```' + ext + '\n' + selectedText + '\n```') },
-          { label: 'AI: 翻译为英文', icon: '🌐', action: () => sendToAI('请将以下代码中的中文注释和字符串翻译为英文：\n\n```' + ext + '\n' + selectedText + '\n```') },
+          { label: moduleT('editor.aiActions'), disabled: true },
+          { label: moduleT('editor.aiExplain'), icon: '🤖', action: () => sendToAI('请解释以下代码的含义和功能：\n\n```' + ext + '\n' + selectedText + '\n```') },
+          { label: moduleT('editor.aiRefactor'), icon: '🔧', action: () => sendToAI('请对以下代码提供重构建议，优化其可读性和性能：\n\n```' + ext + '\n' + selectedText + '\n```') },
+          { label: moduleT('editor.vibeReplace'), icon: '✨', action: () => vibeReplace(selectedText, ext) },
+          { label: moduleT('editor.aiTest'), icon: '🧪', action: () => sendToAI('请为以下代码生成单元测试：\n\n```' + ext + '\n' + selectedText + '\n```') },
+          { label: moduleT('editor.aiDocs'), icon: '📝', action: () => sendToAI('请为以下代码生成详细的文档注释（JSDoc/Docstring）：\n\n```' + ext + '\n' + selectedText + '\n```') },
+          { label: moduleT('editor.aiFix'), icon: '🩹', action: () => sendToAI('请检查以下代码中的问题并提供修复方案：\n\n```' + ext + '\n' + selectedText + '\n```') },
+          { label: moduleT('editor.aiOptimize'), icon: '⚡', action: () => sendToAI('请分析以下代码的性能瓶颈并提供优化方案：\n\n```' + ext + '\n' + selectedText + '\n```') },
+          { label: moduleT('editor.aiTranslate'), icon: '🌐', action: () => sendToAI('请将以下代码中的中文注释和字符串翻译为英文：\n\n```' + ext + '\n' + selectedText + '\n```') },
         ] : []),
-        { label: 'AI: 内联补全', icon: '✨', action: () => triggerCompletion() },
+        { label: moduleT('editor.aiInlineCompletion'), icon: '✨', action: () => triggerCompletion() },
         { separator: true, label: '' },
-        { label: '命令面板', shortcut: 'Ctrl+Shift+P', action: () => openCommandPalette() },
+        { label: moduleT('editor.commandPalette'), shortcut: 'Ctrl+Shift+P', action: () => openCommandPalette() },
       ]
 
       showContextMenu(e.event.posx, e.event.posy, items)
@@ -243,7 +246,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     setPendingVibeReplace({ text: selectedText, language: ext, filePath })
     useUIStore.getState().toggleChat()
     setTimeout(() => {
-      const input = document.querySelector('textarea[placeholder*="输入消息"]') as HTMLTextAreaElement | null
+      const input = document.querySelector('textarea[data-ai-input]') as HTMLTextAreaElement | null
       input?.focus()
     }, 300)
   }, [panelId])
@@ -360,7 +363,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
         <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs bg-sky-500/15 text-sky-300 border-b border-sky-500/20">
           <span>📄</span>
           <span>
-            大文本模式：文件较大（{formatMB(activeFile.size)} MB），以纯文本显示（无语法高亮），可正常编辑。
+            {t('editor.largeFileMode', { mb: formatMB(activeFile.size) })}
           </span>
         </div>
       )}
@@ -371,7 +374,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-nova-bg/70 pointer-events-none">
             <div className="w-8 h-8 rounded-full border-2 border-nova-accent border-t-transparent animate-spin" />
             <div className="text-sm text-nova-text-secondary">
-              正在加载文件… {activeFile.loadProgress ?? 0}%
+              {t('editor.loadingFile', { percent: activeFile.loadProgress ?? 0 })}
             </div>
             <div className="w-48 h-1 bg-nova-hover rounded-full overflow-hidden">
               <div
@@ -385,12 +388,12 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
           <div className="absolute inset-0 flex items-center justify-center text-nova-text-muted pointer-events-none">
             <div className="text-center">
               <div className="text-6xl mb-4 opacity-30">📝</div>
-              <div className="text-lg text-nova-text-secondary">打开文件开始编辑</div>
+              <div className="text-lg text-nova-text-secondary">{t('editor.emptyEditor')}</div>
               <div className="text-sm mt-2">
-                使用 <kbd className="px-2 py-1 bg-nova-hover rounded text-xs">Ctrl+P</kbd> 快速打开文件
+                {t('editor.quickOpenHint', { shortcut: 'Ctrl+P' })}
               </div>
               <div className="text-sm mt-1">
-                或使用 <kbd className="px-2 py-1 bg-nova-hover rounded text-xs">Ctrl+O</kbd> 打开文件夹
+                {t('editor.openFolderHint', { shortcut: 'Ctrl+O' })}
               </div>
             </div>
           </div>

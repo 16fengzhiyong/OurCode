@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { SearchResult } from '@/types'
+import { useI18n } from '@/i18n/useI18n'
 
 export default function SearchPanel() {
   const [query, setQuery] = useState('')
@@ -16,6 +17,7 @@ export default function SearchPanel() {
   const [filePattern, setFilePattern] = useState('')
   const [excludeFolders, setExcludeFolders] = useState('')
   const [showFilters, setShowFilters] = useState(false)
+  const t = useI18n()
 
   const { openFile } = useEditorStore()
 
@@ -152,7 +154,7 @@ export default function SearchPanel() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="搜索..."
+              placeholder={t('search.placeholder')}
               className="flex-1 bg-transparent text-nova-text-primary text-xs outline-none placeholder:text-nova-text-muted"
             />
             {query && (
@@ -173,7 +175,7 @@ export default function SearchPanel() {
             className={`px-1.5 py-0.5 text-[10px] rounded ${
               caseSensitive ? 'bg-nova-accent/20 text-nova-accent' : 'text-nova-text-muted hover:bg-nova-hover'
             }`}
-            title="区分大小写"
+            title={t('search.caseSensitive')}
           >
             Aa
           </button>
@@ -182,7 +184,7 @@ export default function SearchPanel() {
             className={`px-1.5 py-0.5 text-[10px] rounded ${
               wholeWord ? 'bg-nova-accent/20 text-nova-accent' : 'text-nova-text-muted hover:bg-nova-hover'
             }`}
-            title="全词匹配"
+            title={t('search.wholeWord')}
           >
             Ab
           </button>
@@ -191,7 +193,7 @@ export default function SearchPanel() {
             className={`px-1.5 py-0.5 text-[10px] rounded ${
               useRegex ? 'bg-nova-accent/20 text-nova-accent' : 'text-nova-text-muted hover:bg-nova-hover'
             }`}
-            title="正则表达式"
+            title={t('search.regex')}
           >
             .*
           </button>
@@ -200,18 +202,18 @@ export default function SearchPanel() {
             className={`px-1.5 py-0.5 text-[10px] rounded ${
               showReplace ? 'bg-nova-accent/20 text-nova-accent' : 'text-nova-text-muted hover:bg-nova-hover'
             }`}
-            title="替换"
+            title={t('search.replace')}
           >
-            替换
+            {t('search.replace')}
           </button>
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`px-1.5 py-0.5 text-[10px] rounded ml-auto ${
               showFilters ? 'bg-nova-accent/20 text-nova-accent' : 'text-nova-text-muted hover:bg-nova-hover'
             }`}
-            title="文件过滤"
+            title={t('search.fileFilter')}
           >
-            过滤
+            {t('search.fileFilter')}
           </button>
         </div>
 
@@ -223,7 +225,7 @@ export default function SearchPanel() {
                 type="text"
                 value={replaceValue}
                 onChange={(e) => setReplaceValue(e.target.value)}
-                placeholder="替换..."
+                placeholder={t('search.replacePlaceholder')}
                 className="flex-1 bg-transparent text-nova-text-primary text-xs outline-none placeholder:text-nova-text-muted"
               />
             </div>
@@ -231,9 +233,9 @@ export default function SearchPanel() {
               onClick={handleReplaceAll}
               disabled={!replaceValue.trim() || results.length === 0}
               className="px-2 py-1 text-[10px] bg-nova-accent/20 text-nova-accent rounded hover:bg-nova-accent/30 disabled:opacity-30"
-              title="全部替换"
+              title={t('search.replaceAll')}
             >
-              全部替换
+              {t('search.replaceAll')}
             </button>
           </div>
         )}
@@ -242,7 +244,7 @@ export default function SearchPanel() {
         {showFilters && (
           <div className="space-y-1">
             <div className="flex items-center gap-1">
-              <span className="text-[10px] text-nova-text-muted w-10 shrink-0">类型</span>
+              <span className="text-[10px] text-nova-text-muted w-10 shrink-0">{t('search.fileType')}</span>
               <div className="flex-1 flex items-center bg-nova-input-bg border border-nova-border rounded px-2 py-1 focus-within:border-nova-accent/50">
                 <input
                   type="text"
@@ -263,7 +265,7 @@ export default function SearchPanel() {
               </div>
             </div>
             <div className="flex items-center gap-1">
-              <span className="text-[10px] text-nova-text-muted w-10 shrink-0">排除</span>
+              <span className="text-[10px] text-nova-text-muted w-10 shrink-0">{t('search.exclude')}</span>
               <div className="flex-1 flex items-center bg-nova-input-bg border border-nova-border rounded px-2 py-1 focus-within:border-nova-accent/50">
                 <input
                   type="text"
@@ -290,7 +292,7 @@ export default function SearchPanel() {
       {/* Results count */}
       {results.length > 0 && (
         <div className="px-3 py-1 text-[11px] text-nova-text-muted border-t border-nova-border">
-          找到 {results.length} 个结果，{groupedResults.size} 个文件
+          {t('search.resultCount', { results: results.length, files: groupedResults.size })}
         </div>
       )}
 
@@ -298,13 +300,13 @@ export default function SearchPanel() {
       <div className="flex-1 overflow-y-auto">
         {isSearching && (
           <div className="p-4 text-center text-nova-text-muted text-xs">
-            搜索中...
+            {t('search.searching')}
           </div>
         )}
 
         {!isSearching && query && results.length === 0 && (
           <div className="p-4 text-center text-nova-text-muted text-xs">
-            未找到结果
+            {t('search.noResults')}
           </div>
         )}
 

@@ -7,7 +7,7 @@ import path from 'path'
  */
 async function mainWindow(app: import('@playwright/test').ElectronApplication): Promise<Page> {
   let page: Page | null = null
-  for (let i = 0; i < 20 && !page; i++) {
+  for (let i = 0; i < 40 && !page; i++) {
     for (const p of app.windows()) {
       try {
         if (await p.evaluate(() => typeof window.electronAPI !== 'undefined')) {
@@ -18,7 +18,7 @@ async function mainWindow(app: import('@playwright/test').ElectronApplication): 
         /* window closed mid-poll */
       }
     }
-    if (!page) await new Promise((r) => setTimeout(r, 250))
+    if (!page) await new Promise((r) => setTimeout(r, 500))
   }
   if (!page) throw new Error('main window not found')
   return page

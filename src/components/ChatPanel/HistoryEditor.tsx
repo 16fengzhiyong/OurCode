@@ -1,4 +1,5 @@
 import { useChatStore } from '@/stores/chatStore'
+import { useI18n } from '@/i18n/useI18n'
 
 interface HistoryEditorProps {
   sessionId: string
@@ -9,6 +10,7 @@ interface HistoryEditorProps {
 export default function HistoryEditor({ sessionId, isExpanded, onToggle }: HistoryEditorProps) {
   const session = useChatStore((s) => s.sessions.find((sess) => sess.id === sessionId))
   const { editMessage, deleteMessage, regenerateFromMessage } = useChatStore()
+  const t = useI18n()
 
   if (!session) return null
 
@@ -16,7 +18,7 @@ export default function HistoryEditor({ sessionId, isExpanded, onToggle }: Histo
   const userMessages = session.messages.filter((m) => m.role === 'user')
 
   const handleEdit = (msgId: string, currentContent: string) => {
-    const newContent = prompt('编辑该条历史记录:', currentContent)
+    const newContent = prompt(t('chat.editHistoryPrompt'), currentContent)
     if (newContent && newContent !== currentContent) {
       editMessage(sessionId, msgId, newContent)
     }
@@ -27,7 +29,7 @@ export default function HistoryEditor({ sessionId, isExpanded, onToggle }: Histo
   }
 
   const handleDelete = (msgId: string) => {
-    if (confirm('删除此条对话历史？')) {
+    if (confirm(t('chat.deleteHistoryConfirm'))) {
       deleteMessage(sessionId, msgId)
     }
   }
@@ -47,7 +49,7 @@ export default function HistoryEditor({ sessionId, isExpanded, onToggle }: Histo
             <circle cx="12" cy="12" r="10" />
             <polyline points="12 6 12 12 16 14" />
           </svg>
-          对话历史 (可编辑/重跑)
+          {t('chat.historyEditor')}
         </span>
         <svg
           width="12"
@@ -69,7 +71,7 @@ export default function HistoryEditor({ sessionId, isExpanded, onToggle }: Histo
       {isExpanded && (
         <div className="overflow-y-auto p-2.5 flex flex-col gap-2" style={{ maxHeight: 212 }}>
           {userMessages.length === 0 ? (
-            <div className="text-center text-text-muted text-xs py-4">暂无对话历史</div>
+            <div className="text-center text-text-muted text-xs py-4">{t('chat.noHistory')}</div>
           ) : (
             userMessages.map((msg) => (
               <div
@@ -88,7 +90,7 @@ export default function HistoryEditor({ sessionId, isExpanded, onToggle }: Histo
                   <button
                     onClick={() => handleEdit(msg.id, msg.content)}
                     className="p-1 text-text-muted hover:text-accent-blue transition-colors"
-                    title="编辑"
+                    title={t('chat.edit')}
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -98,7 +100,7 @@ export default function HistoryEditor({ sessionId, isExpanded, onToggle }: Histo
                   <button
                     onClick={() => handleRerun(msg.id)}
                     className="p-1 text-text-muted hover:text-accent-blue transition-colors"
-                    title="重新运行"
+                    title={t('chat.rerun')}
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polygon points="5 3 19 12 5 21 5 3" />
@@ -107,7 +109,7 @@ export default function HistoryEditor({ sessionId, isExpanded, onToggle }: Histo
                   <button
                     onClick={() => handleDelete(msg.id)}
                     className="p-1 text-text-muted hover:text-red-400 transition-colors"
-                    title="删除"
+                    title={t('common.delete')}
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="3 6 5 6 21 6" />

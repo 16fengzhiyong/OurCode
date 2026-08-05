@@ -7,6 +7,7 @@ import ThinkingBlock from './ThinkingBlock'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
 import ToolCallBlock from './ToolCallBlock'
 import WaveLogo from './WaveLogo'
+import { useI18n } from '@/i18n/useI18n'
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -69,6 +70,7 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   const [editContent, setEditContent] = useState(message.content)
   const [applied, setApplied] = useState(false)
   const [remembered, setRemembered] = useState(false)
+  const t = useI18n()
 
   const { editMessage, regenerateFromMessage, createBranchFromMessage, continueGeneration, checkpoints, revertCheckpoint } = useChatStore()
   const addMemory = useMemoryStore((s) => s.addMemory)
@@ -99,7 +101,7 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   const handleRemember = () => {
     const snippet = message.content.trim().slice(0, 500)
     if (snippet) {
-      addMemory(`用户偏好/经验: ${snippet}`)
+      addMemory(`${t('chat.memoryPrefix')}${snippet}`)
       setRemembered(true)
       setTimeout(() => setRemembered(false), 2000)
     }
@@ -193,7 +195,7 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
 
           {/* Edited indicator */}
           {message.editedAt && (
-            <div className="text-[10px] text-nova-text-muted mb-1 italic">已编辑</div>
+            <div className="text-[10px] text-nova-text-muted mb-1 italic">{t('chat.edited')}</div>
           )}
 
           {/* Content */}
@@ -210,13 +212,13 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
                   onClick={handleCancelEdit}
                   className="px-3 py-1 text-xs bg-nova-hover rounded-lg hover:bg-nova-border transition-colors text-nova-text-secondary"
                 >
-                  取消
+                  {t('common.cancel')}
                 </button>
                 <button
                   onClick={handleSaveEdit}
                   className="px-3 py-1 text-xs bg-nova-accent rounded-lg hover:opacity-90 transition-opacity text-white"
                 >
-                  保存
+                  {t('common.save')}
                 </button>
               </div>
             </div>
@@ -235,44 +237,44 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
         {!isEditing && (
           <div className={`flex flex-wrap items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'justify-end' : 'justify-start'}`}>
             {isExhausted && (
-              <GhostButton onClick={() => continueGeneration()} title="继续执行" accent>
-                ▶ 继续执行
+              <GhostButton onClick={() => continueGeneration()} title={t('chat.continueRun')} accent>
+                ▶ {t('chat.continueRun')}
               </GhostButton>
             )}
             {isAssistant && codeBlock && (
-              <GhostButton onClick={handleApplyToEditor} title="把代码块应用到编辑器选中区域" accent>
-                {applied ? '✓ 已应用' : '⤓ 应用到编辑器'}
+              <GhostButton onClick={handleApplyToEditor} title={t('chat.applyToEditorHint')} accent>
+                {applied ? t('chat.applied') : t('chat.applyToEditor')}
               </GhostButton>
             )}
             {isAssistant && msgCheckpoints.length > 0 && (
-              <GhostButton onClick={handleRevertMessage} title="回滚这条消息产生的文件修改" danger>
-                ↩ 回滚修改
+              <GhostButton onClick={handleRevertMessage} title={t('chat.rollbackHint')} danger>
+                {t('chat.rollback')}
               </GhostButton>
             )}
-            <GhostButton onClick={() => setIsEditing(true)} title="编辑消息">
+            <GhostButton onClick={() => setIsEditing(true)} title={t('chat.editMessage')}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
-              编辑
+              {t('chat.edit')}
             </GhostButton>
             {isAssistant && (
-              <GhostButton onClick={handleRegenerate} title="重新生成">
+              <GhostButton onClick={handleRegenerate} title={t('chat.regenerate')}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="23 4 23 10 17 10" />
                   <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
                 </svg>
-                重新生成
+                {t('chat.regenerate')}
               </GhostButton>
             )}
             {isAssistant && !isExhausted && (
-              <GhostButton onClick={handleRemember} title="记住这条回复中的偏好/经验">
-                {remembered ? '✓ 已记住' : '🧠 记住'}
+              <GhostButton onClick={handleRemember} title={t('chat.rememberHint')}>
+                {remembered ? t('chat.remembered') : t('chat.remember')}
               </GhostButton>
             )}
             <GhostButton
               onClick={() => createBranchFromMessage(sessionId, message.id)}
-              title="从此消息创建分支"
+              title={t('chat.branchFromMessage')}
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="6" y1="3" x2="6" y2="15" />
@@ -280,10 +282,10 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
                 <circle cx="6" cy="18" r="3" />
                 <path d="M18 9a9 9 0 0 1-9 9" />
               </svg>
-              分支
+              {t('chat.branch')}
             </GhostButton>
-            <GhostButton onClick={handleCopy} title="复制">
-              复制
+            <GhostButton onClick={handleCopy} title={t('common.copy')}>
+              {t('common.copy')}
             </GhostButton>
           </div>
         )}

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useI18n } from '@/i18n/useI18n'
 
 interface ThinkingBlockProps {
   content: string
@@ -6,6 +7,7 @@ interface ThinkingBlockProps {
 
 export default function ThinkingBlock({ content }: ThinkingBlockProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const t = useI18n()
 
   return (
     <div className="mb-2 bg-nova-bg rounded-xl border border-nova-border overflow-hidden">
@@ -17,7 +19,7 @@ export default function ThinkingBlock({ content }: ThinkingBlockProps) {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5" />
           </svg>
-          <span>思考过程</span>
+          <span>{t('chat.thinkingTitle')}</span>
         </span>
         <svg
           width="10"

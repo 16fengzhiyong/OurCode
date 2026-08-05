@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { useDebugStore } from '@/stores/debugStore'
 import { useEditorStore } from '@/stores/editorStore'
+import { useI18n } from '@/i18n/useI18n'
 
 /** Minimal DAP debug panel: launch config, session controls, breakpoints, console. */
 export default function DebugPanel() {
@@ -10,6 +11,7 @@ export default function DebugPanel() {
     clearOutput, start, stop, continue: continueSession, pause, step, toggle,
   } = useDebugStore()
   const configRef = useRef<HTMLInputElement>(null)
+  const t = useI18n()
 
   const activePath = useEditorStore((s) => s.activeFilePath)
 
@@ -23,12 +25,12 @@ export default function DebugPanel() {
     <div className="h-full flex flex-col bg-nova-bg border-t border-nova-border text-xs overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-nova-border shrink-0 flex-wrap">
-        <span className="font-medium text-nova-text-secondary mr-1">调试</span>
+        <span className="font-medium text-nova-text-secondary mr-1">{t('editor.debugTitle')}</span>
         <input
           ref={configRef}
           value={adapterCommand}
           onChange={(e) => setAdapterCommand(e.target.value)}
-          placeholder="调试适配器命令，如 node mock-adapter.js"
+          placeholder={t('editor.debugAdapterPlaceholder')}
           spellCheck={false}
           className="flex-1 min-w-[160px] px-2 py-0.5 bg-nova-input-bg border border-nova-border rounded text-[11px] text-nova-text-primary outline-none focus:border-nova-accent/50"
         />
@@ -37,35 +39,35 @@ export default function DebugPanel() {
             onClick={() => void start()}
             className="px-2 py-0.5 rounded bg-green-600/20 text-green-400 border border-green-600/30 hover:bg-green-600/30"
           >
-            ▶ 启动
+            {t('editor.debugStart')}
           </button>
         ) : (
           <>
-            <button onClick={() => void pause()} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title="暂停">⏸</button>
-            <button onClick={() => void continueSession()} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title="继续">▶</button>
-            <button onClick={() => void step('over')} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title="单步跳过">↷</button>
-            <button onClick={() => void step('into')} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title="单步进入">↓</button>
-            <button onClick={() => void step('out')} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title="单步跳出">↑</button>
-            <button onClick={() => void stop()} className="px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20" title="停止">■</button>
+            <button onClick={() => void pause()} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title={t('editor.debugPause')}>⏸</button>
+            <button onClick={() => void continueSession()} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title={t('editor.debugContinue')}>▶</button>
+            <button onClick={() => void step('over')} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title={t('editor.debugStepOver')}>↷</button>
+            <button onClick={() => void step('into')} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title={t('editor.debugStepInto')}>↓</button>
+            <button onClick={() => void step('out')} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title={t('editor.debugStepOut')}>↑</button>
+            <button onClick={() => void stop()} className="px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20" title={t('editor.debugStop')}>■</button>
           </>
         )}
         <button
           onClick={addBreakpointAtCursor}
           className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border"
-          title="在光标处添加断点"
+          title={t('editor.debugAddBreakpoint')}
         >
-          ⛶ 断点
+          {t('editor.debugBreakpoint')}
         </button>
-        <button onClick={() => setLaunchConfig({})} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title="重置启动参数">
-          重置
+        <button onClick={() => setLaunchConfig({})} className="px-2 py-0.5 rounded bg-nova-hover hover:bg-nova-border" title={t('editor.debugResetLaunch')}>
+          {t('editor.debugReset')}
         </button>
         <span className="flex-1" />
         {stoppedAt && (
           <span className="text-[10px] text-nova-accent">
-            ⏹ 停在 {stoppedAt.path.split(/[/\\]/).pop()} 行 {stoppedAt.line}
+            {t('editor.debugStoppedAt', { name: stoppedAt.path.split(/[/\\]/).pop() || stoppedAt.path, line: stoppedAt.line })}
           </span>
         )}
-        <button onClick={toggle} className="p-0.5 text-nova-text-muted hover:text-white rounded" title="关闭">✕</button>
+        <button onClick={toggle} className="p-0.5 text-nova-text-muted hover:text-white rounded" title={t('common.close')}>✕</button>
       </div>
 
       {/* Error */}
@@ -76,9 +78,9 @@ export default function DebugPanel() {
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* Breakpoints */}
         <div className="w-44 shrink-0 border-r border-nova-border overflow-y-auto p-1">
-          <div className="text-[10px] text-nova-text-muted px-1 py-0.5">断点 ({breakpoints.length})</div>
+          <div className="text-[10px] text-nova-text-muted px-1 py-0.5">{t('editor.debugBreakpoints', { count: breakpoints.length })}</div>
           {breakpoints.length === 0 && (
-            <div className="text-[10px] text-nova-text-muted px-1 py-1">暂无 — 用「⛶ 断点」在光标处添加</div>
+            <div className="text-[10px] text-nova-text-muted px-1 py-1">{t('editor.debugNoBreakpoints')}</div>
           )}
           {breakpoints.map((bp, i) => (
             <div key={`${bp.path}-${bp.line}-${i}`} className="flex items-center gap-1 px-1 py-0.5 hover:bg-nova-hover rounded group">
@@ -89,7 +91,7 @@ export default function DebugPanel() {
               <button
                 onClick={() => removeBreakpoint(bp.path, bp.line)}
                 className="opacity-0 group-hover:opacity-100 text-nova-text-muted hover:text-red-400"
-                aria-label="移除断点"
+                aria-label={t('editor.debugRemoveBreakpoint')}
               >
                 ✕
               </button>
@@ -99,17 +101,17 @@ export default function DebugPanel() {
             onClick={clearBreakpoints}
             className="text-[10px] text-nova-text-muted hover:text-red-400 px-1 py-0.5"
           >
-            清除全部
+            {t('editor.debugClearAll')}
           </button>
         </div>
 
         {/* Console */}
         <div className="flex-1 min-w-0 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-nova-text-muted">输出</span>
-            <button onClick={clearOutput} className="text-[10px] text-nova-text-muted hover:text-white">清空</button>
+            <span className="text-[10px] text-nova-text-muted">{t('editor.debugOutput')}</span>
+            <button onClick={clearOutput} className="text-[10px] text-nova-text-muted hover:text-white">{t('editor.debugClear')}</button>
           </div>
-          {output.length === 0 && <div className="text-nova-text-muted text-[10px]">（启动调试后显示 stdout/stderr）</div>}
+          {output.length === 0 && <div className="text-nova-text-muted text-[10px]">{t('editor.debugOutputEmpty')}</div>}
           {output.map((line) => (
             <div key={line.id} className={line.category === 'stderr' ? 'text-red-400' : 'text-nova-text-secondary'}>
               {line.text}

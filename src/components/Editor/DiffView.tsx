@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'react'
 import { monaco, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
+import { useI18n } from '@/i18n/useI18n'
 
 interface DiffViewProps {
   original: string
@@ -11,6 +12,7 @@ interface DiffViewProps {
 export default function DiffView({ original, modified, language, onClose }: DiffViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
+  const t = useI18n()
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -48,11 +50,11 @@ export default function DiffView({ original, modified, language, onClose }: Diff
   return (
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between px-4 py-2 bg-nova-surface border-b border-nova-border shrink-0">
-        <span className="text-sm text-nova-text-primary font-medium">差异对比</span>
+        <span className="text-sm text-nova-text-primary font-medium">{t('editor.diffTitle')}</span>
         <button
           onClick={onClose}
           className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
-          title="关闭"
+          title={t('common.close')}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

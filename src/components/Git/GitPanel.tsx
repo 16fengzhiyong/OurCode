@@ -5,6 +5,7 @@ import { useConfigStore } from '@/stores/configStore'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { runLifeguardCheck, LifeguardFinding } from '@/services/lifeguard'
 import DiffView from '../Editor/DiffView'
+import { useI18n } from '@/i18n/useI18n'
 
 interface GitStatus {
   file: string
@@ -30,6 +31,7 @@ export default function GitPanel() {
   const [diffFile, setDiffFile] = useState<string | null>(null)
   const [monacoDiff, setMonacoDiff] = useState<{ original: string; modified: string; language: string } | null>(null)
   const [generatingCommit, setGeneratingCommit] = useState(false)
+  const t = useI18n()
 
   const { openFile } = useEditorStore()
 
@@ -48,10 +50,9 @@ export default function GitPanel() {
 
   const runGitCommand = useCallback(async (args: string[]): Promise<{ success: boolean; output: string; error?: string }> => {
     const rootPath = getRootPath()
-    if (!rootPath) return { success: false, output: '', error: '未打开项目文件夹' }
+    if (!rootPath) return { success: false, output: '', error: t('git.noFolder') }
     return window.electronAPI.gitExec(rootPath, args)
-  }, [getRootPath])
-
+  }, [getRootPath, t])
   const refreshStatus = useCallback(async () => {
     const rootPath = getRootPath()
     if (!rootPath) return
@@ -161,14 +162,14 @@ export default function GitPanel() {
   const handleLifeguard = async () => {
     const configGroup = useConfigStore.getState().getActiveConfigGroup()
     if (!configGroup || !configGroup.defaultModel) {
-      alert('请先配置 API 模型')
+      alert(t('git.configureModel'))
       return
     }
     const diffResult = await runGitCommand(['diff', 'HEAD'])
     const diffText = diffResult.success ? diffResult.output : ''
     if (!diffText) {
       setLifeguardFindings([])
-      setLifeguardError('没有可检查的改动（工作区与 HEAD 一致）')
+      setLifeguardError(t('git.noDiff'))
       return
     }
     setLifeguardRunning(true)
@@ -177,7 +178,7 @@ export default function GitPanel() {
       const findings = await runLifeguardCheck(diffText, configGroup)
       setLifeguardFindings(findings)
     } catch (e: any) {
-      setLifeguardError(e.message || 'Lifeguard 检查失败')
+      setLifeguardError(e.message || t('git.lifeguardFailed'))
       setLifeguardFindings([])
     } finally {
       setLifeguardRunning(false)
@@ -226,7 +227,7 @@ export default function GitPanel() {
       // New file - show raw diff
       const result = await runGitCommand(['diff', file])
       if (result.success) {
-        setDiffContent(result.output || '无差异')
+        setDiffContent(result.output || t('git.noDiffShort'))
         setDiffFile(file)
         setMonacoDiff(null)
       }
@@ -254,7 +255,7 @@ export default function GitPanel() {
     if (configGroup && configGroup.defaultModel && (diffText || gitStatus.length)) {
       setGeneratingCommit(true)
       try {
-        const diff = diffText || gitStatus.map((s) => `${s.status === 'untracked' ? '新文件' : s.status} ${s.file}`).join('\n')
+        const diff = diffText || gitStatus.map((s) => `${s.status === 'untracked' ? t('git.newFile') : s.status} ${s.file}`).join('\n')
         const prompt = `请根据以下 git 变更生成一条简洁的提交信息（一行，中文，不要引号，不要前缀 emoji）：\n\n${diff.slice(0, 12000)}`
         const req = {
           model: configGroup.defaultModel,
@@ -288,7 +289,7 @@ export default function GitPanel() {
     const statResult = await runGitCommand(['diff', '--cached', '--stat'])
     if (statResult.success && statResult.output) {
       const lines = statResult.output.split('\n').filter(Boolean)
-      const summary = lines[lines.length - 1] || '更新文件'
+      const summary = lines[lines.length - 1] || t('git.updateFiles')
       setCommitMessage(summary.trim())
     }
   }
@@ -305,7 +306,7 @@ export default function GitPanel() {
           <svg className="w-4 h-4 text-nova-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
-          <span className="text-xs font-semibold text-nova-text-secondary">源代码管理</span>
+          <span className="text-xs font-semibold text-nova-text-secondary">{t('git.title')}</span>
         </div>
         <div className="flex items-center gap-1">
           {gitBranch && (
@@ -316,7 +317,7 @@ export default function GitPanel() {
           <button
             onClick={refreshStatus}
             className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
-            title="刷新"
+            title={t('git.refresh')}
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -330,7 +331,7 @@ export default function GitPanel() {
         <textarea
           value={commitMessage}
           onChange={(e) => setCommitMessage(e.target.value)}
-          placeholder="提交消息 (Ctrl+Enter 提交)"
+          placeholder={t('git.commitPlaceholder')}
           className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-lg text-xs text-nova-text-primary outline-none focus:border-nova-accent/50 resize-none"
           rows={2}
           onKeyDown={(e) => {
@@ -345,27 +346,27 @@ export default function GitPanel() {
             disabled={!commitMessage.trim()}
             className="flex-1 px-3 py-1.5 text-xs bg-nova-accent text-white rounded-lg hover:opacity-90 disabled:opacity-30 transition-colors"
           >
-            提交
+            {t('git.commit')}
           </button>
           <button
             onClick={handlePush}
             className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors"
-            title="推送到远程"
+            title={t('git.pushTitle')}
           >
-            推送
+            {t('git.push')}
           </button>
           <button
             onClick={handlePull}
             className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors"
-            title="从远程拉取"
+            title={t('git.pullTitle')}
           >
-            拉取
+            {t('git.pull')}
           </button>
           <button
             onClick={() => { showLog ? setShowLog(false) : handleViewLog() }}
             className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors"
           >
-            日志
+            {t('git.log')}
           </button>
         </div>
         <div className="flex items-center gap-3 mt-1.5">
@@ -373,17 +374,17 @@ export default function GitPanel() {
             onClick={handleGenerateCommitMessage}
             disabled={generatingCommit}
             className="text-[10px] text-nova-text-muted hover:text-nova-accent transition-colors disabled:opacity-40"
-            title="基于暂存的更改自动生成提交消息"
+            title={t('git.generateCommitHint')}
           >
-            {generatingCommit ? '🤖 生成中...' : '🤖 AI 生成提交消息'}
+            {generatingCommit ? t('git.generating') : t('git.generateCommit')}
           </button>
           <button
             onClick={handleLifeguard}
             disabled={lifeguardRunning}
             className="text-[10px] text-nova-text-muted hover:text-red-400 transition-colors disabled:opacity-40"
-            title="提交前用 AI 检查改动中的潜在 Bug"
+            title={t('git.lifeguardHint')}
           >
-            {lifeguardRunning ? '🛟 检查中...' : '🛟 Lifeguard 检查'}
+            {lifeguardRunning ? t('git.lifeguardRunning') : t('git.lifeguard')}
           </button>
         </div>
 
@@ -396,10 +397,10 @@ export default function GitPanel() {
         {lifeguardFindings.length > 0 && (
           <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto">
             <div className="text-[10px] text-nova-text-muted flex items-center gap-1.5">
-              <span>🛟 Lifeguard 发现 {lifeguardFindings.length} 个潜在问题</span>
+              <span>{t('git.lifeguardFindings', { count: lifeguardFindings.length })}</span>
               <span className="ml-auto">
-                {lifeguardFindings.filter((f) => f.severity === 'error').length} 错误 ·{' '}
-                {lifeguardFindings.filter((f) => f.severity === 'warning').length} 警告
+                {t('git.errorCount', { count: lifeguardFindings.filter((f) => f.severity === 'error').length })} ·{' '}
+                {t('git.warningCount', { count: lifeguardFindings.filter((f) => f.severity === 'warning').length })}
               </span>
             </div>
             {lifeguardFindings.map((f, i) => (
@@ -416,12 +417,12 @@ export default function GitPanel() {
                 <div className="flex items-center gap-1.5">
                   <span>{f.severity === 'error' ? '✕' : f.severity === 'warning' ? '⚠' : 'ⓘ'}</span>
                   <span className="font-medium">
-                    {f.severity === 'error' ? '错误' : f.severity === 'warning' ? '警告' : '提示'}
+                    {f.severity === 'error' ? t('git.severityError') : f.severity === 'warning' ? t('git.severityWarning') : t('git.severityInfo')}
                     {f.file && <> · {f.file}{f.line ? `:${f.line}` : ''}</>}
                   </span>
                 </div>
                 <div className="mt-0.5">{f.message}</div>
-                {f.suggestion && <div className="mt-0.5 opacity-80">建议: {f.suggestion}</div>}
+                {f.suggestion && <div className="mt-0.5 opacity-80">{t('git.suggestion', { suggestion: f.suggestion })}</div>}
               </div>
             ))}
           </div>
@@ -432,13 +433,13 @@ export default function GitPanel() {
       <div className="flex-1 overflow-y-auto">
         {isLoading && (
           <div className="p-4 text-center text-nova-text-muted text-xs">
-            加载中...
+            {t('git.loading')}
           </div>
         )}
 
         {!isLoading && gitStatus.length === 0 && (
           <div className="p-4 text-center text-nova-text-muted text-xs">
-            {gitBranch ? '没有更改的文件' : '未检测到 Git 仓库'}
+            {gitBranch ? t('git.noChanges') : t('git.noRepo')}
           </div>
         )}
 
@@ -446,13 +447,13 @@ export default function GitPanel() {
         {stagedChanges.length > 0 && (
           <div>
             <div className="flex items-center justify-between px-3 py-1.5 bg-nova-bg">
-              <span className="text-[10px] font-semibold text-nova-text-muted uppercase">已暂存</span>
+              <span className="text-[10px] font-semibold text-nova-text-muted uppercase">{t('git.staged')}</span>
               <button
                 onClick={handleUnstageAll}
                 className="text-[10px] text-nova-text-muted hover:text-nova-accent"
-                title="取消所有暂存"
+                title={t('git.unstageAll')}
               >
-                全部取消
+                {t('git.unstageAllShort')}
               </button>
             </div>
             {stagedChanges.map((item) => {
@@ -466,7 +467,7 @@ export default function GitPanel() {
                   <button
                     onClick={() => handleToggleStage(item.file, true)}
                     className="text-[10px] text-yellow-400 hover:text-yellow-300"
-                    title="取消暂存"
+                    title={t('git.unstage')}
                   >
                     -
                   </button>
@@ -475,9 +476,9 @@ export default function GitPanel() {
                   <button
                     onClick={() => handleViewDiff(item.file)}
                     className="text-[10px] text-nova-text-muted hover:text-nova-accent opacity-0 group-hover:opacity-100"
-                    title="查看差异"
+                    title={t('git.viewDiff')}
                   >
-                    diff
+                    {t('git.diff')}
                   </button>
                 </div>
               )
@@ -489,13 +490,13 @@ export default function GitPanel() {
         {unstagedChanges.length > 0 && (
           <div>
             <div className="flex items-center justify-between px-3 py-1.5 bg-nova-bg">
-              <span className="text-[10px] font-semibold text-nova-text-muted uppercase">更改</span>
+              <span className="text-[10px] font-semibold text-nova-text-muted uppercase">{t('git.changes')}</span>
               <button
                 onClick={handleStageAll}
                 className="text-[10px] text-nova-text-muted hover:text-nova-accent"
-                title="暂存所有更改"
+                title={t('git.stageAll')}
               >
-                全部暂存
+                {t('git.stageAllShort')}
               </button>
             </div>
             {unstagedChanges.map((item) => {
@@ -509,7 +510,7 @@ export default function GitPanel() {
                   <button
                     onClick={() => handleToggleStage(item.file, false)}
                     className="text-[10px] text-green-400 hover:text-green-300"
-                    title="暂存"
+                    title={t('git.stage')}
                   >
                     +
                   </button>
@@ -518,9 +519,9 @@ export default function GitPanel() {
                   <button
                     onClick={() => handleViewDiff(item.file)}
                     className="text-[10px] text-nova-text-muted hover:text-nova-accent opacity-0 group-hover:opacity-100"
-                    title="查看差异"
+                    title={t('git.viewDiff')}
                   >
-                    diff
+                    {t('git.diff')}
                   </button>
                 </div>
               )
@@ -532,7 +533,7 @@ export default function GitPanel() {
         {untrackedFiles.length > 0 && (
           <div>
             <div className="flex items-center justify-between px-3 py-1.5 bg-nova-bg">
-              <span className="text-[10px] font-semibold text-nova-text-muted uppercase">未跟踪</span>
+              <span className="text-[10px] font-semibold text-nova-text-muted uppercase">{t('git.untracked')}</span>
             </div>
             {untrackedFiles.map((item) => {
               const fileName = item.file.split(/[/\\]/).pop() || item.file
@@ -544,7 +545,7 @@ export default function GitPanel() {
                   <button
                     onClick={() => handleToggleStage(item.file, false)}
                     className="text-[10px] text-green-400 hover:text-green-300"
-                    title="添加跟踪"
+                    title={t('git.track')}
                   >
                     +
                   </button>
@@ -573,7 +574,7 @@ export default function GitPanel() {
       {diffContent && diffFile && !monacoDiff && (
         <div className="border-t border-nova-border max-h-[200px] overflow-y-auto">
           <div className="flex items-center justify-between px-3 py-1.5 bg-nova-bg">
-            <span className="text-[10px] text-nova-text-muted truncate">差异: {diffFile}</span>
+            <span className="text-[10px] text-nova-text-muted truncate">{t('git.diffTitle', { file: diffFile })}</span>
             <button
               onClick={() => { setDiffContent(null); setDiffFile(null) }}
               className="text-nova-text-muted hover:text-nova-text-primary"
@@ -593,7 +594,7 @@ export default function GitPanel() {
       {showLog && (
         <div className="border-t border-nova-border max-h-[200px] overflow-y-auto">
           <div className="flex items-center justify-between px-3 py-1.5 text-[10px] text-nova-text-muted bg-nova-bg">
-            <span>最近提交</span>
+            <span>{t('git.recentCommits')}</span>
             <button onClick={() => setShowLog(false)} className="hover:text-nova-text-primary">
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -602,7 +603,7 @@ export default function GitPanel() {
           </div>
           {log.length === 0 ? (
             <div className="p-3 text-center text-nova-text-muted text-xs">
-              暂无提交记录
+              {t('git.noCommits')}
             </div>
           ) : (
             log.map((commit) => (

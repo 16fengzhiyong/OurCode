@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
+import { useI18n } from '@/i18n/useI18n'
 
 interface QuickOpenFile {
   path: string
@@ -16,6 +17,7 @@ export default function QuickOpen({ rootPath }: { rootPath?: string }) {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const t = useI18n()
 
   // Collect all files when opened
   useEffect(() => {
@@ -128,7 +130,7 @@ export default function QuickOpen({ rootPath }: { rootPath?: string }) {
               setSelectedIndex(0)
             }}
             onKeyDown={handleKeyDown}
-            placeholder="搜索文件名... (模糊匹配)"
+            placeholder={t('sidebar.quickOpenPlaceholder')}
             className="w-full bg-nova-input text-nova-text-primary outline-none placeholder-nova-text-muted px-3 py-2 rounded border border-nova-border focus:border-nova-accent/50 transition-colors"
           />
         </div>
@@ -136,10 +138,10 @@ export default function QuickOpen({ rootPath }: { rootPath?: string }) {
         {/* File List */}
         <div className="max-h-[350px] overflow-y-auto">
           {isLoading ? (
-            <div className="px-4 py-6 text-center text-nova-text-muted text-sm">加载文件中...</div>
+            <div className="px-4 py-6 text-center text-nova-text-muted text-sm">{t('sidebar.loading')}</div>
           ) : filteredFiles.length === 0 ? (
             <div className="px-4 py-6 text-center text-nova-text-muted text-sm">
-              {query ? '无匹配文件' : '无可用文件'}
+              {query ? t('sidebar.noMatch') : t('sidebar.noFiles')}
             </div>
           ) : (
             filteredFiles.map((file, index) => (
@@ -170,13 +172,13 @@ export default function QuickOpen({ rootPath }: { rootPath?: string }) {
         {/* Footer */}
         <div className="px-4 py-2 border-t border-nova-border text-xs text-nova-text-muted flex items-center gap-4">
           <span>
-            <kbd className="px-1 py-0.5 bg-nova-hover rounded text-[10px]">↑↓</kbd> 导航
+            <kbd className="px-1 py-0.5 bg-nova-hover rounded text-[10px]">↑↓</kbd> {t('sidebar.nav')}
           </span>
           <span>
-            <kbd className="px-1 py-0.5 bg-nova-hover rounded text-[10px]">Enter</kbd> 打开
+            <kbd className="px-1 py-0.5 bg-nova-hover rounded text-[10px]">Enter</kbd> {t('sidebar.openFile')}
           </span>
           <span>
-            <kbd className="px-1 py-0.5 bg-nova-hover rounded text-[10px]">Esc</kbd> 关闭
+            <kbd className="px-1 py-0.5 bg-nova-hover rounded text-[10px]">Esc</kbd> {t('sidebar.close')}
           </span>
         </div>
       </div>

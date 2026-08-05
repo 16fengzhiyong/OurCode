@@ -4,6 +4,12 @@ import { useConfigStore } from '@/stores/configStore'
 import { filterSlashCommands, buildSlashPrompt, getEditorSlashContext, SlashCommand } from '@/services/commands/slashCommands'
 import { takePendingVibeReplace } from '@/services/vibeReplace'
 import { AUTO_CONTINUE_KEY } from '@shared/constants'
+import { useI18n } from '@/i18n/useI18n'
+import type { TranslationKey } from '@/i18n'
+
+/** Localized description for a slash command (falls back to the stored text). */
+const slashDescription = (cmd: SlashCommand, t: (key: TranslationKey, vars?: Record<string, string | number>) => string) =>
+  t(('slashCommands.' + cmd.id) as TranslationKey)
 
 export default function ChatInput() {
   const [input, setInput] = useState('')
@@ -18,6 +24,7 @@ export default function ChatInput() {
   const [autoContinue, setAutoContinue] = useState(() => localStorage.getItem(AUTO_CONTINUE_KEY) === '1')
   const [listening, setListening] = useState(false)
   const recognitionRef = useRef<{ stop: () => void } | null>(null)
+  const t = useI18n()
 
   const toggleAutoContinue = () => {
     setAutoContinue((prev) => {
@@ -27,11 +34,11 @@ export default function ChatInput() {
     })
   }
 
-  // Voice input (Windsurf Ctrl+Shift+M parity) via the Web Speech API
+  // Voice input via the Web Speech API (Ctrl+Shift+M is taken by the Problems panel)
   const toggleVoiceInput = () => {
     const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
     if (!SR) {
-      alert('当前环境不支持语音输入')
+      alert(t('chat.voiceUnsupported'))
       return
     }
     if (listening) {
@@ -57,7 +64,7 @@ export default function ChatInput() {
       rec.start()
       setListening(true)
     } catch {
-      alert('语音识别启动失败')
+      alert(t('chat.voiceStartFailed'))
       setListening(false)
     }
   }
@@ -288,7 +295,7 @@ export default function ChatInput() {
 
   const getFileName = (path: string) => path.split(/[/\\]/).pop() || path
 
-  const currentModelName = activeConfigGroupId ? 'AI 模型' : '未配置'
+  const currentModelName = activeConfigGroupId ? t('chat.aiModel') : t('chat.notConfigured')
 
   return (
     <div className="border-t border-nova-border p-3">
@@ -331,7 +338,7 @@ export default function ChatInput() {
                 onMouseEnter={() => setSelectedSlashIndex(index)}
               >
                 <span className="text-nova-accent font-medium shrink-0">/{cmd.name}</span>
-                <span className="text-nova-text-muted text-xs truncate">{cmd.description}</span>
+                <span className="text-nova-text-muted text-xs truncate">{slashDescription(cmd, t)}</span>
               </div>
             ))}
           </div>
@@ -372,14 +379,14 @@ export default function ChatInput() {
           <div className="flex items-center gap-1 px-2 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             <button
               className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors text-xs"
-              title="插入代码块"
+              title={t('chat.insertCodeBlock')}
             >
               &lt;/&gt;
             </button>
             <button
               onClick={handleAddFile}
               className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
-              title="添加文件"
+              title={t('chat.addFile')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
@@ -387,14 +394,14 @@ export default function ChatInput() {
             </button>
             <button
               className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors text-xs font-medium"
-              title="引用文件"
+              title={t('chat.referenceFile')}
             >
               @
             </button>
             <button
               onClick={toggleVoiceInput}
               className={`p-1 rounded transition-colors ${listening ? 'text-red-400 bg-red-500/15' : 'text-nova-text-muted hover:text-nova-text-primary'}`}
-              title="语音输入 (Ctrl+Shift+M)"
+              title={t('chat.voiceInput')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
@@ -404,7 +411,7 @@ export default function ChatInput() {
               </svg>
             </button>
             <div className="flex-1" />
-            <button className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors" title="模型设置">
+            <button className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors" title={t('chat.modelSettings')}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
               </svg>
@@ -417,20 +424,21 @@ export default function ChatInput() {
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="输入消息... (Ctrl+Enter 发送)"
+            placeholder={t('chat.inputPlaceholder')}
             rows={1}
             disabled={!activeConfigGroupId}
+            data-ai-input
             className="w-full bg-transparent resize-none text-nova-text-primary text-sm outline-none max-h-[200px] placeholder:text-nova-text-muted disabled:opacity-50 px-2.5 py-2"
           />
 
           {/* Footer */}
           <div className="flex items-center gap-1.5 px-2.5 py-1.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
             <span className="text-[11px] flex-1 text-nova-text-muted">
-              {currentModelName} · {isLoading ? '生成中，Enter 可排队' : 'Ctrl + Enter 发送'}
+              {currentModelName} · {isLoading ? t('chat.generatingQueue') : t('chat.ctrlEnterSend')}
             </span>
             <label
               className="flex items-center gap-1 text-[10px] text-nova-text-muted cursor-pointer select-none hover:text-nova-text-secondary transition-colors"
-              title="工具轮数耗尽后自动继续（同一轮只自动继续一次）"
+              title={t('chat.autoContinueHint')}
             >
               <input
                 type="checkbox"
@@ -438,16 +446,16 @@ export default function ChatInput() {
                 onChange={toggleAutoContinue}
                 className="accent-nova-accent w-3 h-3"
               />
-              ⚡ 自动继续
+              {t('chat.autoContinue')}
             </label>
-            {queuedHint && <span className="text-[11px] text-nova-accent">已排队，完成后自动发送</span>}
+            {queuedHint && <span className="text-[11px] text-nova-accent">{t('chat.queuedHint')}</span>}
             {isLoading ? (
               <button
                 onClick={stopGeneration}
                 className="px-3 py-1 text-xs text-red-400 hover:text-red-300 transition-colors rounded-lg"
                 style={{ background: 'rgba(244,135,113,0.15)' }}
               >
-                停止
+                {t('chat.stop')}
               </button>
             ) : (
               <button
@@ -456,7 +464,7 @@ export default function ChatInput() {
                 className="px-3.5 py-1 text-xs text-white font-medium rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
                 style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
               >
-                发送
+                {t('chat.send')}
               </button>
             )}
           </div>

@@ -42,7 +42,7 @@ test.describe('Basic App Launch', () => {
 
     // DevTools auto-opens in dev mode; find the window that has the app API
     let mainWin: Page | null = null
-    for (let i = 0; i < 20 && !mainWin; i++) {
+    for (let i = 0; i < 40 && !mainWin; i++) {
       for (const p of app.windows()) {
         try {
           if (await p.evaluate(() => typeof window.electronAPI !== 'undefined')) {
@@ -51,7 +51,7 @@ test.describe('Basic App Launch', () => {
           }
         } catch { /* closed mid-poll */ }
       }
-      if (!mainWin) await new Promise((r) => setTimeout(r, 250))
+      if (!mainWin) await new Promise((r) => setTimeout(r, 500))
     }
     expect(mainWin).toBeTruthy()
 

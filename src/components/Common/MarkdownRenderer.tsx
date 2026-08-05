@@ -3,6 +3,7 @@ import { marked } from 'marked'
 import hljs from 'highlight.js'
 import DOMPurify from 'dompurify'
 import 'highlight.js/styles/github-dark.css'
+import { t, getLocale } from '@/i18n'
 
 interface MarkdownRendererProps {
   content: string
@@ -21,7 +22,7 @@ renderer.code = function (...args: any[]) {
   const highlighted = hljs.highlight(text, { language }).value
   // NOTE: no inline onclick here — blocked by CSP and an injection vector.
   // Copy is handled via event delegation in the container (see useEffect below).
-  return `<div class="code-block"><div class="code-header"><span class="code-lang">${language}</span><button class="copy-btn" data-copy>Copy</button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`
+  return `<div class="code-block"><div class="code-header"><span class="code-lang">${language}</span><button class="copy-btn" data-copy>${t('common.copy')}</button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`
 }
 
 marked.use({
@@ -41,7 +42,9 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
     } catch {
       return DOMPurify.sanitize(`<p>${content}</p>`)
     }
-  }, [content])
+    // Re-render the code-block Copy label when the language changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, getLocale()])
 
   // Event-delegated copy button (works under CSP, no inline handlers)
   useEffect(() => {

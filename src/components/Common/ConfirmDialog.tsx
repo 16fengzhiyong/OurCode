@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { useI18n } from '@/i18n/useI18n'
 
 interface ConfirmDialogProps {
   isOpen: boolean
@@ -15,13 +16,16 @@ export default function ConfirmDialog({
   isOpen,
   title,
   message,
-  confirmText = '确认',
-  cancelText = '取消',
+  confirmText,
+  cancelText,
   variant = 'danger',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const t = useI18n()
+  const resolvedConfirm = confirmText ?? t('common.confirm')
+  const resolvedCancel = cancelText ?? t('common.cancel')
 
   useEffect(() => {
     if (isOpen) {
@@ -50,7 +54,7 @@ export default function ConfirmDialog({
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="确认" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div role="dialog" aria-modal="true" aria-label={resolvedConfirm} className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="glass-panel rounded-xl shadow-2xl w-full max-w-md mx-4 animate-fade-in">
         <div className="p-5">
           <h3 className="text-lg font-semibold text-nova-text-primary mb-2">{title}</h3>
@@ -61,14 +65,14 @@ export default function ConfirmDialog({
             onClick={onCancel}
             className="px-4 py-2 text-sm rounded-lg bg-nova-hover text-nova-text-secondary hover:text-nova-text-primary transition-colors"
           >
-            {cancelText}
+            {resolvedCancel}
           </button>
           <button
             ref={confirmRef}
             onClick={onConfirm}
             className={`px-4 py-2 text-sm rounded-lg text-white transition-colors ${variantStyles[variant]}`}
           >
-            {confirmText}
+            {resolvedConfirm}
           </button>
         </div>
       </div>

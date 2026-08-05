@@ -1,12 +1,15 @@
 import { useUIStore } from '@/stores/uiStore'
+import { useI18n } from '@/i18n/useI18n'
+import type { TranslationKey } from '@/i18n'
 
 export default function ActivityBar() {
   const { activeSidebarTab, setActiveSidebarTab, toggleSidebar, openMarketplace, isSidebarVisible } = useUIStore()
+  const t = useI18n()
 
-  const topIcons = [
+  const topIcons: Array<{ key: 'files' | 'search' | 'git' | 'extensions'; titleKey: TranslationKey; icon: JSX.Element }> = [
     {
-      key: 'files' as const,
-      title: '资源管理器 (Ctrl+Shift+E)',
+      key: 'files',
+      titleKey: 'activityBar.explorer',
       icon: (
         <svg viewBox="0 0 24 24" width="22" height="22">
           <rect x="2" y="2" width="20" height="20" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -16,8 +19,8 @@ export default function ActivityBar() {
       ),
     },
     {
-      key: 'search' as const,
-      title: '搜索 (Ctrl+Shift+F)',
+      key: 'search',
+      titleKey: 'activityBar.search',
       icon: (
         <svg viewBox="0 0 24 24" width="22" height="22">
           <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="1.8" />
@@ -26,8 +29,8 @@ export default function ActivityBar() {
       ),
     },
     {
-      key: 'git' as const,
-      title: '源代码管理 (Ctrl+Shift+G)',
+      key: 'git',
+      titleKey: 'activityBar.scm',
       icon: (
         <svg viewBox="0 0 24 24" width="22" height="22">
           <circle cx="6" cy="6" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -40,8 +43,8 @@ export default function ActivityBar() {
       ),
     },
     {
-      key: 'extensions' as const,
-      title: '扩展 (Ctrl+Shift+X)',
+      key: 'extensions',
+      titleKey: 'activityBar.extensions',
       icon: (
         <svg viewBox="0 0 24 24" width="22" height="22">
           <rect x="2" y="2" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -54,10 +57,10 @@ export default function ActivityBar() {
     },
   ]
 
-  const bottomIcons = [
+  const bottomIcons: Array<{ key: string; titleKey: TranslationKey; icon: JSX.Element; action: () => void }> = [
     {
       key: 'settings',
-      title: '设置 (Ctrl+,)',
+      titleKey: 'activityBar.settings',
       icon: (
         <svg viewBox="0 0 24 24" width="22" height="22">
           <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -68,7 +71,7 @@ export default function ActivityBar() {
     },
     {
       key: 'account',
-      title: '账户',
+      titleKey: 'activityBar.account',
       icon: (
         <svg viewBox="0 0 24 24" width="22" height="22">
           <circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -106,7 +109,7 @@ export default function ActivityBar() {
           return (
             <button
               key={item.key}
-              aria-label={item.title} title={item.title}
+              aria-label={t(item.titleKey)} title={t(item.titleKey)}
               onClick={() => handleClick(item.key)}
               className="relative flex items-center justify-center"
               style={{
@@ -135,7 +138,7 @@ export default function ActivityBar() {
         {bottomIcons.map((item) => (
           <button
             key={item.key}
-            aria-label={item.title} title={item.title}
+            aria-label={t(item.titleKey)} title={t(item.titleKey)}
             onClick={item.action}
             style={{
               width: 48,

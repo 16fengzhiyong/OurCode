@@ -7,7 +7,7 @@ import { join } from 'path'
 /** Robustly find the main app window (not DevTools). */
 async function mainWindow(app: import('@playwright/test').ElectronApplication): Promise<Page> {
   let page: Page | null = null
-  for (let i = 0; i < 20 && !page; i++) {
+  for (let i = 0; i < 40 && !page; i++) {
     for (const p of app.windows()) {
       try {
         if (await p.evaluate(() => typeof window.electronAPI !== 'undefined')) {
@@ -16,7 +16,7 @@ async function mainWindow(app: import('@playwright/test').ElectronApplication): 
         }
       } catch { /* closed mid-poll */ }
     }
-    if (!page) await new Promise((r) => setTimeout(r, 250))
+    if (!page) await new Promise((r) => setTimeout(r, 500))
   }
   if (!page) throw new Error('main window not found')
   return page
@@ -60,12 +60,16 @@ test.describe('Hot Exit', () => {
 
       // Disable Auto Save so the buffer stays dirty: 文件 → 偏好设置 →
       // Preferences tab → Auto Save toggle. The preference persists in SQLite,
-      // so only click when it is currently ON.
+      // so only click when it is currently ON. Menu/tab/row labels are
+      // localized (zh-CN: 偏好设置/自动保存, en-US: Preferences/Auto Save),
+      // so match either locale.
       await win1.locator('button', { hasText: '文件' }).first().click()
-      await win1.locator('button', { hasText: '偏好设置' }).first().click()
-      await win1.locator('button', { hasText: 'Preferences' }).first().click()
-      const autoSaveRow = win1.locator('div.flex.items-center.justify-between', { hasText: 'Auto Save' }).first()
-      await expect(autoSaveRow).toBeVisible({ timeout: 5000 })
+      await win1.locator('button', { hasText: /偏好设置|Preferences/ }).first().click()
+      const settingsDialog = win1.locator('[role="dialog"]').first()
+      await settingsDialog.locator('button', { hasText: /偏好设置|Preferences/ }).first().click()
+      const autoSaveRow = settingsDialog.locator('div.flex.items-center.justify-between', { hasText: /自动保存|Auto Save/ }).first()
+      // Cold start renders the settings modal lazily; give it 10 s instead of 5.
+      await expect(autoSaveRow).toBeVisible({ timeout: 10000 })
       const toggleBtn = autoSaveRow.locator('button').first()
       const autoSaveOn = (await toggleBtn.getAttribute('class'))?.includes('bg-nova-accent') ?? false
       if (autoSaveOn) await toggleBtn.click()

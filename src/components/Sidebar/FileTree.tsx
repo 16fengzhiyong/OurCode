@@ -3,6 +3,7 @@ import FileTreeNode from './FileTreeNode'
 import { FileEntry } from '@/types'
 import { useEditorStore } from '@/stores/editorStore'
 import LoadingSpinner from '../Common/LoadingSpinner'
+import { useI18n } from '@/i18n/useI18n'
 
 interface FileTreeProps {
   rootPath: string
@@ -15,6 +16,7 @@ export default function FileTree({ rootPath }: FileTreeProps) {
   const [isLoading, setIsLoading] = useState(true)
   const { openFile } = useEditorStore()
   const { showHiddenFiles } = useEditorStore((s) => s.preferences)
+  const t = useI18n()
 
   // Mirror expandedDirs in a ref so the watcher callback never sees a stale closure
   const expandedDirsRef = useRef(expandedDirs)
@@ -135,7 +137,7 @@ export default function FileTree({ rootPath }: FileTreeProps) {
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="搜索文件..."
+          placeholder={t('sidebar.searchFiles')}
           className="w-full px-2 py-1 bg-nova-input border border-nova-border rounded text-sm text-nova-text-primary placeholder-nova-text-muted focus:border-nova-accent/50 focus:outline-none transition-colors"
         />
       </div>
@@ -144,7 +146,7 @@ export default function FileTree({ rootPath }: FileTreeProps) {
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
-            <LoadingSpinner size="md" text="加载文件中..." />
+            <LoadingSpinner size="md" text={t('sidebar.loading')} />
           </div>
         ) : (filteredFiles.map((entry) => (
           <FileTreeNode

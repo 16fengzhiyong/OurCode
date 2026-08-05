@@ -4,6 +4,8 @@ import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useProblemsStore } from '@/stores/problemsStore'
+import { useI18n } from '@/i18n/useI18n'
+import { t as moduleT } from '@/i18n'
 
 export default function StatusBar() {
   const { openFiles, activeFilePath, cursorPosition, preferences } = useEditorStore()
@@ -11,6 +13,7 @@ export default function StatusBar() {
   const { models, configGroups, activeConfigGroupId, setActiveConfigGroup } = useConfigStore()
   const activeConfigGroup = useConfigStore((s) => s.getActiveConfigGroup())
   const storeRootPath = useUIStore((s) => s.rootPath)
+  const t = useI18n()
 
   const activeFile = openFiles.find((f) => f.path === activeFilePath)
 
@@ -68,7 +71,7 @@ export default function StatusBar() {
         setUpdateState('downloaded')
       } else if (status.state === 'error') {
         setUpdateState('error')
-        setUpdateError(status.message || 'Update check failed')
+        setUpdateError(status.message || moduleT('statusBar.checkFailed'))
       }
     })
 
@@ -92,7 +95,7 @@ export default function StatusBar() {
       setNewVersion(result.version || '')
     } else if (result.state === 'error') {
       setUpdateState('error')
-      setUpdateError(result.message || 'Check failed')
+      setUpdateError(result.message || moduleT('statusBar.checkFailed'))
     } else {
       setUpdateState('idle')
     }
@@ -170,7 +173,7 @@ export default function StatusBar() {
             <button
               className="flex items-center gap-1 opacity-90 hover:opacity-100 cursor-pointer px-1 rounded hover:bg-nova-hover"
               onClick={() => { setShowBranchMenu(!showBranchMenu); if (!showBranchMenu) fetchBranches() }}
-              title="点击切换分支"
+              title={t('statusBar.switchBranch')}
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
               {gitBranch}
@@ -202,7 +205,7 @@ export default function StatusBar() {
           className="flex items-center gap-1 cursor-pointer hover:bg-nova-hover"
           style={{ background: errorCount > 0 ? 'rgba(244,135,113,0.9)' : undefined, padding: '0 5px', borderRadius: 2 }}
           onClick={openProblems}
-          title="打开问题面板"
+          title={t('statusBar.problems')}
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
           {errorCount}
@@ -213,7 +216,7 @@ export default function StatusBar() {
           className="flex items-center gap-1 cursor-pointer hover:bg-nova-hover"
           style={{ background: warningCount > 0 ? 'rgba(204,167,0,0.9)' : undefined, padding: '0 5px', borderRadius: 2 }}
           onClick={openProblems}
-          title="打开问题面板"
+          title={t('statusBar.problems')}
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           {warningCount}
@@ -232,19 +235,19 @@ export default function StatusBar() {
               : updateState === 'error' ? handleCheckUpdate
               : undefined
             }
-            title="自动更新"
+            title={t('statusBar.autoUpdate')}
           >
-            {updateState === 'checking' && '检查更新…'}
-            {updateState === 'available' && `⬇ 更新 ${newVersion || ''} 可用`}
-            {updateState === 'downloading' && `⬇ 下载中 ${Math.round(downloadPercent)}%`}
-            {updateState === 'downloaded' && '↻ 重启安装更新'}
-            {updateState === 'error' && `⚠ ${updateError || '更新失败'}`}
+            {updateState === 'checking' && t('statusBar.checking')}
+            {updateState === 'available' && t('statusBar.updateAvailable', { version: newVersion || '' })}
+            {updateState === 'downloading' && t('statusBar.downloading', { percent: Math.round(downloadPercent) })}
+            {updateState === 'downloaded' && t('statusBar.restartInstall')}
+            {updateState === 'error' && `⚠ ${updateError || t('statusBar.updateFailed')}`}
           </span>
         )}
 
         {cursorPosition && (
           <span className="opacity-90">
-            行 {cursorPosition.line}, 列 {cursorPosition.column}
+            {t('statusBar.lineCol', { line: cursorPosition.line, col: cursorPosition.column })}
           </span>
         )}
 
@@ -255,7 +258,7 @@ export default function StatusBar() {
               <button
                 className="opacity-90 hover:opacity-100 cursor-pointer px-1 rounded hover:bg-nova-hover"
                 onClick={() => setShowEncodingMenu(!showEncodingMenu)}
-                title="点击切换编码"
+                title={t('statusBar.switchEncoding')}
               >
                 {activeFile.encoding.toUpperCase()}
               </button>
@@ -281,7 +284,7 @@ export default function StatusBar() {
               )}
             </div>
 
-            <span className="opacity-90">{preferences.tabSize} 空格</span>
+            <span className="opacity-90">{t('statusBar.spaces', { count: preferences.tabSize })}</span>
           </>
         )}
 
@@ -291,10 +294,10 @@ export default function StatusBar() {
             <button
               className="flex items-center gap-1 opacity-90 hover:opacity-100 cursor-pointer px-1 rounded hover:bg-nova-hover max-w-[140px]"
               onClick={() => setShowConfigMenu(!showConfigMenu)}
-              title="切换 API 配置组"
+              title={t('statusBar.switchConfigGroup')}
             >
               <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: activeConfigGroup?.color || '#3994bc' }} />
-              <span className="truncate">{activeConfigGroup?.name || '未配置'}</span>
+              <span className="truncate">{activeConfigGroup?.name || t('statusBar.notConfigured')}</span>
             </button>
             {showConfigMenu && (
               <div className="absolute bottom-full right-0 mb-1 glass-panel rounded-lg py-1 min-w-[160px] z-50 max-h-[240px] overflow-y-auto">
@@ -325,7 +328,7 @@ export default function StatusBar() {
 
         {/* Total tokens in active session */}
         {totalTokens > 0 && (
-          <span className="opacity-70" title="当前会话 Token 消耗">
+          <span className="opacity-70" title={t('statusBar.tokenUsage')}>
             {totalTokens.toLocaleString()} tokens
           </span>
         )}
@@ -334,7 +337,7 @@ export default function StatusBar() {
         {appVersion && (
           <span
             className="opacity-70 hover:opacity-100 cursor-pointer"
-            title="点击检查更新"
+            title={t('statusBar.checkUpdate')}
             onClick={handleCheckUpdate}
           >
             {appVersion}

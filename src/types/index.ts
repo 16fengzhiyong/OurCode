@@ -126,6 +126,7 @@ export interface ElectronAPI {
   getPlatform: () => Promise<string>
   resolveEnvVar: (name: string) => Promise<string>
   getVersion: () => Promise<string>
+  getLocale: () => Promise<string>
 
   // Auto Update
   checkForUpdate: () => Promise<{ state: string; version?: string; message?: string }>

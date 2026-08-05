@@ -1,5 +1,6 @@
 import { useChatStore } from '@/stores/chatStore'
 import type { ChatBranch } from '@shared/types'
+import { useI18n } from '@/i18n/useI18n'
 
 interface BranchTreeModalProps {
   sessionId: string
@@ -14,6 +15,7 @@ interface BranchTreeModalProps {
 export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalProps) {
   const session = useChatStore((s) => s.sessions.find((x) => x.id === sessionId))
   const switchBranch = useChatStore((s) => s.switchBranch)
+  const t = useI18n()
 
   if (!session) return null
 
@@ -21,7 +23,7 @@ export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalP
   const branches = session.branches ?? []
 
   // Branch label: derive a readable name (author + message index)
-  const branchName = (b: ChatBranch) => b.name || `分支 @${shorten(b.forkedFromMessageId)}`
+  const branchName = (b: ChatBranch) => b.name || t('chat.branchNameFallback', { id: shorten(b.forkedFromMessageId) })
 
   // Main trunk: for each main message, which branches fork from it
   const trunk = session.messages.map((msg, index) => ({
@@ -30,13 +32,13 @@ export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalP
     forked: branches.filter((b) => b.forkedFromMessageId === msg.id),
   }))
 
-  const roleLabel: Record<string, string> = { user: '用户', assistant: 'AI', tool: '工具' }
+  const roleLabel: Record<string, string> = { user: t('chat.roleUser'), assistant: t('chat.roleAssistant'), tool: t('chat.roleTool') }
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="分支对话树"
+      aria-label={t('chat.branchTreeDialog')}
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60"
       onClick={onClose}
     >
@@ -46,14 +48,14 @@ export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalP
       >
         <div className="px-5 py-3.5 border-b border-nova-border flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-nova-text-primary">对话分支树</h2>
+            <h2 className="text-base font-semibold text-nova-text-primary">{t('chat.branchTreeTitle')}</h2>
             <p className="text-xs text-nova-text-muted mt-0.5">
-              主分支 {session.messages.length} 条消息 · {branches.length} 个分支
+              {t('chat.branchTreeSummary', { messages: session.messages.length, branches: branches.length })}
             </p>
           </div>
           <button
             onClick={onClose}
-            aria-label="关闭"
+            aria-label={t('common.close')}
             className="p-1.5 text-nova-text-muted hover:text-white hover:bg-nova-hover rounded-lg transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -76,7 +78,7 @@ export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalP
                 <span className="text-[10px] text-nova-text-muted w-8 shrink-0">{roleLabel[message.role] ?? message.role}</span>
                 <span className="text-xs text-nova-text-primary truncate">{shorten(message.content, 60)}</span>
                 {activeId === 'main' && message.id === (session.messages[index]?.id) && (
-                  <span className="text-[10px] text-nova-accent shrink-0 ml-auto">◀ 当前位置</span>
+                  <span className="text-[10px] text-nova-accent shrink-0 ml-auto">{t('chat.currentPosition')}</span>
                 )}
               </div>
 
@@ -100,7 +102,7 @@ export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalP
                         <path d="M18 9a9 9 0 0 1-9 9" />
                       </svg>
                       <span className="truncate">{branchName(b)}</span>
-                      <span className="ml-auto text-[10px] text-nova-text-muted shrink-0">{b.messages.length} 条</span>
+                      <span className="ml-auto text-[10px] text-nova-text-muted shrink-0">{t('chat.branchMessageCount', { count: b.messages.length })}</span>
                       {activeId === b.id && <span className="text-nova-accent shrink-0">✓</span>}
                     </button>
                   ))}
@@ -111,7 +113,7 @@ export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalP
 
           {branches.length === 0 && (
             <div className="text-center py-10 text-nova-text-muted text-sm">
-              暂无分支。在消息上点击「分支」按钮创建。
+              {t('chat.noBranches')}
             </div>
           )}
         </div>

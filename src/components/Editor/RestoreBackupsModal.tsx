@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { BackupEntry } from '@shared/types'
 import { useEditorStore } from '@/stores/editorStore'
+import { useI18n } from '@/i18n/useI18n'
+import { getLocale } from '@/i18n'
 
 interface RestoreBackupsModalProps {
   backups: BackupEntry[]
@@ -12,6 +14,7 @@ export default function RestoreBackupsModal({ backups: initial, onClose }: Resto
   const [backups, setBackups] = useState<BackupEntry[]>(initial)
   const [busyPath, setBusyPath] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const t = useI18n()
 
   const fileName = (p: string) => p.split(/[/\\]/).pop() || p
 
@@ -21,7 +24,7 @@ export default function RestoreBackupsModal({ backups: initial, onClose }: Resto
     try {
       const data = await window.electronAPI.readBackup(entry.filePath)
       if (!data) {
-        setError(`备份已失效：${fileName(entry.filePath)}`)
+        setError(t('editor.backupInvalid', { name: fileName(entry.filePath) }))
         setBackups((prev) => prev.filter((b) => b.filePath !== entry.filePath))
         return
       }
@@ -29,7 +32,7 @@ export default function RestoreBackupsModal({ backups: initial, onClose }: Resto
       await window.electronAPI.deleteBackup(entry.filePath)
       setBackups((prev) => prev.filter((b) => b.filePath !== entry.filePath))
     } catch (e) {
-      setError(`恢复失败：${e instanceof Error ? e.message : String(e)}`)
+      setError(t('editor.restoreFailed', { error: e instanceof Error ? e.message : String(e) }))
     } finally {
       setBusyPath(null)
     }
@@ -58,19 +61,19 @@ export default function RestoreBackupsModal({ backups: initial, onClose }: Resto
 
   const formatTime = (ms: number) => {
     const d = new Date(ms)
-    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    return d.toLocaleString(getLocale(), { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="恢复未保存的更改" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label={t('editor.backupsDialog')} className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60" onClick={onClose}>
       <div
         className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl w-[560px] max-h-[70vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-4 border-b border-nova-border">
-          <h2 className="text-lg font-semibold text-nova-text-primary">恢复未保存的更改</h2>
+          <h2 className="text-lg font-semibold text-nova-text-primary">{t('editor.backupsDialog')}</h2>
           <p className="text-xs text-nova-text-muted mt-1">
-            上次关闭时以下文件仍有未保存的修改（热退出备份）。恢复后会以未保存状态重新打开。
+            {t('editor.backupsDesc')}
           </p>
         </div>
 
@@ -93,14 +96,14 @@ export default function RestoreBackupsModal({ backups: initial, onClose }: Resto
                 disabled={busyPath === entry.filePath}
                 className="px-3 py-1 text-xs font-medium bg-nova-accent text-white rounded-md hover:opacity-90 disabled:opacity-40 shrink-0"
               >
-                {busyPath === entry.filePath ? '恢复中…' : '恢复'}
+                {busyPath === entry.filePath ? t('editor.restoring') : t('editor.restore')}
               </button>
               <button
                 onClick={() => discard(entry)}
                 disabled={busyPath === entry.filePath}
                 className="px-3 py-1 text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded-md hover:bg-red-500/20 disabled:opacity-40 shrink-0"
               >
-                放弃
+                {t('editor.discard')}
               </button>
             </div>
           ))}
@@ -111,13 +114,13 @@ export default function RestoreBackupsModal({ backups: initial, onClose }: Resto
             onClick={discardAll}
             className="px-3 py-1.5 text-xs text-nova-text-muted hover:text-red-400 transition-colors"
           >
-            全部放弃
+            {t('editor.discardAll')}
           </button>
           <button
             onClick={restoreAll}
             className="px-4 py-1.5 text-xs font-medium bg-nova-accent text-white rounded-md hover:opacity-90"
           >
-            全部恢复
+            {t('editor.restoreAll')}
           </button>
         </div>
       </div>

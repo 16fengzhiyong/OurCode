@@ -4,13 +4,15 @@ import { existsSync } from 'fs'
 
 async function mainWindow(app: import('@playwright/test').ElectronApplication): Promise<Page> {
   let page: Page | null = null
-  for (let i = 0; i < 20 && !page; i++) {
+  // Cold-starting a packaged Electron app can take well over 5 s on a loaded
+  // machine; give it a 20 s window (40 × 500 ms) instead of timing out.
+  for (let i = 0; i < 40 && !page; i++) {
     for (const p of app.windows()) {
       try {
         if (await p.evaluate(() => typeof window.electronAPI !== 'undefined')) { page = p; break }
       } catch { /* closed */ }
     }
-    if (!page) await new Promise((r) => setTimeout(r, 250))
+    if (!page) await new Promise((r) => setTimeout(r, 500))
   }
   if (!page) throw new Error('main window not found')
   return page
