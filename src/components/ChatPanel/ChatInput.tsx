@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import ModelSelector from './ModelSelector'
+import { filterSlashCommands, buildSlashPrompt, getEditorSlashContext, SlashCommand } from '@/services/commands/slashCommands'
 
 export default function ChatInput() {
   const [input, setInput] = useState('')
@@ -9,6 +10,9 @@ export default function ChatInput() {
   const [showFileSearch, setShowFileSearch] = useState(false)
   const [fileSearchResults, setFileSearchResults] = useState<{ name: string; path: string }[]>([])
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
+  const [showSlashMenu, setShowSlashMenu] = useState(false)
+  const [slashQuery, setSlashQuery] = useState('')
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileSearchRef = useRef<HTMLDivElement>(null)
@@ -49,15 +53,44 @@ export default function ChatInput() {
     const cursorPos = e.target.selectionStart
     const textBeforeCursor = value.slice(0, cursorPos)
     const atMatch = textBeforeCursor.match(/@(\S*)$/)
+    // Check for slash-command trigger ("/" at the start of a line)
+    const slashMatch = textBeforeCursor.match(/(^|\n)\/(\S*)$/)
 
     if (atMatch) {
       setShowFileSearch(true)
       setSelectedFileIndex(0)
       searchFiles(atMatch[1])
+      setShowSlashMenu(false)
     } else {
       setShowFileSearch(false)
+      if (slashMatch) {
+        setShowSlashMenu(true)
+        setSlashQuery(slashMatch[2])
+        setSelectedSlashIndex(0)
+      } else {
+        setShowSlashMenu(false)
+      }
     }
   }, [searchFiles])
+
+  const insertSlashCommand = useCallback((command: SlashCommand) => {
+    const cursorPos = textareaRef.current?.selectionStart || input.length
+    const textBeforeCursor = input.slice(0, cursorPos)
+    const slashMatch = textBeforeCursor.match(/(^|\n)\/(\S*)$/)
+    const slashStart = slashMatch ? cursorPos - slashMatch[2].length - 1 : 0
+    const textAfter = input.slice(cursorPos)
+
+    const prompt = buildSlashPrompt(command, getEditorSlashContext())
+    const newInput = input.slice(0, slashStart) + prompt + textAfter
+    setInput(newInput)
+    setShowSlashMenu(false)
+    // Place the cursor after the inserted prompt
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      const pos = slashStart + prompt.length
+      textareaRef.current?.setSelectionRange(pos, pos)
+    })
+  }, [input])
 
   const insertFileReference = useCallback((filePath: string) => {
     const cursorPos = textareaRef.current?.selectionStart || input.length
@@ -121,6 +154,30 @@ export default function ChatInput() {
       if (e.key === '`') {
         e.preventDefault()
         applyMarkdown('`', '`')
+        return
+      }
+    }
+
+    // Slash-command menu navigation
+    const slashCommands = filterSlashCommands(slashQuery)
+    if (showSlashMenu && slashCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedSlashIndex((prev) => Math.min(prev + 1, slashCommands.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedSlashIndex((prev) => Math.max(prev - 1, 0))
+        return
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault()
+        insertSlashCommand(slashCommands[selectedSlashIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        setShowSlashMenu(false)
         return
       }
     }
@@ -194,6 +251,29 @@ export default function ChatInput() {
 
       {/* Input Area */}
       <div className="relative">
+        {/* Slash-command menu ("/" at the start of a line) */}
+        {showSlashMenu && filterSlashCommands(slashQuery).length > 0 && (
+          <div
+            className="absolute bottom-full left-0 right-0 mb-1 bg-nova-surface border border-nova-border rounded shadow-xl max-h-48 overflow-y-auto z-50"
+          >
+            {filterSlashCommands(slashQuery).map((cmd, index) => (
+              <div
+                key={cmd.id}
+                className={`px-3 py-2 cursor-pointer text-sm flex items-center gap-2 ${
+                  index === selectedSlashIndex
+                    ? 'bg-[#094771] text-white'
+                    : 'text-nova-text-secondary hover:bg-nova-hover'
+                }`}
+                onClick={() => insertSlashCommand(cmd)}
+                onMouseEnter={() => setSelectedSlashIndex(index)}
+              >
+                <span className="text-nova-accent font-medium shrink-0">/{cmd.name}</span>
+                <span className="text-nova-text-muted text-xs truncate">{cmd.description}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* @file search dropdown */}
         {showFileSearch && fileSearchResults.length > 0 && (
           <div
