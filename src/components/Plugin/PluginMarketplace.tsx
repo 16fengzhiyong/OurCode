@@ -273,14 +273,13 @@ export default function PluginMarketplace() {
                 <textarea
                   value={codeText}
                   onChange={(e) => setCodeText(e.target.value)}
-                  placeholder={`// Plugin entry point
+                  placeholder={`// Plugin entry point (runs in a sandboxed Web Worker)
 // Access the API via the global 'api' object
-// e.g., api.editor.getActiveFile()
+// e.g., await api.editor.getActiveFile()
 
 api.ui.registerPanel('my-panel', 'My Plugin', () => {
-  const div = document.createElement('div');
-  div.textContent = 'Hello from my plugin!';
-  return div;
+  // Workers have no DOM — return an HTML string
+  return '<div>Hello from my plugin!</div>';
 });`}
                   className="w-full h-48 p-3 bg-nova-bg border border-nova-border rounded-lg text-sm text-nova-text-primary font-mono resize-none placeholder-nova-text-muted focus:outline-none focus:border-nova-accent"
                   spellCheck={false}

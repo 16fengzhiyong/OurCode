@@ -41,11 +41,10 @@ async function getUIStore() {
 export class PluginManager {
   private plugins: Map<string, PluginInfo> = new Map()
   private workers: Map<string, Worker> = new Map()
-  private messageHandlers: Map<string, (msg: PluginMessage) => void> = new Map()
   private cleanupHandlers: Map<string, () => void> = new Map()
 
   // Plugin-contributed UI elements
-  readonly pluginPanels: Map<string, { pluginId: string; title: string; render: () => HTMLElement }> = new Map()
+  readonly pluginPanels: Map<string, { pluginId: string; title: string; render: () => string }> = new Map()
   readonly statusBarItems: Map<string, { pluginId: string; text: string; position: 'left' | 'right' }> = new Map()
   readonly pluginCommands: Map<string, { pluginId: string; handler: (...args: any[]) => void }> = new Map()
   readonly pluginKeybindings: Map<string, { pluginId: string; command: string }> = new Map()
@@ -131,9 +130,6 @@ export class PluginManager {
       cleanup()
       this.cleanupHandlers.delete(id)
     }
-
-    // Remove message handler
-    this.messageHandlers.delete(id)
 
     // Remove plugin-contributed UI elements
     for (const [panelId, panel] of this.pluginPanels) {
@@ -317,7 +313,7 @@ export class PluginManager {
         },
       },
       ui: {
-        registerPanel: (id: string, title: string, render: () => HTMLElement) => {
+        registerPanel: (id: string, title: string, render: () => string) => {
           if (!hasPerm('ui.panel')) throw new Error('Permission denied: ui.panel required')
           registeredPanels.add(id)
           // Store panel registration for sidebar rendering
@@ -398,13 +394,23 @@ export class PluginManager {
       }
     }
 
-    // Create Worker with sandbox wrapper
+    // Create Worker with sandbox wrapper. The worker never receives the real
+    // extension API — postMessage would throw DataCloneError on its functions.
+    // Instead it gets a MessageChannel port and every API call is an RPC
+    // (path + args) executed on the main thread, with the result sent back.
     const sandboxCode = `
       // Plugin sandbox
       const __pluginId = ${JSON.stringify(pluginId)};
-      const __permissions = ${JSON.stringify(permissions)};
       const __allowedApis = new Set(${JSON.stringify(Array.from(allowedApis))});
-      let __api = {};
+
+      // Plugin-provided callbacks (functions stay in this worker — the main
+      // thread invokes them by id).
+      const __callbacks = new Map();
+      // In-flight RPC calls waiting for a response.
+      const __pending = new Map();
+      let __port = null;
+      let __rpcSeq = 0;
+      let __cbSeq = 0;
 
       function __checkPermission(apiPath) {
         if (!__allowedApis.has(apiPath)) {
@@ -412,52 +418,83 @@ export class PluginManager {
         }
       }
 
-      // Create permission-proxied API
-      function __createProxy(api, prefix) {
-        const handler = {
-          get(target, prop) {
-            const path = prefix + '.' + prop;
-            if (typeof target[prop] === 'object' && target[prop] !== null) {
-              return __createProxy(target[prop], path);
-            }
-            if (typeof target[prop] === 'function') {
-              return function(...args) {
-                __checkPermission(path);
-                return target[prop](...args);
-              };
-            }
-            return target[prop];
-          }
-        };
-        return new Proxy(api, handler);
+      // Serialize a value for transit: functions become callback references.
+      function __serialize(v) {
+        if (typeof v === 'function') {
+          const cbId = 'cb' + (++__cbSeq);
+          __callbacks.set(cbId, v);
+          return { __cb: cbId };
+        }
+        if (Array.isArray(v)) return v.map(__serialize);
+        if (v && typeof v === 'object') {
+          const out = {};
+          for (const k of Object.keys(v)) out[k] = __serialize(v[k]);
+          return out;
+        }
+        return v;
       }
 
-      // Message bridge
+      // RPC call: post the API path + args, resolve when the result returns.
+      function __call(path, args) {
+        return new Promise((resolve, reject) => {
+          const id = ++__rpcSeq;
+          __pending.set(id, { resolve, reject });
+          __port.postMessage({ type: 'call', id, path, args: args.map(__serialize) });
+        });
+      }
+
+      // Lazy API surface: every property access yields a callable that sends an
+      // RPC request; permission is checked at call time against the full path.
+      function __makeApi(path) {
+        return new Proxy(function () {}, {
+          get(target, prop) {
+            if (prop === 'then' || prop === 'toJSON') return undefined;
+            return __makeApi(path + '.' + prop);
+          },
+          apply(target, thisArg, args) {
+            __checkPermission(path);
+            return __call(path, args);
+          },
+        });
+      }
+
       self.onmessage = function(e) {
         const msg = e.data;
-        if (msg.type === 'init') {
-          __api = msg.api;
+        if (msg && msg.type === 'init') {
+          __port = e.ports[0];
+          __port.onmessage = function(m) {
+            const data = m.data;
+            if (data.type === 'callResult') {
+              const p = __pending.get(data.id);
+              if (p) { __pending.delete(data.id); p.resolve(data.result); }
+            } else if (data.type === 'callError') {
+              const p = __pending.get(data.id);
+              if (p) { __pending.delete(data.id); p.reject(new Error(data.error)); }
+            } else if (data.type === 'invoke') {
+              const fn = __callbacks.get(data.cbId);
+              if (fn) {
+                Promise.resolve().then(() => fn(...(data.args || [])))
+                  .then((result) => __port.postMessage({ type: 'cbResult', cbId: data.cbId, result }))
+                  .catch((err) => __port.postMessage({ type: 'cbResult', cbId: data.cbId, error: err.message }));
+              }
+            }
+          };
           try {
-            // Expose permission-checked API as global 'api' object
-            var api = {};
-            api.editor = __createProxy(__api.editor || {}, 'editor');
-            api.fs = __createProxy(__api.fs || {}, 'fs');
-            api.ai = __createProxy(__api.ai || {}, 'ai');
-            api.ui = __createProxy(__api.ui || {}, 'ui');
-            api.commands = __api.commands || {};
-            api.keybindings = __api.keybindings || {};
-            api.workspace = __api.workspace || {};
+            // Expose the RPC-backed API as the global 'api' object
+            var api = {
+              editor: __makeApi('editor'),
+              fs: __makeApi('fs'),
+              ai: __makeApi('ai'),
+              ui: __makeApi('ui'),
+              commands: __makeApi('commands'),
+              keybindings: __makeApi('keybindings'),
+              workspace: __makeApi('workspace'),
+            };
 
             ${code}
-            self.postMessage({ type: 'ready', id: __pluginId });
+            __port.postMessage({ type: 'ready', id: __pluginId });
           } catch(err) {
-            self.postMessage({ type: 'error', id: __pluginId, error: err.message });
-          }
-        } else if (msg.type === 'call') {
-          try {
-            // Handle API calls from plugin
-          } catch(err) {
-            self.postMessage({ type: 'error', id: __pluginId, error: err.message });
+            __port.postMessage({ type: 'error', id: __pluginId, error: err.message });
           }
         }
       };
@@ -468,19 +505,81 @@ export class PluginManager {
     const worker = new Worker(url)
     URL.revokeObjectURL(url)
 
-    // Set up message handler
-    worker.onmessage = (e) => {
-      const msg = e.data as PluginMessage
-      this.messageHandlers.get(pluginId)?.(msg)
-    }
-
     worker.onerror = (e) => {
       console.error(`Plugin ${pluginId} error:`, e.message)
     }
 
-    // Initialize plugin
+    const channel = new MessageChannel()
+    const port = channel.port1
     const api = this.createExtensionAPI(pluginId, permissions)
-    worker.postMessage({ type: 'init', id: pluginId, api })
+    const callbackPending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void }>()
+
+    // Args may carry { __cb } placeholders for plugin-provided callbacks
+    const deserializeArgs = (args: any[]): any[] =>
+      args.map((a) => (
+        a && typeof a === 'object' && typeof a.__cb === 'string'
+          ? (...cbArgs: any[]) => new Promise<any>((resolve, reject) => {
+              callbackPending.set(a.__cb, { resolve, reject })
+              port.postMessage({ type: 'invoke', cbId: a.__cb, args: cbArgs })
+            })
+          : a
+      ))
+
+    // Drop functions from results (they cannot cross the boundary)
+    const sanitize = (v: any): any => {
+      if (typeof v === 'function') return undefined
+      if (Array.isArray(v)) return v.map(sanitize)
+      if (v && typeof v === 'object') {
+        const out: Record<string, any> = {}
+        for (const k of Object.keys(v)) out[k] = sanitize(v[k])
+        return out
+      }
+      return v
+    }
+
+    port.onmessage = (e) => {
+      const msg = e.data
+      if (msg.type === 'call') {
+        // Resolve the target function by walking the dotted API path
+        let target: any = api
+        for (const key of String(msg.path).split('.')) {
+          target = target == null ? undefined : target[key]
+        }
+        if (typeof target !== 'function') {
+          port.postMessage({ type: 'callError', id: msg.id, error: `Unknown API: ${msg.path}` })
+          return
+        }
+        Promise.resolve()
+          .then(() => target(...deserializeArgs(msg.args || [])))
+          .then((result) => port.postMessage({ type: 'callResult', id: msg.id, result: sanitize(result) }))
+          .catch((err) => port.postMessage({ type: 'callError', id: msg.id, error: err?.message ?? String(err) }))
+      } else if (msg.type === 'cbResult') {
+        const p = callbackPending.get(msg.cbId)
+        if (p) {
+          callbackPending.delete(msg.cbId)
+          if (msg.error) p.reject(new Error(msg.error))
+          else p.resolve(msg.result)
+        }
+      } else if (msg.type === 'ready') {
+        // Activation acknowledged by the sandbox
+        const plugin = this.plugins.get(pluginId)
+        if (plugin) {
+          plugin.status = 'active'
+          plugin.error = undefined
+          this.persistPlugins()
+        }
+      } else if (msg.type === 'error') {
+        const plugin = this.plugins.get(pluginId)
+        if (plugin) {
+          plugin.status = 'error'
+          plugin.error = msg.error
+          this.persistPlugins()
+        }
+      }
+    }
+
+    // Transfer the worker-side port; all further communication goes over it
+    worker.postMessage({ type: 'init', id: pluginId }, [channel.port2])
 
     return worker
   }

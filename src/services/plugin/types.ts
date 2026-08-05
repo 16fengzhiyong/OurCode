@@ -101,7 +101,9 @@ export interface ExtensionAPI {
 
   // UI registration
   ui: {
-    registerPanel: (id: string, title: string, render: () => HTMLElement) => void
+    // Plugins run in a Web Worker (no DOM), so `render` must return an HTML
+    // string rather than a live element; the host injects it into the panel.
+    registerPanel: (id: string, title: string, render: () => string) => void
     unregisterPanel: (id: string) => void
     registerStatusBarItem: (id: string, text: string, position: 'left' | 'right') => void
     showNotification: (message: string, type: 'info' | 'warning' | 'error') => void
