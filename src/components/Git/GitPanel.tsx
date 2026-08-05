@@ -343,7 +343,7 @@ export default function GitPanel() {
           <button
             onClick={handleCommit}
             disabled={!commitMessage.trim()}
-            className="flex-1 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-30 transition-colors"
+            className="flex-1 px-3 py-1.5 text-xs bg-nova-accent text-white rounded-lg hover:opacity-90 disabled:opacity-30 transition-colors"
           >
             提交
           </button>

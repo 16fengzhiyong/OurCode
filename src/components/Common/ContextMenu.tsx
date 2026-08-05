@@ -62,7 +62,7 @@ export default function ContextMenu() {
     >
       {contextMenu.items.map((item, index) => {
         if (item.separator) {
-          return <div key={index} className="h-px bg-[#454545] my-1" />
+          return <div key={index} className="h-px bg-nova-border my-1" />
         }
 
         return (
@@ -79,7 +79,7 @@ export default function ContextMenu() {
             {item.icon && <span className="text-sm w-4 text-center">{item.icon}</span>}
             <span className="flex-1 text-sm">{item.label}</span>
             {item.shortcut && (
-              <span className="text-xs text-gray-500 ml-4">{item.shortcut}</span>
+              <span className="text-xs text-nova-text-muted ml-4">{item.shortcut}</span>
             )}
           </div>
         )

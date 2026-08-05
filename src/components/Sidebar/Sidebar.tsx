@@ -57,7 +57,7 @@ export default function Sidebar() {
               <div className="text-nova-text-muted text-xs mb-4">未打开文件夹</div>
               <button
                 onClick={handleOpenFolder}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors"
+                className="px-4 py-2 bg-nova-accent text-white rounded-lg text-sm hover:opacity-90 transition-opacity"
               >
                 打开文件夹
               </button>

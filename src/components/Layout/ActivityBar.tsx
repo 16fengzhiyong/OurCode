@@ -95,8 +95,8 @@ export default function ActivityBar() {
       className="shrink-0 flex flex-col select-none"
       style={{
         width: 48,
-        background: '#333333',
-        borderRight: '1px solid #252525',
+        background: '#191A1B',
+        borderRight: '1px solid #2A2B2C',
       }}
     >
       {/* Top icons */}
@@ -112,16 +112,16 @@ export default function ActivityBar() {
               style={{
                 width: 48,
                 height: 48,
-                color: isActive ? '#d4d4d4' : '#858585',
-                borderLeft: isActive ? '2px solid #007acc' : '2px solid transparent',
-                background: isActive ? 'rgba(255,255,255,0.05)' : 'transparent',
+                color: isActive ? '#EDEDED' : '#8C8C8C',
+                borderLeft: isActive ? '2px solid #3994BC' : '2px solid transparent',
+                background: isActive ? 'rgba(57,148,188,0.12)' : 'transparent',
                 transition: 'color 0.15s, border-color 0.15s, background 0.15s',
               }}
               onMouseEnter={(e) => {
-                if (!isActive) e.currentTarget.style.color = '#d4d4d4'
+                if (!isActive) e.currentTarget.style.color = '#EDEDED'
               }}
               onMouseLeave={(e) => {
-                if (!isActive) e.currentTarget.style.color = '#858585'
+                if (!isActive) e.currentTarget.style.color = '#8C8C8C'
               }}
             >
               {item.icon}
@@ -140,15 +140,15 @@ export default function ActivityBar() {
             style={{
               width: 48,
               height: 48,
-              color: '#858585',
+              color: '#8C8C8C',
               borderLeft: '2px solid transparent',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               transition: 'color 0.15s',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#d4d4d4' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = '#858585' }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = '#EDEDED' }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = '#8C8C8C' }}
           >
             {item.icon}
           </button>

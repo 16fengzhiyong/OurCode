@@ -251,6 +251,19 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
               </svg>
               编辑消息
             </button>
+            {isUser && (
+              <button
+                onClick={handleRegenerate}
+                className="text-xs text-text-muted hover:text-accent-blue transition-colors flex items-center gap-1"
+                title="编辑后重新生成后续回复"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+                重新生成回复
+              </button>
+            )}
             {isAssistant && (
               <button
                 onClick={handleRegenerate}

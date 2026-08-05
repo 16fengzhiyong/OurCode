@@ -105,7 +105,7 @@ export default function CommandPalette() {
   return (
     <div role="dialog" aria-modal="true" aria-label="命令面板" className="fixed inset-0 bg-black/60 flex items-start justify-center pt-[15%] z-[100] backdrop-blur-sm" onClick={closeCommandPalette}>
       <div
-        className="w-[550px] bg-nova-surface rounded-2xl shadow-2xl border border-nova-border overflow-hidden"
+        className="w-[550px] bg-nova-card rounded-2xl shadow-2xl border border-nova-border overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Input */}

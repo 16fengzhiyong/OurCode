@@ -331,7 +331,7 @@ body {
 }
 
 .xterm-viewport::-webkit-scrollbar-thumb {
-  background: #3A3F4E;
+  background: #83848533;
   border-radius: 8px;
 }
 
@@ -342,16 +342,16 @@ body {
 
 /* Code block in chat */
 .code-block {
-  background: rgba(0,0,0,0.4);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   margin: 8px 0;
 }
 
 :root:not(.dark) .code-block {
-  background: #F5F6F8;
-  border-color: #E5E7EB;
+  background: var(--surface);
+  border-color: var(--border);
 }
 
 .code-header {
@@ -360,17 +360,17 @@ body {
   align-items: center;
   padding: 6px 12px;
   background: transparent;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid var(--border);
   font-size: 11px;
 }
 
 :root:not(.dark) .code-header {
-  background: #F0F1F3;
-  border-bottom-color: #E5E7EB;
+  background: var(--hover);
+  border-bottom-color: var(--border);
 }
 
 .code-lang {
-  color: #7F8AA8;
+  color: var(--text-muted);
   text-transform: uppercase;
   font-weight: 500;
 }
@@ -378,16 +378,16 @@ body {
 .copy-btn {
   background: transparent;
   border: none;
-  color: #7F8AA8;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 11px;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .copy-btn:hover {
-  background: #2a2d2e;
-  color: #cccccc;
+  background: var(--hover);
+  color: var(--text-primary);
 }
 
 .code-block pre {
@@ -402,11 +402,11 @@ body {
   line-height: 1.5;
 }
 
-/* Search result highlight */
+/* Search result highlight (Windsurf find-match teal) */
 .searchHighlight {
-  background-color: rgba(255, 213, 0, 0.3);
+  background-color: rgba(57, 148, 188, 0.35);
   border-radius: 2px;
-  outline: 1px solid rgba(255, 213, 0, 0.6);
+  outline: 1px solid rgba(57, 148, 188, 0.6);
 }
 
 /* Resizer handle */
@@ -449,10 +449,10 @@ body {
   background: var(--primary-color-30);
 }
 
-/* Logo pulse animation */
+/* Logo pulse animation (teal accent) */
 @keyframes logo-pulse {
-  0%, 100% { box-shadow: 0 0 6px #7c5cbf88; }
-  50% { box-shadow: 0 0 14px #7c5cbf, 0 0 24px #007acc66; }
+  0%, 100% { box-shadow: 0 0 6px #3994bc88; }
+  50% { box-shadow: 0 0 14px #3994bc, 0 0 24px #3994bc66; }
 }
 
 .animate-logo-pulse {
@@ -476,4 +476,64 @@ body {
 
 .animate-blink {
   animation: blink 1.1s step-end infinite;
+}
+
+/* Windsurf 2026 utilities — floating glass panels, cards and radii */
+.glass-panel {
+  background: color-mix(in srgb, var(--card, #202122) 85%, transparent);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+}
+
+.card-panel {
+  background: var(--card, #202122);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Cascade-style pill section (top-bar button groups) */
+.pill-section {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #5959592f;
+  border-radius: var(--radius-lg);
+  background: var(--editor-bg, #121314);
+  box-shadow: 0 2px 4px #0000001a;
+}
+
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 5px;
+  padding: 4px 7px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-primary);
+  background: transparent;
+  white-space: nowrap;
+}
+
+.pill-btn:hover {
+  background: #80808012;
+}
+
+.pill-btn.active {
+  background: color-mix(in srgb, var(--accent, #3994bc) 15%, transparent);
+  color: var(--text-primary);
+}
+
+.pill-btn.primary {
+  background: color-mix(in srgb, var(--accent, #3994bc) 95%, transparent);
+  color: #ffffff;
+}
+
+.pill-btn.primary:hover {
+  background: var(--ai-glow, #3e9bc4);
 }

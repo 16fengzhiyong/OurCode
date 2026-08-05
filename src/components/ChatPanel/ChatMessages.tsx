@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import ChatMessage from './ChatMessage'
 import ThinkingBlock from './ThinkingBlock'
+import BranchTreeModal from './BranchTreeModal'
 import { TodoPanel, PlanCard } from './AgentPanel'
 
 // Common model context windows (in tokens)
@@ -20,6 +21,7 @@ export default function ChatMessages() {
   const [showUndoToast, setShowUndoToast] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isSelectMode, setIsSelectMode] = useState(false)
+  const [showBranchTree, setShowBranchTree] = useState(false)
 
   // Context truncation warning
   const tokenWarning = useMemo(() => {
@@ -142,7 +144,18 @@ export default function ChatMessages() {
           <span className="text-[10px] text-nova-text-muted">
             共 {activeSession.branches.length} 个分支
           </span>
+          <button
+            onClick={() => setShowBranchTree(true)}
+            className="text-[10px] text-nova-accent hover:text-white transition-colors bg-nova-accent/15 px-2 py-0.5 rounded"
+            title="以树形查看分支结构"
+          >
+            🌳 分支视图
+          </button>
         </div>
+      )}
+
+      {showBranchTree && activeSession && (
+        <BranchTreeModal sessionId={activeSession.id} onClose={() => setShowBranchTree(false)} />
       )}
 
       {/* Agent todo list + pending plan (Windsurf Cascade-style) */}

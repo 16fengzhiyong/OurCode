@@ -27,6 +27,8 @@ function runEditorCommand(command: string): void {
 export default function TitleBar() {
   const { openSettings, toggleSidebar, toggleTerminal, toggleChat, openCommandPalette, openMarketplace } = useUIStore()
   const isMaximized = useUIStore((s) => s.isMaximized)
+  const rootPath = useUIStore((s) => s.rootPath)
+  const isChatVisible = useUIStore((s) => s.isChatVisible)
   const t = useI18n()
 
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
@@ -295,14 +297,14 @@ export default function TitleBar() {
   }
 
   return (
-    <div className="h-12 flex items-center drag-region select-none shrink-0" style={{ background: '#323233', borderBottom: '1px solid #252525' }}>
+    <div className="h-12 flex items-center drag-region select-none shrink-0" style={{ background: '#191A1B', borderBottom: '1px solid #2A2B2C' }}>
       {/* Logo */}
       <div className="flex items-center px-4 gap-2 no-drag">
         <div
           className="w-3.5 h-3.5 rounded-full animate-logo-pulse shrink-0"
-          style={{ background: 'radial-gradient(circle, #7c5cbf 0%, #007acc 100%)', boxShadow: '0 0 6px #7c5cbf88' }}
+          style={{ background: 'radial-gradient(circle, #3E9BC4 0%, #3994BC 100%)', boxShadow: '0 0 6px #3994bc88' }}
         />
-        <span className="text-xs text-[#8d8d8d]">
+        <span className="text-xs text-nova-text-muted">
           OurCode
         </span>
       </div>
@@ -333,7 +335,7 @@ export default function TitleBar() {
             </button>
 
             {activeMenu === menu.label && (
-              <div className="absolute top-full left-0 bg-nova-surface border border-nova-border rounded shadow-xl py-1 min-w-[200px] z-[100] animate-fade-in" role="menu">
+              <div className="absolute top-full left-0 glass-panel rounded-lg py-1 min-w-[200px] z-[100] animate-fade-in" role="menu">
                 {menu.items.map((item, index) =>
                   item.separator ? (
                     <div key={index} className="h-px bg-nova-border my-1" role="separator" />
@@ -345,8 +347,8 @@ export default function TitleBar() {
                         item.disabled
                           ? 'text-nova-text-muted cursor-default'
                           : index === menuItemIndex
-                            ? 'bg-[#094771] text-white'
-                            : 'text-nova-text-secondary hover:bg-[#094771] hover:text-white'
+                            ? 'bg-nova-accent/15 text-white'
+                            : 'text-nova-text-secondary hover:bg-nova-accent/15 hover:text-white'
                       }`}
                       onClick={() => handleItemClick(item)}
                       onMouseEnter={() => setMenuItemIndex(index)}
@@ -365,8 +367,31 @@ export default function TitleBar() {
         ))}
       </div>
 
-      {/* Spacer */}
-      <div className="flex-1" />
+      {/* Command center (Windsurf-style centered pill) */}
+      <div className="flex-1 flex justify-center min-w-0 px-4 no-drag">
+        <button
+          onClick={() => (rootPath ? useUIStore.getState().toggleSidebar() : openCommandPalette())}
+          className="hidden md:flex items-center gap-2 px-3 h-7 rounded-lg text-xs transition-colors min-w-0 max-w-[420px]"
+          style={{
+            background: 'color-mix(in srgb, var(--card, #202122) 60%, transparent)',
+            border: '1px solid var(--border)',
+            backdropFilter: 'var(--backdrop-blur)',
+            WebkitBackdropFilter: 'var(--backdrop-blur)',
+          }}
+          title={rootPath || '打开文件夹 (Ctrl+O)'}
+        >
+          <svg className="w-3.5 h-3.5 text-nova-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <span className="truncate text-nova-text-secondary">
+            {rootPath ? rootPath.split(/[/\\]/).pop() || rootPath : '打开文件夹 (Ctrl+O)'}
+          </span>
+          <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
+          <span className="text-nova-text-muted text-[11px] shrink-0">
+            {isChatVisible ? 'Cascade 已连接' : 'AI'}
+          </span>
+        </button>
+      </div>
 
       {/* Right controls */}
       <div className="flex items-center gap-1 pr-2 no-drag">

@@ -227,26 +227,26 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
       fontSize: 13,
       fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
       theme: {
-        background: '#1e1e1e',
-        foreground: '#cccccc',
-        cursor: '#aeafad',
-        selectionBackground: '#264f78',
-        black: '#1e1e1e',
-        red: '#f44747',
-        green: '#6a9955',
-        yellow: '#d7ba7d',
-        blue: '#569cd6',
-        magenta: '#c586c0',
-        cyan: '#4ec9b0',
-        white: '#d4d4d4',
-        brightBlack: '#808080',
-        brightRed: '#f44747',
-        brightGreen: '#6a9955',
-        brightYellow: '#d7ba7d',
-        brightBlue: '#569cd6',
-        brightMagenta: '#c586c0',
-        brightCyan: '#4ec9b0',
-        brightWhite: '#d4d4d4',
+        background: '#121314',
+        foreground: '#BBBEBF',
+        cursor: '#BBBEBF',
+        selectionBackground: '#27678280',
+        black: '#121314',
+        red: '#F48771',
+        green: '#73C991',
+        yellow: '#E5BA7D',
+        blue: '#4F8FDD',
+        magenta: '#C184C6',
+        cyan: '#48C9C4',
+        white: '#BBBEBF',
+        brightBlack: '#838485',
+        brightRed: '#F48771',
+        brightGreen: '#73C991',
+        brightYellow: '#E5BA7D',
+        brightBlue: '#57A3F8',
+        brightMagenta: '#C184C6',
+        brightCyan: '#48C9C4',
+        brightWhite: '#EDEDED',
       },
       cursorBlink: true,
       scrollback: 5000,
@@ -386,26 +386,26 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     <div className="h-full flex flex-col">
       {/* Drag handle */}
       <div
-        className="h-1 cursor-ns-resize hover:bg-blue-500 transition-colors flex-shrink-0"
+        className="h-1 cursor-ns-resize hover:bg-nova-accent/40 transition-colors flex-shrink-0"
         onMouseDown={handleDragStart}
       />
 
       {/* Tab bar */}
-      <div className="flex items-center h-7 bg-[#252526] border-t border-[#3c3c3c] flex-shrink-0 overflow-x-auto">
+      <div className="flex items-center h-7 bg-nova-tabs border-t border-nova-border flex-shrink-0 overflow-x-auto">
         {tabs.map((tab) => (
           <div
             key={tab.id}
-            className={`flex items-center gap-1 px-3 h-full text-[11px] cursor-pointer border-r border-[#3c3c3c] shrink-0 ${
+            className={`flex items-center gap-1 px-3 h-full text-[11px] cursor-pointer border-r border-nova-border shrink-0 ${
               tab.id === activeTabId
-                ? 'bg-[#1e1e1e] text-white'
-                : 'bg-[#2d2d2d] text-gray-400 hover:bg-[#333]'
+                ? 'bg-nova-tab-active text-nova-text-primary'
+                : 'bg-transparent text-nova-text-muted hover:bg-nova-hover'
             }`}
             onClick={() => setActiveTabId(tab.id)}
             onDoubleClick={() => startRename(tab.id)}
           >
             {renamingTabId === tab.id ? (
               <input
-                className="bg-[#3c3c3c] text-white text-[11px] px-1 py-0 outline-none border border-blue-500 rounded w-[80px]"
+                className="bg-nova-input-bg text-nova-text-primary text-[11px] px-1 py-0 outline-none border border-nova-accent rounded w-[80px]"
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
                 onBlur={commitRename}
@@ -420,7 +420,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
               <span className="truncate max-w-[100px]">{tab.title}</span>
             )}
             <button
-              className="ml-1 text-gray-500 hover:text-white text-[10px]"
+              className="ml-1 text-nova-text-muted hover:text-nova-text-primary text-[10px]"
               onClick={(e) => { e.stopPropagation(); closeTab(tab.id) }}
               title={tab.splitDirection !== 'none' ? '取消分屏' : '关闭'}
             >
@@ -429,7 +429,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
           </div>
         ))}
         <button
-          className="px-2 h-full text-gray-400 hover:text-white hover:bg-[#333] text-sm shrink-0"
+          className="px-2 h-full text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover text-sm shrink-0"
           onClick={createTab}
           title="新建终端"
         >
@@ -438,7 +438,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
         {/* Split button - only show when active tab is not already split */}
         {activeTabId && tabs.find((t) => t.id === activeTabId)?.splitDirection === 'none' && (
           <button
-            className="px-2 h-full text-gray-400 hover:text-white hover:bg-[#333] text-xs shrink-0"
+            className="px-2 h-full text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover text-xs shrink-0"
             onClick={splitTerminal}
             title="分屏"
           >

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-const DEFAULT_THEME_COLOR = '#3b82f6'
+const DEFAULT_THEME_COLOR = '#3994bc'
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16)

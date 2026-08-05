@@ -161,14 +161,14 @@ export default function StatusBar() {
   const encodings = ['UTF-8', 'GBK', 'GB2312', 'GB18030', 'ASCII', 'ISO-8859-1', 'UTF-16']
 
   return (
-    <div className="h-[22px] text-white text-[11px] flex items-center px-3 select-none shrink-0" style={{ background: '#007acc' }}>
+    <div className="h-[22px] text-nova-text-muted text-[11px] flex items-center px-3 select-none shrink-0" style={{ background: '#191A1B', borderTop: '1px solid #2A2B2C' }}>
       {/* Left side */}
       <div className="flex items-center gap-3">
         {/* Git branch */}
         {gitBranch && (
           <div className="relative" ref={branchMenuRef}>
             <button
-              className="flex items-center gap-1 opacity-90 hover:opacity-100 cursor-pointer px-1 rounded hover:bg-white/10"
+              className="flex items-center gap-1 opacity-90 hover:opacity-100 cursor-pointer px-1 rounded hover:bg-nova-hover"
               onClick={() => { setShowBranchMenu(!showBranchMenu); if (!showBranchMenu) fetchBranches() }}
               title="点击切换分支"
             >
@@ -176,11 +176,11 @@ export default function StatusBar() {
               {gitBranch}
             </button>
             {showBranchMenu && branches.length > 0 && (
-              <div className="absolute bottom-full left-0 mb-1 bg-nova-surface border border-nova-border rounded shadow-xl py-1 min-w-[150px] z-50 max-h-[200px] overflow-y-auto">
+              <div className="absolute bottom-full left-0 mb-1 glass-panel rounded-lg py-1 min-w-[150px] z-50 max-h-[200px] overflow-y-auto">
                 {branches.map((branch) => (
                   <button
                     key={branch}
-                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[#094771] flex items-center gap-2 ${
+                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-nova-accent/15 flex items-center gap-2 ${
                       branch === gitBranch ? 'text-white' : 'text-nova-text-secondary'
                     }`}
                     onClick={() => handleCheckout(branch)}
@@ -195,12 +195,12 @@ export default function StatusBar() {
         )}
 
         {/* Separator */}
-        <div className="w-px h-3.5" style={{ background: 'rgba(255,255,255,0.2)' }} />
+        <div className="w-px h-3.5" style={{ background: 'var(--border)' }} />
 
         {/* Errors — click to open the Problems panel */}
         <button
-          className="flex items-center gap-1 cursor-pointer hover:bg-white/10"
-          style={{ background: errorCount > 0 ? 'rgba(244,71,71,0.9)' : undefined, padding: '0 5px', borderRadius: 2 }}
+          className="flex items-center gap-1 cursor-pointer hover:bg-nova-hover"
+          style={{ background: errorCount > 0 ? 'rgba(244,135,113,0.9)' : undefined, padding: '0 5px', borderRadius: 2 }}
           onClick={openProblems}
           title="打开问题面板"
         >
@@ -210,7 +210,7 @@ export default function StatusBar() {
 
         {/* Warnings — click to open the Problems panel */}
         <button
-          className="flex items-center gap-1 cursor-pointer hover:bg-white/10"
+          className="flex items-center gap-1 cursor-pointer hover:bg-nova-hover"
           style={{ background: warningCount > 0 ? 'rgba(204,167,0,0.9)' : undefined, padding: '0 5px', borderRadius: 2 }}
           onClick={openProblems}
           title="打开问题面板"
@@ -225,7 +225,7 @@ export default function StatusBar() {
         {/* Auto-update indicator */}
         {updateState !== 'idle' && (
           <span
-            className="flex items-center gap-1 px-1.5 rounded hover:bg-white/10 cursor-pointer"
+            className="flex items-center gap-1 px-1.5 rounded hover:bg-nova-hover cursor-pointer"
             onClick={
               updateState === 'available' ? handleDownloadUpdate
               : updateState === 'downloaded' ? handleInstallUpdate
@@ -253,18 +253,18 @@ export default function StatusBar() {
             {/* Encoding selector */}
             <div className="relative" ref={encodingMenuRef}>
               <button
-                className="opacity-90 hover:opacity-100 cursor-pointer px-1 rounded hover:bg-white/10"
+                className="opacity-90 hover:opacity-100 cursor-pointer px-1 rounded hover:bg-nova-hover"
                 onClick={() => setShowEncodingMenu(!showEncodingMenu)}
                 title="点击切换编码"
               >
                 {activeFile.encoding.toUpperCase()}
               </button>
               {showEncodingMenu && (
-                <div className="absolute bottom-full left-0 mb-1 bg-nova-surface border border-nova-border rounded shadow-xl py-1 min-w-[120px] z-50">
+                <div className="absolute bottom-full left-0 mb-1 glass-panel rounded-lg py-1 min-w-[120px] z-50">
                   {encodings.map((enc) => (
                     <button
                       key={enc}
-                      className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[#094771] ${
+                      className={`w-full text-left px-3 py-1.5 text-xs hover:bg-nova-accent/15 ${
                         activeFile.encoding.toUpperCase() === enc ? 'text-white' : 'text-nova-text-secondary'
                       }`}
                       onClick={() => {
@@ -289,19 +289,19 @@ export default function StatusBar() {
         {configGroups.length > 0 && (
           <div className="relative" ref={configMenuRef}>
             <button
-              className="flex items-center gap-1 opacity-90 hover:opacity-100 cursor-pointer px-1 rounded hover:bg-white/10 max-w-[140px]"
+              className="flex items-center gap-1 opacity-90 hover:opacity-100 cursor-pointer px-1 rounded hover:bg-nova-hover max-w-[140px]"
               onClick={() => setShowConfigMenu(!showConfigMenu)}
               title="切换 API 配置组"
             >
-              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: activeConfigGroup?.color || '#3b82f6' }} />
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: activeConfigGroup?.color || '#3994bc' }} />
               <span className="truncate">{activeConfigGroup?.name || '未配置'}</span>
             </button>
             {showConfigMenu && (
-              <div className="absolute bottom-full right-0 mb-1 bg-nova-surface border border-nova-border rounded shadow-xl py-1 min-w-[160px] z-50 max-h-[240px] overflow-y-auto">
+              <div className="absolute bottom-full right-0 mb-1 glass-panel rounded-lg py-1 min-w-[160px] z-50 max-h-[240px] overflow-y-auto">
                 {configGroups.map((g) => (
                   <button
                     key={g.id}
-                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[#094771] flex items-center gap-2 ${
+                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-nova-accent/15 flex items-center gap-2 ${
                       g.id === activeConfigGroupId ? 'text-white' : 'text-nova-text-secondary'
                     }`}
                     onClick={() => { setActiveConfigGroup(g.id); setShowConfigMenu(false) }}

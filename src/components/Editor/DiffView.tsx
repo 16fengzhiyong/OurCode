@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import { monaco } from '@/editor/monacoSetup'
+import { monaco, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
 
 interface DiffViewProps {
   original: string
@@ -15,6 +15,7 @@ export default function DiffView({ original, modified, language, onClose }: Diff
   useEffect(() => {
     if (!containerRef.current) return
 
+    const isDark = document.documentElement.classList.contains('dark')
     const diffEditor = monaco.editor.createDiffEditor(containerRef.current, {
       automaticLayout: true,
       readOnly: true,
@@ -24,7 +25,7 @@ export default function DiffView({ original, modified, language, onClose }: Diff
       fontSize: 13,
       lineNumbers: 'on',
       scrollBeyondLastLine: false,
-      theme: 'vs-dark',
+      theme: isDark ? OURCODE_DARK_THEME : OURCODE_LIGHT_THEME,
     })
 
     const originalModel = monaco.editor.createModel(original, language)

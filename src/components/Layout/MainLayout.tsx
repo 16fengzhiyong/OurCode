@@ -200,7 +200,7 @@ export default function MainLayout() {
                   <div className="flex-1 h-full min-h-0 flex flex-col"><EditorContainer panelId={pid} /></div>
                   {index < panelOrder.length - 1 && (
                     <div
-                      className={`${splitDirection === 'horizontal' ? 'w-1 cursor-col-resize hover:bg-blue-500/30' : 'h-1 cursor-row-resize hover:bg-blue-500/30'} bg-nova-border shrink-0`}
+                      className={`${splitDirection === 'horizontal' ? 'w-1 cursor-col-resize hover:bg-nova-accent/30' : 'h-1 cursor-row-resize hover:bg-nova-accent/30'} bg-nova-border shrink-0`}
                       onMouseDown={(e) => {
                         e.preventDefault()
                         const startPos = splitDirection === 'horizontal' ? e.clientX : e.clientY

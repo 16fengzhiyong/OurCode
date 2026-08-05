@@ -44,14 +44,14 @@ export default function ConfirmDialog({
   if (!isOpen) return null
 
   const variantStyles = {
-    danger: 'bg-red-600 hover:bg-red-700',
-    warning: 'bg-yellow-600 hover:bg-yellow-700',
-    info: 'bg-blue-600 hover:bg-blue-700',
+    danger: 'bg-[#F48771] hover:bg-[#f48771]/90',
+    warning: 'bg-[#CCA700] hover:bg-[#cca700]/90',
+    info: 'bg-nova-accent hover:opacity-90',
   }
 
   return (
     <div role="dialog" aria-modal="true" aria-label="确认" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl w-full max-w-md mx-4 animate-fade-in">
+      <div className="glass-panel rounded-xl shadow-2xl w-full max-w-md mx-4 animate-fade-in">
         <div className="p-5">
           <h3 className="text-lg font-semibold text-nova-text-primary mb-2">{title}</h3>
           <p className="text-nova-text-secondary text-sm">{message}</p>

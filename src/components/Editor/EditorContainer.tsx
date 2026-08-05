@@ -6,7 +6,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useInlineCompletion } from '@/hooks/useInlineCompletion'
 import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoader, trackLoad } from '@/editor/modelRegistry'
-import { ensureLanguageService } from '@/editor/monacoSetup'
+import { ensureLanguageService, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
 import { setPendingVibeReplace } from '@/services/vibeReplace'
 import type { UserPreferences } from '@/types'
 
@@ -35,7 +35,7 @@ function buildMonacoOptions(
     fontSize: preferences.fontSize,
     fontFamily: preferences.fontFamily,
     tabSize: preferences.tabSize,
-    theme: isDark ? 'vs-dark' : 'vs',
+    theme: isDark ? OURCODE_DARK_THEME : OURCODE_LIGHT_THEME,
     padding: { top: 8 },
     largeFileOptimizations: true,
     minimap: { enabled: large ? false : preferences.showMinimap },
@@ -259,7 +259,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   // Update Monaco theme when UI theme changes
   useEffect(() => {
     const isDark = uiTheme === 'dark' || (uiTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-    monaco.editor.setTheme(isDark ? 'vs-dark' : 'vs')
+    monaco.editor.setTheme(isDark ? OURCODE_DARK_THEME : OURCODE_LIGHT_THEME)
   }, [uiTheme])
 
   // Create/switch models when the active file changes. The Monaco model is the

@@ -5,7 +5,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useShortcutStore, ShortcutPreset } from '@/stores/shortcutStore'
 import { ApiConfigGroup } from '@/types'
-import { monaco } from '@/editor/monacoSetup'
+import { monaco, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
 
 const SYSTEM_PROMPT_TEMPLATES = [
   { name: 'Universal Assistant', prompt: 'You are a professional programming assistant. Current project uses {{language}}, project name: {{projectName}}.' },
@@ -20,7 +20,7 @@ const SYSTEM_PROMPT_TEMPLATES = [
 
 // Accent color presets for the Appearance section (the picker writes the
 // --accent / --primary-color CSS variables used by the whole UI)
-const THEME_COLOR_PRESETS = ['#007acc', '#3b82f6', '#7c5cbf', '#e11d48', '#059669', '#ea580c']
+const THEME_COLOR_PRESETS = ['#3994bc', '#007acc', '#3b82f6', '#7c5cbf', '#e11d48', '#059669']
 
 export default function SettingsModal() {
   const {
@@ -60,7 +60,7 @@ export default function SettingsModal() {
     const editor = monaco.editor.create(promptEditorRef.current, {
       value: editingGroup.systemPrompt || '',
       language: 'markdown',
-      theme: document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs',
+      theme: document.documentElement.classList.contains('dark') ? OURCODE_DARK_THEME : OURCODE_LIGHT_THEME,
       minimap: { enabled: false },
       lineNumbers: 'off',
       wordWrap: 'on',
@@ -171,7 +171,7 @@ export default function SettingsModal() {
 
   return (
     <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="设置" className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl w-[900px] max-h-[85vh] flex flex-col animate-fade-in">
+      <div className="glass-panel rounded-xl shadow-2xl w-[900px] max-h-[85vh] flex flex-col animate-fade-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-nova-border">
           <h2 className="text-lg font-semibold text-nova-text-primary">Settings</h2>
           <button onClick={closeSettings} className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors">
@@ -298,7 +298,7 @@ export default function SettingsModal() {
                   <div className="text-[10px] text-nova-text-muted">API Key supports env vars: <code className="px-1 py-0.5 bg-nova-hover rounded">$ENV_VAR_NAME</code></div>
                   <div className="flex justify-end gap-3">
                     <button onClick={() => { setEditingGroup(null); setIsCreating(false) }} className="px-4 py-2 text-sm bg-nova-hover rounded-lg text-nova-text-secondary hover:text-nova-text-primary transition-colors">Cancel</button>
-                    <button onClick={handleSaveGroup} className="px-4 py-2 text-sm bg-blue-600 rounded-lg text-white hover:bg-blue-700 transition-colors">Save</button>
+                    <button onClick={handleSaveGroup} className="px-4 py-2 text-sm bg-nova-accent rounded-lg text-white hover:opacity-90 transition-opacity">Save</button>
                   </div>
                 </div>
               ) : (
@@ -334,7 +334,7 @@ export default function SettingsModal() {
                         a.click()
                         URL.revokeObjectURL(url)
                       }} className="px-3 py-1.5 text-xs bg-nova-hover rounded-lg text-nova-text-secondary hover:text-nova-text-primary transition-colors">导出</button>
-                      <button onClick={handleCreateGroup} className="px-3 py-1.5 text-xs bg-blue-600 rounded-lg text-white hover:bg-blue-700 transition-colors">New Group</button>
+                      <button onClick={handleCreateGroup} className="px-3 py-1.5 text-xs bg-nova-accent rounded-lg text-white hover:opacity-90 transition-opacity">New Group</button>
                     </div>
                   </div>
                   {configGroups.length === 0 ? <div className="p-8 text-center text-nova-text-muted text-sm">No config groups yet</div> : (
@@ -344,7 +344,7 @@ export default function SettingsModal() {
                         return (
                           <div
                             key={group.id}
-                            className={`p-4 rounded-lg border ${isActive ? 'border-nova-accent/50 bg-nova-accent/5' : 'border-nova-border bg-nova-bg'} ${dropGroupIndex === index ? 'ring-2 ring-blue-400' : ''}`}
+                            className={`p-4 rounded-lg border ${isActive ? 'border-nova-accent/50 bg-nova-accent/5' : 'border-nova-border bg-nova-bg'} ${dropGroupIndex === index ? 'ring-2 ring-nova-accent/60' : ''}`}
                             draggable
                             onDragStart={() => setDragGroupIndex(index)}
                             onDragOver={(e) => { e.preventDefault(); setDropGroupIndex(index) }}

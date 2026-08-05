@@ -152,7 +152,7 @@ export default function TabBar({ panelId }: TabBarProps) {
                 border-r border-nova-border-light
                 group relative select-none
                 ${isActive
-                  ? 'bg-nova-hover text-white border-b-2 border-b-accent-blue'
+                  ? 'bg-nova-tab-active text-white border-b-2 border-b-accent-blue'
                   : 'bg-nova-sidebar text-nova-text-secondary hover:bg-nova-hover'
                 }
                 ${dropIndex === index ? 'border-l-2 border-l-accent-blue' : ''}

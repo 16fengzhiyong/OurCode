@@ -7,8 +7,8 @@ import { useUIStore } from '@/stores/uiStore'
 const SEVERITY_STYLE: Record<ProblemSeverity, { icon: string; color: string }> = {
   error: { icon: '✕', color: '#f48771' },
   warning: { icon: '⚠', color: '#cca700' },
-  info: { icon: 'ⓘ', color: '#75beff' },
-  hint: { icon: '💡', color: '#75beff' },
+  info: { icon: 'ⓘ', color: '#57a3f8' },
+  hint: { icon: '💡', color: '#57a3f8' },
 }
 
 const SEVERITY_LABEL: Record<ProblemSeverity, string> = {
@@ -63,7 +63,7 @@ export default function ProblemsPanel() {
         <span className="font-medium text-nova-text-secondary mr-2">问题</span>
         <span className="px-1.5 rounded text-[10px] text-red-400 bg-red-500/10" title="错误">{count('error')}</span>
         <span className="px-1.5 rounded text-[10px] text-yellow-400 bg-yellow-500/10" title="警告">{count('warning')}</span>
-        <span className="px-1.5 rounded text-[10px] text-sky-400 bg-sky-500/10" title="信息">{count('info')}</span>
+        <span className="px-1.5 rounded text-[10px] text-[#57a3f8] bg-[#57a3f8]/10" title="信息">{count('info')}</span>
         <span className="flex-1" />
         <button
           onClick={explainAndFix}
@@ -103,7 +103,7 @@ export default function ProblemsPanel() {
                 <button
                   key={`${p.line}-${p.column}-${i}`}
                   onClick={() => openProblem(p)}
-                  className="w-full text-left px-3 py-1 flex items-start gap-2 hover:bg-[#094771] hover:text-white transition-colors"
+                  className="w-full text-left px-3 py-1 flex items-start gap-2 hover:bg-nova-hover hover:text-white transition-colors"
                 >
                   <span className="shrink-0 mt-0.5" style={{ color: SEVERITY_STYLE[p.severity].color }}>
                     {SEVERITY_STYLE[p.severity].icon}

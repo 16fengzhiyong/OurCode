@@ -114,7 +114,7 @@ export default function QuickOpen({ rootPath }: { rootPath?: string }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-[15%] z-50" onClick={closeQuickOpen}>
       <div
-        className="w-[550px] bg-nova-surface rounded-lg shadow-2xl border border-nova-border overflow-hidden"
+        className="w-[550px] bg-nova-card rounded-lg shadow-2xl border border-nova-border overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Input */}

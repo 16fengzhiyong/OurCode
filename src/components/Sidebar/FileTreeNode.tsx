@@ -209,7 +209,7 @@ export default function FileTreeNode({
     <div>
       <div
         className={`flex items-center h-[26px] px-2 hover:bg-nova-hover cursor-pointer group rounded-md mx-2 transition-colors ${
-          isDragOver ? 'bg-blue-500/30 ring-1 ring-blue-400' : ''
+          isDragOver ? 'bg-nova-accent/15 ring-1 ring-nova-accent/50' : ''
         }`}
         style={{ paddingLeft }}
         onClick={handleClick}
@@ -238,7 +238,7 @@ export default function FileTreeNode({
 
         {/* File name */}
         <span className={`flex-1 text-[13px] truncate group-hover:text-white transition-colors ${
-          entry.isDirectory ? 'text-[#E5C07B]' : 'text-[#9CDCFE]'
+          entry.isDirectory ? 'text-nova-text-secondary' : 'text-nova-text-primary'
         }`}>
           {entry.name}
         </span>
@@ -248,12 +248,12 @@ export default function FileTreeNode({
           <span
             className={`text-xs px-1 rounded ${
               entry.gitStatus === 'modified'
-                ? 'text-yellow-400'
+                ? 'text-[#E5BA7D]'
                 : entry.gitStatus === 'added'
-                ? 'text-green-400'
+                ? 'text-[#73C991]'
                 : entry.gitStatus === 'deleted'
-                ? 'text-red-400'
-                : 'text-blue-400'
+                ? 'text-[#F48771]'
+                : 'text-[#57A3F8]'
             }`}
           >
             {entry.gitStatus === 'modified' ? 'M' : entry.gitStatus === 'added' ? 'A' : entry.gitStatus === 'deleted' ? 'D' : 'R'}
