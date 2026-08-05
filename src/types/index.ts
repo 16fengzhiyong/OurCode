@@ -36,6 +36,15 @@ export interface ElectronAPI {
   lspDidChange: (uri: string, version: number, text: string) => Promise<void>
   lspStop: (uri: string) => Promise<void>
   onLspDiagnostics: (callback: (payload: { uri: string; diagnostics: Array<Record<string, unknown>> }) => void) => () => void
+  debugStart: (command: string, args: string[], cwd: string, launchConfig: Record<string, unknown>, breakpoints: Array<{ path: string; line: number }>) => Promise<{ ok: boolean; error?: string }>
+  debugSetBreakpoints: (path: string, lines: number[]) => Promise<void>
+  debugContinue: () => Promise<void>
+  debugPause: () => Promise<void>
+  debugStepOver: () => Promise<void>
+  debugStepInto: () => Promise<void>
+  debugStepOut: () => Promise<void>
+  debugStop: () => Promise<void>
+  onDebugEvent: (event: 'stopped' | 'output' | 'terminated', callback: (body: Record<string, unknown>) => void) => () => void
   onFileChanged: (callback: (path: string) => void) => () => void
 
   // Store

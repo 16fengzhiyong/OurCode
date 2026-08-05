@@ -10,6 +10,7 @@ import { FileSystemService } from './services/file-system'
 import { SQLiteStore } from './services/sqlite-store'
 import { BackupService } from './services/backup'
 import { LspServer } from './services/lsp'
+import { DebugAdapterClient } from './services/debug'
 import { MCPManager, extractMcpText, toMcpToolDefinition } from './services/mcp-manager'
 
 const DEFAULT_EXCLUDE_FOLDERS = ['node_modules', '.git', 'dist', 'build', 'out']
@@ -80,6 +81,22 @@ let mcp: MCPManager
 
 // Language servers by document URI (one per open file)
 const lspServers = new Map<string, LspServer>()
+
+// Active debug session (single, like VS Code's launch)
+let debugClient: DebugAdapterClient | null = null
+
+/** Broadcast a debug event to all windows. */
+function emitDebugEvent(event: string, body: unknown): void {
+  broadcast(`debug:${event}`, body)
+}
+
+/** Stop and clear the active debug session. */
+async function stopDebugSession(): Promise<void> {
+  if (!debugClient) return
+  const client = debugClient
+  debugClient = null
+  await client.stop().catch(() => {})
+}
 
 /** Stop and remove the language server for a document (if any). */
 async function lspStop(uri: string): Promise<void> {
@@ -372,6 +389,72 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('lsp:stop', async (_event, uri: string) => {
     await lspStop(uri)
+  })
+
+  // DAP: single debug session
+  ipcMain.handle('debug:start', async (_event, command: string, args: string[], cwd: string, launchConfig: Record<string, unknown>, breakpoints: Array<{ path: string; line: number }>) => {
+    await stopDebugSession()
+    const client = new DebugAdapterClient()
+    client.onStopped = (body) => emitDebugEvent('stopped', body)
+    client.onOutput = (body) => emitDebugEvent('output', body)
+    client.onTerminated = (body) => {
+      emitDebugEvent('terminated', body)
+      void stopDebugSession()
+    }
+    client.onStderr = (line) => {
+      if (is.dev) console.debug('[dap]', line.trimEnd())
+    }
+    try {
+      await client.start(command, args, cwd)
+      debugClient = client
+      // Group breakpoints by file
+      const byFile = new Map<string, number[]>()
+      for (const bp of breakpoints) {
+        const list = byFile.get(bp.path) ?? []
+        list.push(bp.line)
+        byFile.set(bp.path, list)
+      }
+      for (const [path, lines] of byFile) {
+        await client.setBreakpoints(path, lines)
+      }
+      await client.launch(launchConfig)
+      await client.configurationDone()
+      await client.continueReq()
+      return { ok: true as const }
+    } catch (error) {
+      await client.stop().catch(() => {})
+      debugClient = null
+      return { ok: false as const, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('debug:setBreakpoints', async (_event, path: string, lines: number[]) => {
+    if (!debugClient) return
+    await debugClient.setBreakpoints(path, lines)
+  })
+
+  ipcMain.handle('debug:continue', async () => {
+    await debugClient?.continueReq()
+  })
+
+  ipcMain.handle('debug:pause', async () => {
+    await debugClient?.pause()
+  })
+
+  ipcMain.handle('debug:stepOver', async () => {
+    await debugClient?.stepOver()
+  })
+
+  ipcMain.handle('debug:stepInto', async () => {
+    await debugClient?.stepInto()
+  })
+
+  ipcMain.handle('debug:stepOut', async () => {
+    await debugClient?.stepOut()
+  })
+
+  ipcMain.handle('debug:stop', async () => {
+    await stopDebugSession()
   })
 
   // Store handlers
@@ -954,6 +1037,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   mcp?.stopAll()
   void stopAllLspServers()
+  void stopDebugSession()
   store.close()
   if (process.platform !== 'darwin') {
     app.quit()

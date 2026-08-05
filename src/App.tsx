@@ -16,6 +16,7 @@ import { useAICommandsStore } from './stores/aiCommandsStore'
 import { useShortcutStore } from './stores/shortcutStore'
 import { ensureProblemsSubscription, useProblemsStore } from './stores/problemsStore'
 import { ensureLspDiagnosticsSubscription } from './services/lsp/lspClient'
+import { ensureDebugEventSubscription } from './stores/debugStore'
 import { registerCoreCommands } from './services/commands/coreCommands'
 import { setLocale, type Locale } from './i18n'
 
@@ -61,6 +62,8 @@ export default function App() {
       useProblemsStore.getState().refresh()
       // LSP diagnostics → markers (opt-in language servers)
       ensureLspDiagnosticsSubscription()
+      // Debug Adapter Protocol events (single session)
+      ensureDebugEventSubscription()
       setReady(true)
       if (!hasCompleted) {
         setShowOnboarding(true)

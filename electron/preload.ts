@@ -48,6 +48,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('lsp:diagnostics', (_event, payload) => callback(payload))
     return () => { ipcRenderer.removeAllListeners('lsp:diagnostics') }
   },
+
+  // Debug Adapter Protocol
+  debugStart: (command: string, args: string[], cwd: string, launchConfig: Record<string, unknown>, breakpoints: Array<{ path: string; line: number }>) =>
+    ipcRenderer.invoke('debug:start', command, args, cwd, launchConfig, breakpoints),
+  debugSetBreakpoints: (path: string, lines: number[]) => ipcRenderer.invoke('debug:setBreakpoints', path, lines),
+  debugContinue: () => ipcRenderer.invoke('debug:continue'),
+  debugPause: () => ipcRenderer.invoke('debug:pause'),
+  debugStepOver: () => ipcRenderer.invoke('debug:stepOver'),
+  debugStepInto: () => ipcRenderer.invoke('debug:stepInto'),
+  debugStepOut: () => ipcRenderer.invoke('debug:stepOut'),
+  debugStop: () => ipcRenderer.invoke('debug:stop'),
+  onDebugEvent: (event: 'stopped' | 'output' | 'terminated', callback: (body: Record<string, unknown>) => void) => {
+    ipcRenderer.on(`debug:${event}`, (_e, body) => callback(body))
+    return () => { ipcRenderer.removeAllListeners(`debug:${event}`) }
+  },
   onFileChanged: (callback: (path: string) => void) => {
     ipcRenderer.on(IPC_CHANNELS.FS_FILE_CHANGED, (_event, path) => callback(path))
     return () => {

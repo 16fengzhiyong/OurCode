@@ -14,8 +14,10 @@ import ContextMenu from '../Common/ContextMenu'
 import PluginMarketplace from '../Plugin/PluginMarketplace'
 import ProblemsPanel from '../Editor/ProblemsPanel'
 import RecentFilesModal from '../Editor/RecentFilesModal'
+import DebugPanel from '../Editor/DebugPanel'
 import { useProblemsStore } from '@/stores/problemsStore'
 import { useRecentFilesStore } from '@/stores/recentFilesStore'
+import { useDebugStore } from '@/stores/debugStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useShortcutStore, matchesShortcut } from '@/stores/shortcutStore'
@@ -34,6 +36,7 @@ export default function MainLayout() {
   const { panelOrder, splitDirection, splitRatios } = useEditorStore()
   const isProblemsOpen = useProblemsStore((s) => s.isOpen)
   const isRecentFilesOpen = useRecentFilesStore((s) => s.isOpen)
+  const isDebugOpen = useDebugStore((s) => s.isOpen)
 
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1400)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -82,6 +85,7 @@ export default function MainLayout() {
         ['toggleTerminal', 'toggleTerminal', ['Ctrl+`']],
         ['toggleChat', 'toggleChat'],
         ['toggleProblems', 'toggleProblems'],
+        ['toggleDebugPanel', 'toggleDebugPanel'],
         ['commandPalette', 'commandPalette'],
         ['quickOpen', 'quickOpen'],
         ['recentFiles', 'recentFiles'],
@@ -249,6 +253,9 @@ export default function MainLayout() {
           </div>
           {isProblemsOpen && (
             <div className="shrink-0" style={{ height: 160 }}><ProblemsPanel /></div>
+          )}
+          {isDebugOpen && (
+            <div className="shrink-0" style={{ height: 200 }}><DebugPanel /></div>
           )}
           {isTerminalVisible && (
             <div style={{ height: isCompact ? Math.min(terminalHeight, 180) : Math.min(terminalHeight, windowWidth < 800 ? 200 : 500) }} className="border-t border-nova-border shrink-0"><TerminalPanel rootPath={rootPath} /></div>

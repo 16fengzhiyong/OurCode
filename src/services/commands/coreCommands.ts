@@ -10,6 +10,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useProblemsStore } from '@/stores/problemsStore'
 import { useRecentFilesStore } from '@/stores/recentFilesStore'
+import { useDebugStore } from '@/stores/debugStore'
 
 /** Trigger a Monaco command on the focused editor. */
 function runEditorCommand(command: string): void {
@@ -96,6 +97,7 @@ export function registerCoreCommands(): void {
   registerCommand({ id: 'toggleTerminal', title: '切换终端', category: '视图', shortcut: 'Ctrl+J', run: () => useUIStore.getState().toggleTerminal() })
   registerCommand({ id: 'toggleChat', title: '切换 AI 面板', category: '视图', shortcut: 'Ctrl+L', run: () => useUIStore.getState().toggleChat() })
   registerCommand({ id: 'toggleProblems', title: '切换问题面板', category: '视图', shortcut: 'Ctrl+Shift+M', run: () => useProblemsStore.getState().toggle() })
+  registerCommand({ id: 'toggleDebugPanel', title: '切换调试面板', category: '视图', shortcut: 'Ctrl+Shift+D', run: () => useDebugStore.getState().toggle() })
   registerCommand({ id: 'commandPalette', title: '打开命令面板', category: '视图', shortcut: 'Ctrl+Shift+P', run: () => useUIStore.getState().openCommandPalette() })
   registerCommand({ id: 'quickOpen', title: '快速打开文件', category: '视图', shortcut: 'Ctrl+P', run: () => useUIStore.getState().openQuickOpen() })
   registerCommand({ id: 'recentFiles', title: '最近打开的文件', category: '文件', shortcut: 'Ctrl+R', run: () => useRecentFilesStore.getState().toggle() })

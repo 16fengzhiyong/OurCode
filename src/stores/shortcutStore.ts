@@ -49,6 +49,7 @@ const VSCODE_SHORTCUTS: ShortcutBinding[] = [
   { id: 'view.chat', action: 'toggleChat', description: '切换 AI 面板', keys: 'Ctrl+L', category: 'view' },
   { id: 'view.commandPalette', action: 'commandPalette', description: '命令面板', keys: 'Ctrl+Shift+P', category: 'view' },
   { id: 'view.problems', action: 'toggleProblems', description: '切换问题面板', keys: 'Ctrl+Shift+M', category: 'view' },
+  { id: 'view.debug', action: 'toggleDebugPanel', description: '切换调试面板', keys: 'Ctrl+Shift+D', category: 'view' },
   { id: 'view.zoomIn', action: 'zoomIn', description: '放大', keys: 'Ctrl+=', category: 'view' },
   { id: 'view.zoomOut', action: 'zoomOut', description: '缩小', keys: 'Ctrl+-', category: 'view' },
   { id: 'chat.sendSelection', action: 'sendSelectionToAI', description: '发送选中文本给AI', keys: 'Ctrl+Shift+L', category: 'chat' },
