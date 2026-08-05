@@ -203,8 +203,29 @@ function registerIpcHandlers(): void {
     return fileSystem.readNext(id)
   })
 
+  ipcMain.handle('fs:readChunkBatch', async (_event, id: number, maxBytes?: number) => {
+    return fileSystem.readBatch(id, maxBytes)
+  })
+
   ipcMain.handle('fs:closeStream', async (_event, id: number) => {
     return fileSystem.closeStream(id)
+  })
+
+  ipcMain.handle('fs:openWriteStream', async (_event, path: string, encoding: string, hasBom?: boolean) => {
+    assertPathAllowed(path)
+    return fileSystem.openWriteStream(path, encoding, hasBom)
+  })
+
+  ipcMain.handle('fs:writeChunk', async (_event, id: number, chunk: string) => {
+    return fileSystem.writeChunk(id, chunk)
+  })
+
+  ipcMain.handle('fs:closeWriteStream', async (_event, id: number) => {
+    return fileSystem.closeWriteStream(id)
+  })
+
+  ipcMain.handle('fs:abortWriteStream', async (_event, id: number) => {
+    return fileSystem.abortWriteStream(id)
   })
 
   ipcMain.handle('fs:listDir', async (_event, path: string) => {
@@ -664,6 +685,22 @@ function registerIpcHandlers(): void {
   // App version handler
   ipcMain.handle('app:getVersion', () => {
     return app.getVersion()
+  })
+}
+
+// Only one instance may run at a time. A second launch (double-click while the
+// dev server is up, or a stray `npm run dev`) would fight for the same GPU/disk
+// cache in userData — Chromium logs "Unable to move the cache" / "Unable to
+// create cache" (ERROR_ACCESS_DENIED, 0x5). Refuse the second instance and
+// focus the existing window instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
   })
 }
 

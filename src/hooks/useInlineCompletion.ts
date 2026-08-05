@@ -4,6 +4,13 @@ import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { useConfigStore } from '@/stores/configStore'
 import { useEditorStore } from '@/stores/editorStore'
 
+// Files above this size skip inline completion entirely. `model.getValue()`
+// copies the entire buffer into a JS string (which is then JSON-serialized
+// across IPC to the LLM), so even a single keystroke on a huge file would
+// freeze the UI for seconds. The completion UX is sacrificed here in favor
+// of a usable editor — the user can still type, save, search, and chat.
+const INLINE_COMPLETION_MAX_BYTES = 200 * 1024 // 200 KB
+
 export function useInlineCompletion(
   editor: monaco.editor.IStandaloneCodeEditor | null
 ) {
@@ -19,17 +26,26 @@ export function useInlineCompletion(
     const position = editor.getPosition()
     if (!model || !position) return
 
+    // Large-file gate: getValue() copies the whole buffer. Bail before that
+    // copy so typing on a big file stays snappy.
+    if (model.getValueLength() > INLINE_COMPLETION_MAX_BYTES) return
+
     const configGroup = useConfigStore.getState().getActiveConfigGroup()
     if (!configGroup) return
 
     const activeFile = useEditorStore.getState().getActiveFile()
     if (!activeFile) return
 
-    // Get context around cursor
-    const fullText = model.getValue()
-    const offset = model.getOffsetAt(position)
-    const textBeforeCursor = fullText.slice(Math.max(0, offset - 2000), offset)
-    const textAfterCursor = fullText.slice(offset, Math.min(fullText.length, offset + 500))
+    // Get context around cursor (use getValueInRange to avoid a full-buffer copy)
+    const lineCount = model.getLineCount()
+    const startLine = Math.max(1, position.lineNumber - 80)
+    const endLine = Math.min(lineCount, position.lineNumber + 20)
+    const textBeforeCursor = model.getValueInRange(
+      new monaco.Range(startLine, 1, position.lineNumber, position.column)
+    )
+    const textAfterCursor = model.getValueInRange(
+      new monaco.Range(position.lineNumber, position.column, endLine, model.getLineMaxColumn(endLine))
+    )
 
     isGeneratingRef.current = true
 

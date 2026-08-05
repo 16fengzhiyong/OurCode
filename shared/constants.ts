@@ -20,7 +20,12 @@ export const IPC_CHANNELS = {
   FS_FILE_CHANGED: 'fs:fileChanged',
   FS_OPEN_STREAM: 'fs:openStream',
   FS_READ_CHUNK: 'fs:readChunk',
+  FS_READ_CHUNK_BATCH: 'fs:readChunkBatch',
   FS_CLOSE_STREAM: 'fs:closeStream',
+  FS_OPEN_WRITE_STREAM: 'fs:openWriteStream',
+  FS_WRITE_CHUNK: 'fs:writeChunk',
+  FS_CLOSE_WRITE_STREAM: 'fs:closeWriteStream',
+  FS_ABORT_WRITE_STREAM: 'fs:abortWriteStream',
 
   // Store (SQLite)
   STORE_GET_CONFIG_GROUPS: 'store:getConfigGroups',

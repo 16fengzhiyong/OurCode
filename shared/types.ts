@@ -77,8 +77,10 @@ export interface OpenFile {
   cursorPosition?: { line: number; column: number }
   hasBom?: boolean // original file started with a byte-order mark; preserved on save
   isLoading?: boolean // true while the file is being streamed into the editor
+  loadProgress?: number // 0-100, shown while isLoading (large files)
   size?: number // file size in bytes (from stat/stream)
   plainText?: boolean // large file: loaded as plain text (no syntax highlighting)
+  readOnly?: boolean // very large file: shown as a read-only preview (head only), no edits
 }
 
 // Chunked file stream (main process -> renderer, pull-based)

@@ -9,7 +9,12 @@ export interface ElectronAPI {
   writeFile: (path: string, content: string, encoding: string, hasBom?: boolean) => Promise<void>
   openFileStream: (path: string) => Promise<import('@shared/types').FileStreamStart>
   readFileChunk: (id: number) => Promise<import('@shared/types').FileStreamChunk | null>
+  readFileChunkBatch: (id: number, maxBytes?: number) => Promise<import('@shared/types').FileStreamChunk[] | null>
   closeFileStream: (id: number) => Promise<void>
+  openWriteStream: (path: string, encoding: string, hasBom?: boolean) => Promise<number>
+  writeChunk: (id: number, chunk: string) => Promise<void>
+  closeWriteStream: (id: number) => Promise<void>
+  abortWriteStream: (id: number) => Promise<void>
   listDir: (path: string) => Promise<import('@shared/types').FileEntry[]>
   createFile: (path: string) => Promise<void>
   createDir: (path: string) => Promise<void>

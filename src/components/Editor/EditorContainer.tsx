@@ -6,9 +6,66 @@ import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useInlineCompletion } from '@/hooks/useInlineCompletion'
 import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoader, trackLoad } from '@/editor/modelRegistry'
+import type { UserPreferences } from '@/types'
 
 // Files above this size get large-file editor settings (no word wrap / minimap)
 const LARGE_FILE_OPTIMIZE_BYTES = 10 * 1024 * 1024
+
+// Per-file cursor positions live outside the store so cursor movement never
+// rebuilds the `openFiles` array (which would re-render every subscriber — the
+// tab bar, status bar and the options effect — on every arrow key of a big
+// file). Restored when the file becomes active again.
+const fileCursors = new Map<string, { line: number; column: number }>()
+
+/**
+ * Editor options for a file. Large files get a reduced-feature preset (like VS
+ * Code's large-file mode) so scrolling and rendering stay at 60 fps; the
+ * heavy interactive features (minimap, folding, hover, suggestions, bracket
+ * colorization, semantic highlighting, smooth scrolling) are kept off.
+ */
+function buildMonacoOptions(
+  preferences: UserPreferences,
+  large: boolean,
+  isDark: boolean,
+): monaco.editor.IStandaloneEditorConstructionOptions {
+  return {
+    automaticLayout: true,
+    fontSize: preferences.fontSize,
+    fontFamily: preferences.fontFamily,
+    tabSize: preferences.tabSize,
+    theme: isDark ? 'vs-dark' : 'vs',
+    padding: { top: 8 },
+    largeFileOptimizations: true,
+    minimap: { enabled: large ? false : preferences.showMinimap },
+    wordWrap: large ? 'off' : 'on',
+    folding: !large,
+    links: !large,
+    colorDecorators: !large,
+    renderLineHighlight: large ? 'none' : 'all',
+    cursorBlinking: large ? 'solid' : 'blink',
+    smoothScrolling: !large,
+    scrollBeyondLastLine: false,
+    bracketPairColorization: { enabled: !large },
+    'semanticHighlighting.enabled': large ? false : 'configuredByTheme',
+    guides: { indentation: !large },
+    quickSuggestions: large
+      ? { other: false, comments: false, strings: false }
+      : { other: true, comments: false, strings: false },
+    hover: { enabled: !large },
+    suggestOnTriggerCharacters: !large,
+    wordBasedSuggestions: large ? 'off' : 'currentDocument',
+    parameterHints: { enabled: !large },
+    stopRenderingLineAfter: 10000,
+    matchBrackets: large ? 'never' : 'always',
+    occurrencesHighlight: large ? 'off' : 'multiFile',
+    selectionHighlight: !large,
+    lineDecorationsWidth: large ? 0 : 10,
+    unicodeHighlight: {
+      ambiguousCharacters: !large,
+      invisibleCharacters: !large,
+    },
+  }
+}
 
 // Track all editor instances for theme updates
 const editorInstances = new Set<monaco.editor.IStandaloneCodeEditor>()
@@ -38,6 +95,9 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   const panel = panels[panelId]
   const activeFilePath = panel?.activeFilePath ?? null
   const activeFile = useEditorStore((s) => s.openFiles.find((f) => f.path === activeFilePath))
+  // The file size as a primitive — a selector returning it only re-renders when
+  // the size actually changes, never on cursor-move store churn.
+  const activeFileSize = useEditorStore((s) => s.openFiles.find((f) => f.path === activeFilePath)?.size)
 
   const { openCommandPalette, showContextMenu, theme: uiTheme } = useUIStore()
 
@@ -51,46 +111,17 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     const currentTheme = useUIStore.getState().theme
     const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 
-    const editor = monaco.editor.create(editorRef.current, {
-      automaticLayout: true,
-      fontSize: preferences.fontSize,
-      fontFamily: preferences.fontFamily,
-      tabSize: preferences.tabSize,
-      minimap: { enabled: preferences.showMinimap },
-      lineNumbers: 'on',
-      roundedSelection: true,
-      scrollBeyondLastLine: false,
-      wordWrap: 'on',
-      theme: isDark ? 'vs-dark' : 'vs',
-      padding: { top: 8 },
-      suggest: {
-        showMethods: true,
-        showFunctions: true,
-        showConstructors: true,
-        showFields: true,
-        showVariables: true,
-        showClasses: true,
-        showStructs: true,
-        showInterfaces: true,
-        showModules: true,
-        showProperties: true,
-        showEvents: true,
-        showOperators: true,
-        showUnits: true,
-        showValues: true,
-        showConstants: true,
-        showEnums: true,
-        showEnumMembers: true,
-        showKeywords: true,
-        showWords: true,
-        showColors: true,
-        showFiles: true,
-        showReferences: true,
-        showFolders: true,
-        showTypeParameters: true,
-        showSnippets: true,
-      },
-    })
+    // Preset the large-file options up front when the first file is already
+    // large, so Monaco doesn't build expensive state before the per-file effect
+    // below gets a chance to downgrade the features.
+    const state = useEditorStore.getState()
+    const currentFile = state.openFiles.find((f) => f.path === state.activeFilePath)
+    const largeAtCreate = (currentFile?.size ?? 0) > LARGE_FILE_OPTIMIZE_BYTES
+
+    const editor = monaco.editor.create(
+      editorRef.current,
+      buildMonacoOptions(preferences, largeAtCreate, isDark),
+    )
 
     monacoRef.current = editor
     setEditor(editor)
@@ -116,14 +147,9 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
           line: e.position.lineNumber,
           column: e.position.column,
         })
-        // Save per-file cursor
-        useEditorStore.setState((s) => ({
-          openFiles: s.openFiles.map((f) =>
-            f.path === panel.activeFilePath
-              ? { ...f, cursorPosition: { line: e.position.lineNumber, column: e.position.column } }
-              : f
-          ),
-        }))
+        // Per-file cursor lives in a module map (not the store) so arrow-key
+        // navigation on a big file doesn't rebuild `openFiles` on every move.
+        fileCursors.set(panel.activeFilePath, { line: e.position.lineNumber, column: e.position.column })
       }
     })
 
@@ -183,15 +209,15 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     useUIStore.getState().toggleChat()
   }, [])
 
-  // Update editor options when preferences change
+  // Keep editor options in sync with preferences and the active file's size
+  // (large files get a reduced-feature preset). Depends on the file size as a
+  // primitive, not the whole `openFiles` array, so this doesn't re-run on every
+  // cursor move while navigating a big file.
   useEffect(() => {
-    monacoRef.current?.updateOptions({
-      fontSize: preferences.fontSize,
-      fontFamily: preferences.fontFamily,
-      tabSize: preferences.tabSize,
-      minimap: { enabled: preferences.showMinimap },
-    })
-  }, [preferences])
+    const large = (activeFileSize ?? 0) > LARGE_FILE_OPTIMIZE_BYTES
+    const isDark = uiTheme === 'dark' || (uiTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    monacoRef.current?.updateOptions(buildMonacoOptions(preferences, large, isDark))
+  }, [preferences, activeFileSize, uiTheme])
 
   // Update Monaco theme when UI theme changes
   useEffect(() => {
@@ -244,25 +270,15 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
 
     editor.setModel(model)
 
-    if (file.cursorPosition) {
+    const cursor = fileCursors.get(activeFilePath) ?? file.cursorPosition
+    if (cursor) {
       editor.setPosition({
-        lineNumber: file.cursorPosition.line,
-        column: file.cursorPosition.column,
+        lineNumber: cursor.line,
+        column: cursor.column,
       })
-      editor.revealLineInCenter(file.cursorPosition.line)
+      editor.revealLineInCenter(cursor.line)
     }
   }, [activeFilePath])
-
-  // Large files: drop word wrap and the minimap (like VS Code's large-file mode)
-  // so scrolling and rendering stay fast.
-  useEffect(() => {
-    const file = useEditorStore.getState().openFiles.find((f) => f.path === activeFilePath)
-    const large = (file?.size ?? 0) > LARGE_FILE_OPTIMIZE_BYTES
-    monacoRef.current?.updateOptions({
-      wordWrap: large ? 'off' : 'on',
-      minimap: { enabled: large ? false : preferences.showMinimap },
-    })
-  }, [activeFilePath, openFiles, preferences.showMinimap])
 
   // Cleanup models for closed files
   useEffect(() => {
@@ -293,6 +309,20 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
       )}
       <div className="relative flex-1 min-h-0">
         <div ref={editorRef} className="absolute inset-0" />
+        {activeFile?.isLoading && (activeFile.size ?? 0) > 1024 * 1024 && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-nova-bg/70 pointer-events-none">
+            <div className="w-8 h-8 rounded-full border-2 border-nova-accent border-t-transparent animate-spin" />
+            <div className="text-sm text-nova-text-secondary">
+              正在加载文件… {activeFile.loadProgress ?? 0}%
+            </div>
+            <div className="w-48 h-1 bg-nova-hover rounded-full overflow-hidden">
+              <div
+                className="h-full bg-nova-accent rounded-full transition-all duration-150"
+                style={{ width: `${activeFile.loadProgress ?? 0}%` }}
+              />
+            </div>
+          </div>
+        )}
         {!activeFilePath && (
           <div className="absolute inset-0 flex items-center justify-center text-nova-text-muted pointer-events-none">
             <div className="text-center">

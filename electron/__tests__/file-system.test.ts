@@ -173,4 +173,143 @@ describe('FileSystemService.readFile (large-file safe encoding detection)', () =
     await service.closeStream(stream.id)
     expect(await service.readNext(stream.id)).toBeNull()
   })
+
+  it('readBatch streams a multi-chunk UTF-8 file identically to readNext', async () => {
+    const text = 'CREATE TABLE t (id INT); -- 测试\n'.repeat(60000) // > 1 MB, spans chunks
+    const filePath = await writeFixture('batch-big.sql', iconv.encode(text, 'utf-8'))
+
+    const stream = await service.openStream(filePath)
+    let out = stream.chunk
+    for (;;) {
+      const res = await service.readBatch(stream.id)
+      if (!res) break
+      let done = false
+      for (const chunk of res) {
+        out += chunk.chunk
+        if (chunk.done) {
+          done = true
+          break
+        }
+      }
+      if (done) break
+    }
+    expect(out).toBe(text)
+  })
+
+  it('readBatch streams a multi-chunk GBK file correctly across chunk boundaries', async () => {
+    const text = '这是中文内容：'.repeat(80000) // > 1 MB of double-byte GBK
+    const filePath = await writeFixture('batch-gbk.sql', iconv.encode(text, 'gbk'))
+
+    const stream = await service.openStream(filePath)
+    expect(stream.encoding).toBe('gbk')
+    let out = stream.chunk
+    for (;;) {
+      const res = await service.readBatch(stream.id)
+      if (!res) break
+      let done = false
+      for (const chunk of res) {
+        out += chunk.chunk
+        if (chunk.done) {
+          done = true
+          break
+        }
+      }
+      if (done) break
+    }
+    expect(out).toBe(text)
+  })
+
+  it('readBatch honours the maxBytes cap (more than one call per big file)', async () => {
+    const text = 'x'.repeat(3 * 1024 * 1024) // 3 MB ASCII
+    const filePath = await writeFixture('cap.txt', iconv.encode(text, 'utf-8'))
+
+    const stream = await service.openStream(filePath)
+    const cap = 512 * 1024
+    let total = stream.chunk.length
+    let batchCalls = 0
+    for (;;) {
+      const res = await service.readBatch(stream.id, cap)
+      if (!res) break
+      batchCalls++
+      let done = false
+      for (const c of res) {
+        total += c.chunk.length
+        if (c.done) {
+          done = true
+          break
+        }
+      }
+      if (done) break
+    }
+    expect(batchCalls).toBeGreaterThan(1)
+    expect(total).toBe(text.length)
+  })
+
+  it('readBatch returns null after the stream is closed', async () => {
+    const filePath = await writeFixture('batch-abort.txt', iconv.encode('x'.repeat(5 * 1024 * 1024), 'utf-8'))
+    const stream = await service.openStream(filePath)
+    await service.readBatch(stream.id)
+    await service.closeStream(stream.id)
+    expect(await service.readBatch(stream.id)).toBeNull()
+  })
+
+  it('streamed write produces a file identical to writeFile, with no temp file left behind', async () => {
+    const text = 'CREATE TABLE t (id INT); -- 测试\n'.repeat(60000) // > 1 MB
+    const filePath = join(dir, 'stream-write.sql')
+
+    const id = await service.openWriteStream(filePath, 'utf-8', false)
+    for (let i = 0; i < text.length; i += 64 * 1024) {
+      await service.writeChunk(id, text.slice(i, i + 64 * 1024))
+    }
+    await service.closeWriteStream(id)
+
+    const { content } = await service.readFile(filePath)
+    expect(content).toBe(text)
+    expect(await readdir(dir)).toEqual(['stream-write.sql'])
+  })
+
+  it('streamed write preserves a byte-order mark', async () => {
+    const text = 'SELECT 1; -- 测试'
+    const filePath = join(dir, 'bom-stream.sql')
+    const id = await service.openWriteStream(filePath, 'utf-8', true)
+    await service.writeChunk(id, text)
+    await service.closeWriteStream(id)
+    const bytes = await fsReadFile(filePath)
+    expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
+    const { content } = await service.readFile(filePath)
+    expect(content).toBe(text)
+  })
+
+  it('preserves a surrogate pair split across writeChunk calls', async () => {
+    const text = 'SELECT 1; -- 测试 😀🚀 结尾\n'.repeat(2000) // ~60 KB incl. emoji
+    const filePath = join(dir, 'stream-write-emoji.sql')
+    const id = await service.openWriteStream(filePath, 'utf-8')
+    // Odd slice size so surrogate pairs frequently straddle chunk boundaries
+    for (let i = 0; i < text.length; i += 1001) {
+      await service.writeChunk(id, text.slice(i, i + 1001))
+    }
+    await service.closeWriteStream(id)
+    const { content } = await service.readFile(filePath)
+    expect(content).toBe(text)
+  })
+
+  it('streamed write round-trips a multi-chunk GBK file', async () => {
+    const text = '这是中文内容：'.repeat(80000) // > 1 MB of double-byte GBK
+    const filePath = join(dir, 'stream-write-gbk.sql')
+    const id = await service.openWriteStream(filePath, 'gbk')
+    for (let i = 0; i < text.length; i += 10000) {
+      await service.writeChunk(id, text.slice(i, i + 10000))
+    }
+    await service.closeWriteStream(id)
+    const { content } = await service.readFile(filePath)
+    expect(content).toBe(text)
+  })
+
+  it('abortWriteStream removes the temp file and leaves nothing behind', async () => {
+    const filePath = join(dir, 'aborted.sql')
+    const id = await service.openWriteStream(filePath, 'utf-8')
+    await service.writeChunk(id, 'partial content')
+    await service.abortWriteStream(id)
+    expect(await readdir(dir)).toEqual([])
+  })
 })

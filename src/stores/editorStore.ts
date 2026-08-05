@@ -25,6 +25,20 @@ const LARGE_FILE_CONFIRM_BYTES = 50 * 1024 * 1024
 // anyway. Plain text keeps the whole file editable with bounded CPU cost.
 export const PLAINTEXT_THRESHOLD_BYTES = 20 * 1024 * 1024
 
+// Files larger than this don't load the full content into the editor model at
+// all — Monaco's setValue on a multi-hundred-MB string blocks the renderer for
+// seconds and burns gigabytes of RAM. Instead we open a *read-only preview*
+// limited to this many characters from the head of the file (≈ a few thousand
+// lines), so the user can locate the section they care about and re-open with a
+// smaller slice. This matches VS Code's "File is too large to open" behaviour.
+export const READONLY_PREVIEW_BYTES = 100 * 1024 * 1024
+export const READONLY_PREVIEW_CHARS = 500 * 1024 // ≈ 500 KB / a few thousand lines
+
+// Models larger than this are saved to disk in bounded chunks (streamed write)
+// instead of shipping the whole document string over IPC and encoding it in a
+// single synchronous pass in the main process.
+const STREAMED_SAVE_THRESHOLD = 4 * 1024 * 1024
+
 export interface Panel {
   id: string
   tabOrder: string[]
@@ -92,11 +106,12 @@ const syncDerivedState = (s: EditorState) => {
 }
 
 /**
- * Load a file's content into its model. Chunks are pulled over IPC and
- * accumulated (yielding between pulls so the UI stays responsive), then applied
- * with a single `model.setValue` — Monaco builds the buffer in one optimized
- * pass, which is dramatically faster and less memory-fragmented than thousands
- * of incremental appends. This is the same strategy as VS Code.
+ * Load a file's content into its model. Chunks are pulled over IPC in 8 MB
+ * batches (a big file used to cost one round-trip per 1 MB chunk), yielding
+ * between batches so the UI stays responsive, then applied with a single
+ * `model.setValue` — Monaco builds the buffer in one optimized pass, which is
+ * dramatically faster and less memory-fragmented than thousands of incremental
+ * appends. This is the same strategy as VS Code.
  */
 async function streamFileIntoModel(path: string, model: monaco.editor.ITextModel): Promise<void> {
   let streamId: number | null = null
@@ -138,32 +153,54 @@ async function streamFileIntoModel(path: string, model: monaco.editor.ITextModel
       ),
     }))
 
-    // Pull every chunk (responsive), grouping them so no single string exceeds
-    // V8's ~536M-char limit for two-byte strings, then apply the groups in as
-    // few operations as possible: the first via setValue (one optimized buffer
-    // build, like VS Code) and the rest by appending. Fewer, larger operations
-    // are dramatically faster than many incremental appends on a growing model.
+    // Pull chunks in 8 MB batches — a big file used to cost one IPC round-trip
+    // per 1 MB chunk (~800 for an 800 MB file); batching cuts that ~8x. Group
+    // them so no single string exceeds V8's ~536M-char limit for two-byte
+    // strings, then apply the groups in as few operations as possible: the
+    // first via setValue (one optimized buffer build, like VS Code) and the
+    // rest by appending. Fewer, larger operations are dramatically faster than
+    // many incremental appends on a growing model. Yielding every few batches
+    // keeps the window responsive (spinner, tab switching) while loading.
+    const READ_BATCH_BYTES = 8 * 1024 * 1024
+    const YIELD_EVERY_BATCHES = 4
     const MAX_JOIN_CHARS = 400 * 1024 * 1024
     const groups: string[][] = [[stream.chunk]]
     let groupChars = stream.chunk.length
+    let batchCount = 0
+    // Progress for the loading overlay: approximate the raw bytes pulled (each
+    // batch asks for READ_BATCH_BYTES), capped at 99 so the UI never shows 100%
+    // while the final buffer build (`setValue`) is still pending.
+    let bytesRead = stream.chunk.length
     for (;;) {
       // Cancel if the model was disposed (file closed globally) mid-load
       if (getModel(path) !== model) {
         await window.electronAPI.closeFileStream(stream.id)
         return
       }
-      const res: FileStreamChunk | null = await window.electronAPI.readFileChunk(stream.id)
-      if (!res) break
-      const chunk = res.chunk
-      if (groupChars + chunk.length > MAX_JOIN_CHARS) {
-        groups.push([chunk])
-        groupChars = chunk.length
-      } else {
-        groups[groups.length - 1].push(chunk)
-        groupChars += chunk.length
+      const res: FileStreamChunk[] | null = await window.electronAPI.readFileChunkBatch(stream.id, READ_BATCH_BYTES)
+      if (!res || res.length === 0) break
+      bytesRead += READ_BATCH_BYTES
+      const progress = Math.min(99, Math.round((bytesRead / stream.totalBytes) * 100))
+      useEditorStore.setState((s) => ({
+        openFiles: s.openFiles.map((f) => (f.path === path ? { ...f, loadProgress: progress } : f)),
+      }))
+      let done = false
+      for (const chunkRes of res) {
+        const chunk = chunkRes.chunk
+        if (groupChars + chunk.length > MAX_JOIN_CHARS) {
+          groups.push([chunk])
+          groupChars = chunk.length
+        } else {
+          groups[groups.length - 1].push(chunk)
+          groupChars += chunk.length
+        }
+        if (chunkRes.done) {
+          done = true
+          break
+        }
       }
-      if (res.done) break
-      await yieldToEventLoop()
+      if (done) break
+      if (++batchCount % YIELD_EVERY_BATCHES === 0) await yieldToEventLoop()
     }
     streamId = null
 
@@ -185,6 +222,41 @@ async function streamFileIntoModel(path: string, model: monaco.editor.ITextModel
       ),
     }))
   }
+}
+
+/**
+ * Save a model to disk in bounded chunks. Bounded IPC payloads keep the
+ * renderer responsive and avoid one giant encode pass in the main process;
+ * `openWriteStream`/`closeWriteStream` retain the atomic temp-file + rename
+ * semantics of `writeFile`.
+ */
+async function streamSaveModel(
+  path: string,
+  model: monaco.editor.ITextModel,
+  encoding: string,
+  hasBom: boolean | undefined,
+): Promise<void> {
+  const id = await window.electronAPI.openWriteStream(path, encoding, hasBom)
+  const totalLength = model.getValueLength()
+  const CHUNK = 4 * 1024 * 1024
+  try {
+    for (let offset = 0; offset < totalLength; offset += CHUNK) {
+      const end = Math.min(offset + CHUNK, totalLength)
+      const startPos = model.getPositionAt(offset)
+      const endPos = model.getPositionAt(end)
+      const text = model.getValueInRange({
+        startLineNumber: startPos.lineNumber,
+        startColumn: startPos.column,
+        endLineNumber: endPos.lineNumber,
+        endColumn: endPos.column,
+      })
+      await window.electronAPI.writeChunk(id, text)
+    }
+  } catch (error) {
+    await window.electronAPI.abortWriteStream(id).catch(() => {})
+    throw error
+  }
+  await window.electronAPI.closeWriteStream(id)
 }
 
 const initialPanelId = createPanelId()
@@ -522,12 +594,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const pendingLoad = waitForLoad(path)
     if (pendingLoad) await pendingLoad.catch(() => {})
 
-    // The Monaco model is the source of truth once the file is open; the store's
-    // content is only the initial copy. Read the live text at save time.
-    const content = getFileContent(path, file.content)
-
     // Untitled buffer → prompt Save As, then migrate the tab to the real path
     if (path.startsWith('/untitled/')) {
+      // Untitled buffers are small; reading the live model text is cheap here
+      const content = getFileContent(path, file.content)
       const newPath = await window.electronAPI.saveFile()
       if (!newPath) return
       await window.electronAPI.writeFile(newPath, content, file.encoding, file.hasBom)
@@ -562,8 +632,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (!file.isDirty) return
 
     try {
-      // Preserve the original byte-order mark, if the file had one
-      await window.electronAPI.writeFile(path, content, file.encoding, file.hasBom)
+      const model = getModel(path)
+      // Large models are streamed to disk in bounded chunks. Reading the whole
+      // document (`getFileContent` → `model.getValue()`) is only done for small
+      // files — on a multi-hundred-MB model it copies the entire buffer, and
+      // autosave would trigger that copy every second while typing.
+      if (model && model.getValueLength() > STREAMED_SAVE_THRESHOLD) {
+        await streamSaveModel(path, model, file.encoding, file.hasBom)
+      } else {
+        // The Monaco model is the source of truth once the file is open; the
+        // store's content is only the initial copy. Read the live text at save.
+        const content = getFileContent(path, file.content)
+        await window.electronAPI.writeFile(path, content, file.encoding, file.hasBom)
+      }
       get().markDirty(path, false)
     } catch (error) {
       console.error('Failed to save file:', error)
