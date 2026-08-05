@@ -46,6 +46,7 @@ export default function SettingsModal() {
   const [dropGroupIndex, setDropGroupIndex] = useState<number | null>(null)
   const promptEditorRef = useRef<HTMLDivElement>(null)
   const promptEditorInstance = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
 
   // Initialize Monaco editor for system prompt
   useEffect(() => {
@@ -106,6 +107,9 @@ export default function SettingsModal() {
     if (isSettingsOpen) {
       loadConfigGroups()
       useShortcutStore.getState().loadShortcuts()
+      // Move focus into the dialog so keyboard users land in it (focus trap
+      // basics; Esc closes via the global handler)
+      dialogRef.current?.focus()
     }
   }, [isSettingsOpen, loadConfigGroups])
 
@@ -166,7 +170,7 @@ export default function SettingsModal() {
   ]
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="设置" className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl w-[900px] max-h-[85vh] flex flex-col animate-fade-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-nova-border">
           <h2 className="text-lg font-semibold text-nova-text-primary">Settings</h2>

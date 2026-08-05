@@ -62,7 +62,7 @@ export default function RestoreBackupsModal({ backups: initial, onClose }: Resto
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60" onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label="恢复未保存的更改" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60" onClick={onClose}>
       <div
         className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl w-[560px] max-h-[70vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}

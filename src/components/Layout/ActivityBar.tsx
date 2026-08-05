@@ -106,7 +106,7 @@ export default function ActivityBar() {
           return (
             <button
               key={item.key}
-              title={item.title}
+              aria-label={item.title} title={item.title}
               onClick={() => handleClick(item.key)}
               className="relative flex items-center justify-center"
               style={{
@@ -135,7 +135,7 @@ export default function ActivityBar() {
         {bottomIcons.map((item) => (
           <button
             key={item.key}
-            title={item.title}
+            aria-label={item.title} title={item.title}
             onClick={item.action}
             style={{
               width: 48,

@@ -117,7 +117,7 @@ export default function PluginMarketplace() {
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={closeMarketplace}>
+    <div role="dialog" aria-modal="true" aria-label="扩展市场" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={closeMarketplace}>
       <div
         className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl w-[900px] max-h-[80vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
@@ -313,7 +313,7 @@ api.ui.registerPanel('my-panel', 'My Plugin', () => {
 
         {/* Uninstall confirmation */}
         {showConfirmUninstall && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60" onClick={() => setShowConfirmUninstall(null)}>
+          <div role="dialog" aria-modal="true" aria-label="卸载扩展" className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60" onClick={() => setShowConfirmUninstall(null)}>
             <div className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl p-6 w-[400px]" onClick={(e) => e.stopPropagation()}>
               <h3 className="text-lg font-semibold text-nova-text-primary mb-2">卸载扩展</h3>
               <p className="text-sm text-nova-text-secondary mb-1">

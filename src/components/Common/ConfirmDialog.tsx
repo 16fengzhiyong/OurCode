@@ -50,7 +50,7 @@ export default function ConfirmDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div role="dialog" aria-modal="true" aria-label="确认" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl w-full max-w-md mx-4 animate-fade-in">
         <div className="p-5">
           <h3 className="text-lg font-semibold text-nova-text-primary mb-2">{title}</h3>

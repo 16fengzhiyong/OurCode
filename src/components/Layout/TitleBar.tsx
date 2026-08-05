@@ -30,6 +30,7 @@ export default function TitleBar() {
   const t = useI18n()
 
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
+  const [menuItemIndex, setMenuItemIndex] = useState(0)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // Track this window's own maximize state (per-window events from main)
@@ -241,6 +242,7 @@ export default function TitleBar() {
 
   const handleMenuClick = (menuLabel: string) => {
     setActiveMenu(activeMenu === menuLabel ? null : menuLabel)
+    setMenuItemIndex(0)
   }
 
   const handleItemClick = (item: MenuItem) => {
@@ -248,6 +250,48 @@ export default function TitleBar() {
       item.action()
     }
     setActiveMenu(null)
+  }
+
+  // Keyboard navigation for the menu bar (VS Code-style): ←/→ move between
+  // menus, ↓/↑ move within the open menu, Enter activates, Esc closes.
+  const handleMenuKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      setActiveMenu(null)
+      return
+    }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault()
+      const dir = e.key === 'ArrowRight' ? 1 : -1
+      const idx = menus.findIndex((m) => m.label === activeMenu)
+      if (idx >= 0) {
+        const next = (idx + dir + menus.length) % menus.length
+        setActiveMenu(menus[next].label)
+        setMenuItemIndex(0)
+      }
+      return
+    }
+    if (!activeMenu) return
+    const menu = menus.find((m) => m.label === activeMenu)
+    if (!menu) return
+    const items = menu.items
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const dir = e.key === 'ArrowDown' ? 1 : -1
+      // Skip separators; wrap around
+      let next = menuItemIndex
+      for (let i = 0; i < items.length; i++) {
+        next = (next + dir + items.length) % items.length
+        if (!items[next].separator) break
+      }
+      setMenuItemIndex(next)
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const item = items[menuItemIndex]
+      if (item && !item.separator) handleItemClick(item)
+      return
+    }
   }
 
   return (
@@ -264,10 +308,19 @@ export default function TitleBar() {
       </div>
 
       {/* Menu bar */}
-      <div className="flex items-center h-full no-drag" ref={menuRef}>
+      <div
+        className="flex items-center h-full no-drag"
+        ref={menuRef}
+        role="menubar"
+        aria-label="主菜单"
+        onKeyDown={handleMenuKeyDown}
+      >
         {menus.map((menu) => (
           <div key={menu.label} className="relative">
             <button
+              role="menuitem"
+              aria-haspopup="menu"
+              aria-expanded={activeMenu === menu.label}
               className={`h-12 px-2.5 text-xs transition-colors ${
                 activeMenu === menu.label
                   ? 'bg-nova-hover text-white'
@@ -280,19 +333,23 @@ export default function TitleBar() {
             </button>
 
             {activeMenu === menu.label && (
-              <div className="absolute top-full left-0 bg-nova-surface border border-nova-border rounded shadow-xl py-1 min-w-[200px] z-[100] animate-fade-in">
+              <div className="absolute top-full left-0 bg-nova-surface border border-nova-border rounded shadow-xl py-1 min-w-[200px] z-[100] animate-fade-in" role="menu">
                 {menu.items.map((item, index) =>
                   item.separator ? (
-                    <div key={index} className="h-px bg-nova-border my-1" />
+                    <div key={index} className="h-px bg-nova-border my-1" role="separator" />
                   ) : (
                     <button
                       key={item.label}
+                      role="menuitem"
                       className={`w-full text-left px-4 py-1.5 text-xs flex items-center justify-between gap-4 ${
                         item.disabled
                           ? 'text-nova-text-muted cursor-default'
-                          : 'text-nova-text-secondary hover:bg-[#094771] hover:text-white'
+                          : index === menuItemIndex
+                            ? 'bg-[#094771] text-white'
+                            : 'text-nova-text-secondary hover:bg-[#094771] hover:text-white'
                       }`}
                       onClick={() => handleItemClick(item)}
+                      onMouseEnter={() => setMenuItemIndex(index)}
                       disabled={item.disabled}
                     >
                       <span>{item.label}</span>
@@ -317,7 +374,7 @@ export default function TitleBar() {
         <button
           onClick={handleMinimize}
           className="p-2 text-nova-text-muted hover:text-white hover:bg-nova-hover transition-colors"
-          title="最小化"
+          aria-label="最小化" title="最小化"
         >
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeWidth={2} d="M5 12h14" />
@@ -326,7 +383,7 @@ export default function TitleBar() {
         <button
           onClick={handleMaximize}
           className="p-2 text-nova-text-muted hover:text-white hover:bg-nova-hover transition-colors"
-          title={isMaximized ? '还原' : '最大化'}
+          aria-label={isMaximized ? '还原' : '最大化'} title={isMaximized ? '还原' : '最大化'}
         >
           {isMaximized ? (
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -342,7 +399,7 @@ export default function TitleBar() {
         <button
           onClick={handleClose}
           className="p-2 text-nova-text-muted hover:text-white transition-colors"
-          title="关闭"
+          aria-label="关闭" title="关闭"
           onMouseEnter={(e) => { e.currentTarget.style.background = '#e81123' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = '' }}
         >

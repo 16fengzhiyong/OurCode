@@ -8,7 +8,7 @@ export default function ToolApprovalDialog() {
   const { toolCall, preview } = pendingApproval
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div role="dialog" aria-modal="true" aria-label="工具审批" className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-nova-border bg-nova-bg/50">

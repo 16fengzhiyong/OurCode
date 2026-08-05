@@ -59,7 +59,7 @@ export default function OnboardingModal({ onComplete }: OnboardingModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div role="dialog" aria-modal="true" aria-label="欢迎使用" className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="bg-nova-surface border border-nova-border rounded-2xl shadow-2xl w-[520px] overflow-hidden">
         {/* Header */}
         <div className="px-8 pt-8 pb-4 text-center">
