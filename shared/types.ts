@@ -78,8 +78,7 @@ export interface OpenFile {
   hasBom?: boolean // original file started with a byte-order mark; preserved on save
   isLoading?: boolean // true while the file is being streamed into the editor
   size?: number // file size in bytes (from stat/stream)
-  isPreview?: boolean // huge file: only the first PREVIEW_LIMIT_BYTES were loaded
-  isReadOnly?: boolean // preview files cannot be edited or saved
+  plainText?: boolean // large file: loaded as plain text (no syntax highlighting)
 }
 
 // Chunked file stream (main process -> renderer, pull-based)

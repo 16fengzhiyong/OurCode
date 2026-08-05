@@ -9,20 +9,21 @@ import {
   registerLoader,
   appendText,
   setModelEol,
+  setModelLanguage,
   yieldToEventLoop,
   waitForLoad,
 } from '@/editor/modelRegistry'
 import type { FileStreamChunk } from '@shared/types'
 
-// Files larger than this ask for confirmation before opening (protects against
-// accidentally loading a multi-GB file that would exhaust memory).
+// Files larger than this ask for confirmation before opening (they take a lot
+// of memory — a few hundred MB of text needs GBs of RAM in the editor model).
 const LARGE_FILE_CONFIRM_BYTES = 50 * 1024 * 1024
 
-// Files larger than this open as a read-only *preview* of the first
-// PREVIEW_LIMIT_BYTES. A Monaco model of hundreds of MB / millions of lines
-// needs multiple GB of memory and would freeze the app, so we never build one.
-export const LARGE_FILE_PREVIEW_BYTES = 100 * 1024 * 1024
-export const PREVIEW_LIMIT_BYTES = 20 * 1024 * 1024
+// Files larger than this are loaded as plain text (no syntax highlighting). The
+// tokenizer is what makes a huge file unusable — Monaco also skips tokenization
+// for files above its own large-file threshold, so highlighting would be gone
+// anyway. Plain text keeps the whole file editable with bounded CPU cost.
+export const PLAINTEXT_THRESHOLD_BYTES = 20 * 1024 * 1024
 
 export interface Panel {
   id: string
@@ -91,11 +92,11 @@ const syncDerivedState = (s: EditorState) => {
 }
 
 /**
- * Stream a file's content into its model in decoded chunks (pull-based IPC over
- * `openFileStream`/`readFileChunk`). The tab is already open; this fills the
- * model progressively and yields to the event loop between chunks, so the UI
- * never freezes even for files of hundreds of MB. `applyEdits` is used for
- * appends, which keeps the load out of the undo stack.
+ * Load a file's content into its model. Chunks are pulled over IPC and
+ * accumulated (yielding between pulls so the UI stays responsive), then applied
+ * with a single `model.setValue` — Monaco builds the buffer in one optimized
+ * pass, which is dramatically faster and less memory-fragmented than thousands
+ * of incremental appends. This is the same strategy as VS Code.
  */
 async function streamFileIntoModel(path: string, model: monaco.editor.ITextModel): Promise<void> {
   let streamId: number | null = null
@@ -103,15 +104,10 @@ async function streamFileIntoModel(path: string, model: monaco.editor.ITextModel
     const stream = await window.electronAPI.openFileStream(path)
     streamId = stream.id
 
-    // Huge files never fit into a Monaco model, so they open as a read-only
-    // preview of the first PREVIEW_LIMIT_BYTES.
-    const isPreview = stream.totalBytes > LARGE_FILE_PREVIEW_BYTES
-
+    // Large files get a heads-up — loading them fully takes a lot of memory
     if (stream.totalBytes > LARGE_FILE_CONFIRM_BYTES) {
       const mb = Math.round(stream.totalBytes / (1024 * 1024))
-      const message = isPreview
-        ? `此文件较大（约 ${mb} MB）。为避免卡顿，将以只读模式显示前 ${Math.round(PREVIEW_LIMIT_BYTES / (1024 * 1024))} MB 预览，确定打开吗？`
-        : `此文件较大（约 ${mb} MB），确定要打开吗？`
+      const message = `此文件较大（约 ${mb} MB）。将以纯文本模式打开（无语法高亮）并完整加载，可能占用较多内存，确定打开吗？`
       if (!window.confirm(message)) {
         await window.electronAPI.closeFileStream(stream.id)
         useEditorStore.getState().closeFileGlobally(path)
@@ -119,6 +115,13 @@ async function streamFileIntoModel(path: string, model: monaco.editor.ITextModel
       }
     }
 
+    // Above the threshold the file opens as plain text — the whole point of the
+    // mode is to keep it editable without paying tokenization cost. Switch the
+    // model language now (it was created before the size was known).
+    const plainText = stream.totalBytes > PLAINTEXT_THRESHOLD_BYTES
+    if (plainText) {
+      setModelLanguage(model, 'plaintext')
+    }
     const lineEnding = stream.chunk.includes('\r\n') ? 'crlf' : 'lf'
     useEditorStore.setState((s) => ({
       openFiles: s.openFiles.map((f) =>
@@ -129,40 +132,45 @@ async function streamFileIntoModel(path: string, model: monaco.editor.ITextModel
               hasBom: stream.hasBom,
               size: stream.totalBytes,
               lineEnding,
-              isPreview,
-              isReadOnly: isPreview,
+              plainText,
             }
           : f,
       ),
     }))
 
-    // Match the model's EOL to the file's, otherwise Monaco converts every
-    // inserted '\n' into its default ('\r\n' on Windows) and the text no longer
-    // round-trips byte-for-byte
-    setModelEol(model, lineEnding)
-
-    appendText(model, stream.chunk)
-    await yieldToEventLoop()
-
-    let loadedChars = stream.chunk.length
+    // Pull every chunk (responsive), grouping them so no single string exceeds
+    // V8's ~536M-char limit for two-byte strings, then apply the groups in as
+    // few operations as possible: the first via setValue (one optimized buffer
+    // build, like VS Code) and the rest by appending. Fewer, larger operations
+    // are dramatically faster than many incremental appends on a growing model.
+    const MAX_JOIN_CHARS = 400 * 1024 * 1024
+    const groups: string[][] = [[stream.chunk]]
+    let groupChars = stream.chunk.length
     for (;;) {
       // Cancel if the model was disposed (file closed globally) mid-load
       if (getModel(path) !== model) {
         await window.electronAPI.closeFileStream(stream.id)
         return
       }
-      // Preview mode: stop pulling once the cap is reached (char count is a
-      // good proxy for bytes for text files)
-      if (isPreview && loadedChars >= PREVIEW_LIMIT_BYTES) {
-        await window.electronAPI.closeFileStream(stream.id)
-        break
-      }
       const res: FileStreamChunk | null = await window.electronAPI.readFileChunk(stream.id)
       if (!res) break
-      appendText(model, res.chunk)
-      loadedChars += res.chunk.length
+      const chunk = res.chunk
+      if (groupChars + chunk.length > MAX_JOIN_CHARS) {
+        groups.push([chunk])
+        groupChars = chunk.length
+      } else {
+        groups[groups.length - 1].push(chunk)
+        groupChars += chunk.length
+      }
       if (res.done) break
       await yieldToEventLoop()
+    }
+    streamId = null
+
+    setModelEol(model, lineEnding)
+    model.setValue(groups[0].join(''))
+    for (let i = 1; i < groups.length; i++) {
+      appendText(model, groups[i].join(''))
     }
   } catch (error) {
     console.error('Failed to stream file:', error)
@@ -509,8 +517,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   saveFile: async (path) => {
     const file = get().openFiles.find((f) => f.path === path)
     if (!file) return
-    // Preview files are read-only — never write a truncated model back to disk
-    if (file.isReadOnly) return
 
     // If the file is still streaming in, wait for it to finish first
     const pendingLoad = waitForLoad(path)
@@ -594,9 +600,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   revertFile: async (path) => {
-    const current = get().openFiles.find((f) => f.path === path)
-    // Preview files can't be reverted (that would re-read the whole huge file)
-    if (current?.isReadOnly) return
     try {
       const { content, encoding, hasBom } = await window.electronAPI.readFile(path)
       // Refresh the live model too, so the editor immediately matches disk

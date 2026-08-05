@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import * as monaco from 'monaco-editor'
-import { useEditorStore, PREVIEW_LIMIT_BYTES } from '@/stores/editorStore'
+import { useEditorStore, PLAINTEXT_THRESHOLD_BYTES } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
@@ -222,8 +222,9 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     if (!model) {
       const uri = monaco.Uri.parse(`file:///${activeFilePath}`)
       // Start empty; a registered stream loader fills it chunk by chunk so large
-      // files load without freezing the UI.
-      model = monaco.editor.createModel('', file.language, uri)
+      // files load without freezing the UI. Large files are plain text (no
+      // syntax highlighting) — see PLAINTEXT_THRESHOLD_BYTES.
+      model = monaco.editor.createModel('', file.plainText ? 'plaintext' : file.language, uri)
       registerModel(activeFilePath, model)
 
       model.onDidChangeContent(() => {
@@ -253,14 +254,13 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   }, [activeFilePath])
 
   // Large files: drop word wrap and the minimap (like VS Code's large-file mode)
-  // so scrolling and rendering stay fast; preview files are read-only.
+  // so scrolling and rendering stay fast.
   useEffect(() => {
     const file = useEditorStore.getState().openFiles.find((f) => f.path === activeFilePath)
     const large = (file?.size ?? 0) > LARGE_FILE_OPTIMIZE_BYTES
     monacoRef.current?.updateOptions({
       wordWrap: large ? 'off' : 'on',
       minimap: { enabled: large ? false : preferences.showMinimap },
-      readOnly: file?.isReadOnly ?? false,
     })
   }, [activeFilePath, openFiles, preferences.showMinimap])
 
@@ -283,12 +283,11 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   // is an overlay on top of the empty editor instead.
   return (
     <div className="flex-1 h-full min-h-0 flex flex-col">
-      {activeFile?.isPreview && (
-        <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs bg-amber-500/15 text-amber-300 border-b border-amber-500/20">
-          <span>⚠</span>
+      {activeFile?.plainText && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs bg-sky-500/15 text-sky-300 border-b border-sky-500/20">
+          <span>📄</span>
           <span>
-            文件较大（{formatMB(activeFile.size)} MB），仅显示前 {Math.round(PREVIEW_LIMIT_BYTES / (1024 * 1024))} MB 只读预览。
-            完整内容请在外部工具中查看（在文件树右键 → 「在文件夹中显示」）。
+            大文本模式：文件较大（{formatMB(activeFile.size)} MB），以纯文本显示（无语法高亮），可正常编辑。
           </span>
         </div>
       )}

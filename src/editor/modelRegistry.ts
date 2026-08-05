@@ -90,6 +90,15 @@ export function setModelEol(model: monaco.editor.ITextModel, lineEnding: 'lf' | 
   model.setEOL(lineEnding === 'crlf' ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF)
 }
 
+/**
+ * Switch a model's language. Used when a large file turns out to need plain-text
+ * mode: the model is created before the file size is known, so the loader
+ * downgrades the language once it is.
+ */
+export function setModelLanguage(model: monaco.editor.ITextModel, languageId: string): void {
+  monaco.editor.setModelLanguage(model, languageId)
+}
+
 /** Yield to the event loop so the UI can paint between streamed chunks. */
 export function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
