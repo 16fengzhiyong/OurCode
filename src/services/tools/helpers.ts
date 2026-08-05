@@ -2,8 +2,17 @@
  * Tool helper functions - actual implementations called by tools
  * These use window.electronAPI to communicate with the main process
  */
+import { loadIgnorePatterns, isIgnoredPath } from './context'
 
 const EXCLUDED_DIRS = ['node_modules', '.git', 'dist', 'build', 'out', '.next', '__pycache__', 'vendor', '.vscode', '.idea']
+
+/** Load .ourcodeignore patterns once per workspace root */
+async function ensureIgnoreLoaded(): Promise<void> {
+  const rootPath = document.getElementById('file-tree-root')?.getAttribute('data-root-path') || ''
+  if (rootPath) {
+    try { await loadIgnorePatterns(rootPath) } catch { /* ignore */ }
+  }
+}
 
 /** Read a file with line numbers */
 export async function readFile(path: string, startLine?: number, endLine?: number): Promise<string> {
@@ -17,6 +26,7 @@ export async function readFile(path: string, startLine?: number, endLine?: numbe
 
 /** List directory contents (recursive up to maxDepth) */
 export async function listDirectory(path: string, maxDepth: number = 1): Promise<string> {
+  await ensureIgnoreLoaded()
   const lines: string[] = []
   await walkListing(path, '', 0, Math.min(maxDepth, 5), lines)
   return lines.join('\n')
@@ -32,6 +42,7 @@ async function walkListing(dirPath: string, prefix: string, depth: number, maxDe
 
   for (const entry of entries) {
     if (EXCLUDED_DIRS.includes(entry.name)) continue
+    if (isIgnoredPath(entry.path)) continue
     const icon = entry.isDirectory ? '[DIR]' : '[FILE]'
     const size = entry.size != null ? ` (${formatSize(entry.size)})` : ''
     lines.push(`${prefix}${icon} ${entry.name}${size}`)
@@ -43,6 +54,7 @@ async function walkListing(dirPath: string, prefix: string, depth: number, maxDe
 
 /** Get directory tree structure */
 export async function getDirectoryTree(rootPath: string, maxDepth: number = 3): Promise<string> {
+  await ensureIgnoreLoaded()
   const lines: string[] = []
   await walkTree(rootPath, '', 0, maxDepth, lines)
   return lines.join('\n')
@@ -53,7 +65,7 @@ async function walkTree(dirPath: string, prefix: string, depth: number, maxDepth
   const entries: any[] = await window.electronAPI.listDir(dirPath)
   if (!entries) return
 
-  const filtered = entries.filter((e) => !EXCLUDED_DIRS.includes(e.name))
+  const filtered = entries.filter((e) => !EXCLUDED_DIRS.includes(e.name) && !isIgnoredPath(e.path))
   for (let i = 0; i < filtered.length; i++) {
     const entry = filtered[i]
     const isLast = i === filtered.length - 1
@@ -68,20 +80,22 @@ async function walkTree(dirPath: string, prefix: string, depth: number, maxDepth
 
 /** Search files by name pattern */
 export async function searchFiles(rootPath: string, pattern: string): Promise<string> {
+  await ensureIgnoreLoaded()
   const globPattern = pattern.includes('*') ? pattern : `*${pattern}*`
   const results: any[] = await window.electronAPI.searchInFiles(rootPath, globPattern, { caseSensitive: false })
   if (!results || results.length === 0) return 'No files found'
   const uniquePaths = [...new Set(results.map((r: any) => r.filePath))]
-  return uniquePaths.slice(0, 50).join('\n')
+  return uniquePaths.filter((p) => !isIgnoredPath(p)).slice(0, 50).join('\n')
 }
 
 /** Search text content in files */
 export async function searchInFiles(rootPath: string, query: string, filePattern?: string): Promise<string> {
+  await ensureIgnoreLoaded()
   const options: any = { caseSensitive: false }
   if (filePattern) options.filePattern = filePattern
   const results: any[] = await window.electronAPI.searchInFiles(rootPath, query, options)
   if (!results || results.length === 0) return 'No matches found'
-  return results.slice(0, 50).map((r: any) => `${r.filePath}:${r.lineNumber}: ${r.lineContent}`).join('\n')
+  return results.filter((r) => !isIgnoredPath(r.filePath)).slice(0, 50).map((r: any) => `${r.filePath}:${r.lineNumber}: ${r.lineContent}`).join('\n')
 }
 
 /** Write content to a file */

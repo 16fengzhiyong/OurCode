@@ -6,6 +6,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useInlineCompletion } from '@/hooks/useInlineCompletion'
 import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoader, trackLoad } from '@/editor/modelRegistry'
+import { setPendingVibeReplace } from '@/services/vibeReplace'
 import type { UserPreferences } from '@/types'
 
 // Files above this size get large-file editor settings (no word wrap / minimap)
@@ -230,24 +231,19 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     useUIStore.getState().toggleChat()
   }, [])
 
-  // Vibe and Replace (Windsurf-style): rewrite the current selection from a
-  // natural-language description. The prompt includes the selected text; the
-  // assistant's reply carries the new code, which can be applied back via the
-  // "应用到编辑器" button on the message.
+  // Vibe and Replace (Windsurf-style): stash the selection, focus the chat
+  // input, and let the user describe the rewrite. The description + selection
+  // are combined on submit (see ChatInput), and the reply's code block can be
+  // applied back to the selection via "应用到编辑器".
   const vibeReplace = useCallback((selectedText: string, ext: string) => {
     const filePath = useEditorStore.getState().panels[panelId]?.activeFilePath || ''
-    sendToAI(
-      `（Vibe 替换）我将告诉你如何改写下面选中代码，请直接输出替换后的完整新代码（单个代码块，不要解释）：\n\n` +
-      `请描述你希望的改法：\n\n` +
-      `--- 当前选中代码 (${filePath}) ---\n` +
-      `\`\`\`${ext}\n${selectedText}\n\`\`\``
-    )
-    // Ask for the rewrite goal after opening the chat
+    setPendingVibeReplace({ text: selectedText, language: ext, filePath })
+    useUIStore.getState().toggleChat()
     setTimeout(() => {
       const input = document.querySelector('textarea[placeholder*="输入消息"]') as HTMLTextAreaElement | null
       input?.focus()
     }, 300)
-  }, [panelId, sendToAI])
+  }, [panelId])
 
   // Keep editor options in sync with preferences and the active file's size
   // (large files get a reduced-feature preset). Depends on the file size as a

@@ -3,6 +3,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import ModelSelector from './ModelSelector'
 import { filterSlashCommands, buildSlashPrompt, getEditorSlashContext, SlashCommand } from '@/services/commands/slashCommands'
+import { takePendingVibeReplace } from '@/services/vibeReplace'
 
 export default function ChatInput() {
   const [input, setInput] = useState('')
@@ -117,7 +118,11 @@ export default function ChatInput() {
   const handleSubmit = async () => {
     if (!input.trim()) return
 
-    const content = input.trim()
+    // Vibe-and-Replace: combine the user's description with the stashed selection
+    const vibe = takePendingVibeReplace()
+    const content = vibe
+      ? `（Vibe 替换）请按我的要求改写下面的代码，直接输出替换后的完整新代码（单个代码块，不要解释）：\n\n要求: ${input.trim()}\n\n--- 当前选中代码 (${vibe.filePath}) ---\n\`\`\`${vibe.language}\n${vibe.text}\n\`\`\``
+      : input.trim()
 
     // While the agent is working, Enter queues the message (Windsurf-style type-ahead)
     if (isLoading) {
