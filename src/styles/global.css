@@ -1,0 +1,432 @@
+/* Import fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Root */
+:root {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --bg: #1e1e1e;
+  --surface: #252526;
+  --sidebar: #252526;
+  --editor-bg: #1e1e1e;
+  --border: #454545;
+  --hover: #2a2d2e;
+  --input-bg: #3c3c3c;
+  --text-primary: #cccccc;
+  --text-secondary: #cccccc;
+  --text-muted: #8d8d8d;
+  --accent: var(--primary-color, #007acc);
+  --accent-purple: var(--primary-color, #7c5cbf);
+  --primary-color: #007acc;
+  --primary-color-10: rgba(0, 122, 204, 0.1);
+  --primary-color-20: rgba(0, 122, 204, 0.2);
+  --primary-color-30: rgba(0, 122, 204, 0.3);
+  --ai-bg: #1a1a2e;
+  --ai-surface: #16213e;
+  --ai-border: #0f3460;
+  --ai-accent: #533483;
+  --ai-glow: #7c5cbf;
+  --bg-activity: #333333;
+  --bg-tabs: #2d2d2d;
+  --bg-tab-active: #1e1e1e;
+  --bg-statusbar: #007acc;
+  --bg-selected: #094771;
+  --text-active: #ffffff;
+}
+
+/* Light theme */
+:root:not(.dark) {
+  --bg: #FFFFFF;
+  --surface: #F8F9FA;
+  --sidebar: #F3F4F6;
+  --editor-bg: #FFFFFF;
+  --border: #E5E7EB;
+  --hover: #F0F1F3;
+  --input-bg: #F5F6F8;
+  --text-primary: #1F2937;
+  --text-secondary: #4B5563;
+  --text-muted: #9CA3AF;
+  --accent: var(--primary-color, #3B82F6);
+  --accent-purple: var(--primary-color, #8B5CF6);
+}
+
+html {
+  height: 100%;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+}
+
+/* Custom scrollbar (VS Code style) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #424242;
+  border: 3px solid transparent;
+  border-radius: 5px;
+  background-clip: padding-box;
+}
+
+:root:not(.dark) ::-webkit-scrollbar-thumb {
+  background: #D1D5DB;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555555;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+:root:not(.dark) ::-webkit-scrollbar-thumb:hover {
+  background: #9CA3AF;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Drag region for title bar */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Monaco Editor overrides */
+.monaco-editor {
+  padding-top: 8px;
+}
+
+/* Animation classes */
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+.animate-pulse-dot {
+  animation: pulseDot 1.5s infinite;
+}
+
+/* Markdown code blocks */
+.markdown-body pre {
+  background-color: rgba(0,0,0,0.4);
+  border-radius: 8px;
+  padding: 14px;
+  overflow-x: auto;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+:root:not(.dark) .markdown-body pre {
+  background-color: #F5F6F8;
+  border-color: #E5E7EB;
+}
+
+.markdown-body code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+}
+
+.markdown-body p {
+  margin-bottom: 8px;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin-left: 20px;
+  margin-bottom: 8px;
+}
+
+.markdown-body blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+  margin: 8px 0;
+  color: var(--text-muted);
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+}
+
+.markdown-body th {
+  background: var(--surface);
+}
+
+/* Context menu */
+.context-menu {
+  background: #252526;
+  border: 1px solid #454545;
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  min-width: 180px;
+  padding: 4px;
+  backdrop-filter: blur(8px);
+}
+
+:root:not(.dark) .context-menu {
+  background: #FFFFFF;
+  border-color: #E5E7EB;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.context-menu-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 3px;
+  margin: 1px 0;
+}
+
+.context-menu-item:hover {
+  background: #094771;
+}
+
+:root:not(.dark) .context-menu-item:hover {
+  background: #F0F1F3;
+}
+
+/* Tooltip */
+.tooltip {
+  position: relative;
+}
+
+.tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #252526;
+  color: #cccccc;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  border: 1px solid #454545;
+}
+
+:root:not(.dark) .tooltip::after {
+  background: #FFFFFF;
+  color: #1F2937;
+  border-color: #E5E7EB;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.tooltip:hover::after {
+  opacity: 1;
+}
+
+/* Terminal (xterm.js) overrides */
+.xterm {
+  padding: 4px;
+}
+
+.xterm-viewport::-webkit-scrollbar {
+  width: 6px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: #3A3F4E;
+  border-radius: 8px;
+}
+
+/* Selection highlight in editor */
+.selection-highlight {
+  background: var(--primary-color-10);
+}
+
+/* Code block in chat */
+.code-block {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+:root:not(.dark) .code-block {
+  background: #F5F6F8;
+  border-color: #E5E7EB;
+}
+
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: transparent;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  font-size: 11px;
+}
+
+:root:not(.dark) .code-header {
+  background: #F0F1F3;
+  border-bottom-color: #E5E7EB;
+}
+
+.code-lang {
+  color: #7F8AA8;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.copy-btn {
+  background: transparent;
+  border: none;
+  color: #7F8AA8;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.copy-btn:hover {
+  background: #2a2d2e;
+  color: #cccccc;
+}
+
+.code-block pre {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.code-block code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Search result highlight */
+.searchHighlight {
+  background-color: rgba(255, 213, 0, 0.3);
+  border-radius: 2px;
+  outline: 1px solid rgba(255, 213, 0, 0.6);
+}
+
+/* Resizer handle */
+.resizer {
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  position: relative;
+}
+.resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1px;
+  height: 100%;
+  background: var(--border);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.resizer:hover, .resizer.active {
+  background: var(--primary-color-20);
+}
+.resizer:hover::after, .resizer.active::after {
+  opacity: 1;
+}
+
+/* Terminal split resizer (horizontal left-right) */
+.terminal-split-resizer {
+  width: 3px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.terminal-split-resizer:hover,
+.terminal-split-resizer.active {
+  background: var(--primary-color-30);
+}
+
+/* Logo pulse animation */
+@keyframes logo-pulse {
+  0%, 100% { box-shadow: 0 0 6px #7c5cbf88; }
+  50% { box-shadow: 0 0 14px #7c5cbf, 0 0 24px #007acc66; }
+}
+
+.animate-logo-pulse {
+  animation: logo-pulse 2.5s ease-in-out infinite;
+}
+
+/* Thinking dots bounce */
+@keyframes think-bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-6px); opacity: .6; }
+}
+
+.animate-think-bounce {
+  animation: think-bounce 1.2s ease-in-out infinite;
+}
+
+/* Cursor blink */
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+.animate-blink {
+  animation: blink 1.1s step-end infinite;
+}

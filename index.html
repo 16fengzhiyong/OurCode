@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OurCode IDE</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https: https://fonts.googleapis.com; img-src 'self' data:" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <style>
+      html, body, #root {
+        height: 100%;
+      }
+      body { margin: 0; }
+      #splash-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #1a1a2e;
+        font-family: 'Inter', sans-serif;
+        transition: opacity 0.4s ease-out;
+      }
+      #splash-screen.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .splash-logo {
+        font-size: 36px;
+        font-weight: 700;
+        background: linear-gradient(135deg, #6C9EFF, #B77CFF);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 8px;
+        letter-spacing: -0.5px;
+      }
+      .splash-subtitle {
+        color: #666;
+        font-size: 13px;
+        margin-bottom: 32px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+      }
+      .splash-spinner {
+        width: 24px;
+        height: 24px;
+        border: 2.5px solid rgba(108, 158, 255, 0.15);
+        border-top-color: #6C9EFF;
+        border-radius: 50%;
+        animation: splash-spin 0.8s linear infinite;
+      }
+      @keyframes splash-spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body class="bg-nova-bg text-text-primary overflow-hidden h-full">
+    <div id="splash-screen">
+      <div class="splash-logo">OurCode</div>
+      <div class="splash-subtitle">AI-Powered IDE</div>
+      <div class="splash-spinner"></div>
+    </div>
+    <div id="root" class="h-full"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

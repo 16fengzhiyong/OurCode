@@ -1,0 +1,261 @@
+import { useState, useCallback } from 'react'
+import { useEditorStore } from '@/stores/editorStore'
+import { getFileIconHTML } from '@/utils/fileIcons'
+import ConfirmDialog from '@/components/Common/ConfirmDialog'
+
+interface TabBarProps {
+  panelId: string
+}
+
+const DND_MIME = 'application/x-ourcode-tab'
+
+interface DragData {
+  path: string
+  sourcePanelId: string
+}
+
+export default function TabBar({ panelId }: TabBarProps) {
+  const panels = useEditorStore((s) => s.panels)
+  const panelOrder = useEditorStore((s) => s.panelOrder)
+  const openFiles = useEditorStore((s) => s.openFiles)
+  const setActiveFile = useEditorStore((s) => s.setActiveFile)
+  const closeFile = useEditorStore((s) => s.closeFile)
+  const reorderTabs = useEditorStore((s) => s.reorderTabs)
+  const moveTabToPanel = useEditorStore((s) => s.moveTabToPanel)
+  const saveFile = useEditorStore((s) => s.saveFile)
+  const splitPanel = useEditorStore((s) => s.splitPanel)
+  const closePanel = useEditorStore((s) => s.closePanel)
+
+  const panel = panels[panelId]
+  const tabOrder = panel?.tabOrder ?? []
+  const activeFilePath = panel?.activeFilePath ?? null
+
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
+  const [dropIndex, setDropIndex] = useState<number | null>(null)
+  const [confirmClose, setConfirmClose] = useState<string | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
+
+  const orderedFiles = tabOrder
+    .map((path) => openFiles.find((f) => f.path === path))
+    .filter(Boolean)
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    const file = orderedFiles[index]
+    if (!file) return
+    const data: DragData = { path: file.path, sourcePanelId: panelId }
+    e.dataTransfer.setData(DND_MIME, JSON.stringify(data))
+    e.dataTransfer.effectAllowed = 'move'
+    setDragIndex(index)
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDropIndex(index)
+    setIsDragOver(true)
+  }
+
+  const handleTabBarDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setIsDragOver(true)
+  }
+
+  const handleDrop = (e: React.DragEvent, index?: number) => {
+    e.preventDefault()
+    setIsDragOver(false)
+
+    const raw = e.dataTransfer.getData(DND_MIME)
+    if (!raw) {
+      // Within-panel reorder
+      if (dragIndex !== null && index !== undefined && dragIndex !== index) {
+        reorderTabs(dragIndex, index, panelId)
+      }
+      setDragIndex(null)
+      setDropIndex(null)
+      return
+    }
+
+    try {
+      const data: DragData = JSON.parse(raw)
+      if (data.sourcePanelId === panelId) {
+        // Same panel reorder
+        if (index !== undefined && dragIndex !== null && dragIndex !== index) {
+          reorderTabs(dragIndex, index, panelId)
+        }
+      } else {
+        // Cross-panel move
+        const insertIndex = index ?? tabOrder.length
+        moveTabToPanel(data.path, data.sourcePanelId, panelId, insertIndex)
+      }
+    } catch {
+      // ignore malformed data
+    }
+    setDragIndex(null)
+    setDropIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDragIndex(null)
+    setDropIndex(null)
+    setIsDragOver(false)
+  }
+
+  const handleClose = (e: React.MouseEvent, path: string) => {
+    e.stopPropagation()
+    const file = openFiles.find((f) => f.path === path)
+    if (file?.isDirty) {
+      setConfirmClose(path)
+    } else {
+      closeFile(path, panelId)
+    }
+  }
+
+  const handleConfirmClose = useCallback(() => {
+    if (confirmClose) {
+      closeFile(confirmClose, panelId)
+      setConfirmClose(null)
+    }
+  }, [confirmClose, panelId])
+
+  const handleSave = (e: React.MouseEvent, path: string) => {
+    e.stopPropagation()
+    saveFile(path)
+  }
+
+  const getFileName = (path: string) => {
+    return path.split('\\').pop() || path.split('/').pop() || path
+  }
+
+  return (
+    <>
+      <div
+        className={`flex bg-nova-editor border-b border-nova-border-light overflow-x-auto ${isDragOver ? 'bg-opacity-80 ring-1 ring-accent-blue/30' : ''}`}
+        style={{ paddingLeft: 12 }}
+        onDragOver={handleTabBarDragOver}
+        onDrop={(e) => handleDrop(e)}
+        onDragLeave={() => setIsDragOver(false)}
+        onDragEnd={handleDragEnd}
+      >
+        {orderedFiles.map((file, index) => {
+          if (!file) return null
+
+          const isActive = file.path === activeFilePath
+          const fileName = getFileName(file.path)
+
+          return (
+            <div
+              key={file.path}
+              className={`
+                flex items-center h-9 px-4 cursor-pointer
+                text-[13px] gap-2 min-w-0
+                border-r border-nova-border-light
+                group relative select-none
+                ${isActive
+                  ? 'bg-nova-hover text-white border-b-2 border-b-accent-blue'
+                  : 'bg-nova-sidebar text-nova-text-secondary hover:bg-nova-hover'
+                }
+                ${dropIndex === index ? 'border-l-2 border-l-accent-blue' : ''}
+              `}
+              style={{ borderTopLeftRadius: 8, borderTopRightRadius: 8 }}
+              onClick={() => setActiveFile(file.path, panelId)}
+              draggable
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDrop={(e) => { e.stopPropagation(); handleDrop(e, index) }}
+              onDragEnd={handleDragEnd}
+            >
+              <span
+                className="flex items-center shrink-0"
+                dangerouslySetInnerHTML={getFileIconHTML(fileName, false, false, 16)}
+              />
+
+              <span className="truncate">
+                {fileName}
+              </span>
+
+              {file.isDirty && (
+                <button
+                  onClick={(e) => handleSave(e, file.path)}
+                  className="w-2 h-2 rounded-full bg-yellow-500 hover:bg-yellow-400 flex-shrink-0"
+                  title="保存文件"
+                />
+              )}
+
+              <button
+                onClick={(e) => handleClose(e, file.path)}
+                className={`
+                  w-4 h-4 flex items-center justify-center rounded shrink-0
+                  ${file.isDirty ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
+                  hover:bg-nova-border transition-opacity
+                `}
+              >
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+                  <path d="M1 1L7 7M7 1L1 7" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+              </button>
+            </div>
+          )
+        })}
+
+        {orderedFiles.length === 0 && (
+          <div
+            className="flex items-center h-9 px-4 text-[13px] text-nova-text-muted italic"
+            onDragOver={handleTabBarDragOver}
+            onDrop={(e) => handleDrop(e)}
+          >
+            拖拽标签到此处
+          </div>
+        )}
+
+        {/* Panel controls: split + close */}
+        <div className="ml-auto flex items-center gap-0.5 px-1 shrink-0">
+          <button
+            onClick={() => splitPanel('horizontal')}
+            className="p-1.5 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover rounded transition-colors"
+            title="左右分屏 (Ctrl+\)"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="12" y1="3" x2="12" y2="21" />
+            </svg>
+          </button>
+          <button
+            onClick={() => splitPanel('vertical')}
+            className="p-1.5 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover rounded transition-colors"
+            title="上下分屏"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+            </svg>
+          </button>
+          {panelOrder.length > 1 && (
+            <button
+              onClick={() => closePanel(panelId)}
+              className="p-1.5 text-nova-text-muted hover:text-red-400 hover:bg-nova-hover rounded transition-colors"
+              title="关闭此分屏"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <line x1="9" y1="9" x2="15" y2="15" />
+                <line x1="15" y1="9" x2="9" y2="15" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+
+      <ConfirmDialog
+        isOpen={!!confirmClose}
+        title="未保存的更改"
+        message={`文件 "${confirmClose ? getFileName(confirmClose) : ''}" 有未保存的更改。确定关闭而不保存？`}
+        confirmText="不保存，关闭"
+        cancelText="取消"
+        variant="warning"
+        onConfirm={handleConfirmClose}
+        onCancel={() => setConfirmClose(null)}
+      />
+    </>
+  )
+}

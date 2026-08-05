@@ -1,0 +1,347 @@
+import { useState, useCallback } from 'react'
+import { useEditorStore } from '@/stores/editorStore'
+import { useUIStore } from '@/stores/uiStore'
+import { SearchResult } from '@/types'
+
+export default function SearchPanel() {
+  const storeRootPath = useUIStore((s) => s.rootPath)
+  const [query, setQuery] = useState('')
+  const [replaceValue, setReplaceValue] = useState('')
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [caseSensitive, setCaseSensitive] = useState(false)
+  const [wholeWord, setWholeWord] = useState(false)
+  const [useRegex, setUseRegex] = useState(false)
+  const [showReplace, setShowReplace] = useState(false)
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set())
+  const [filePattern, setFilePattern] = useState('')
+  const [excludeFolders, setExcludeFolders] = useState('')
+  const [showFilters, setShowFilters] = useState(false)
+
+  const { openFile } = useEditorStore()
+
+  const handleSearch = useCallback(async () => {
+    if (!query.trim()) {
+      setResults([])
+      return
+    }
+
+    const rootPath = useUIStore.getState().rootPath
+    if (!rootPath) return
+
+    setIsSearching(true)
+    try {
+      const searchResults = await window.electronAPI.searchInFiles(rootPath, query, {
+        caseSensitive,
+        wholeWord,
+        regex: useRegex,
+        filePattern: filePattern.trim() || undefined,
+        excludeFolders: excludeFolders.trim() || undefined,
+      })
+      setResults(searchResults)
+      // Expand all files with results
+      setExpandedFiles(new Set(searchResults.map((r) => r.filePath)))
+    } catch (error) {
+      console.error('搜索失败:', error)
+    } finally {
+      setIsSearching(false)
+    }
+  }, [query, caseSensitive, wholeWord, useRegex, filePattern, excludeFolders])
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch()
+    }
+  }
+
+  const toggleFile = (filePath: string) => {
+    setExpandedFiles((prev) => {
+      const next = new Set(prev)
+      if (next.has(filePath)) {
+        next.delete(filePath)
+      } else {
+        next.add(filePath)
+      }
+      return next
+    })
+  }
+
+  const handleResultClick = (result: SearchResult) => {
+    openFile(result.filePath)
+    // Scroll to line and highlight match after a short delay (wait for model to load)
+    setTimeout(() => {
+      const editor = (window as any).__monacoEditor
+      if (editor) {
+        editor.revealLineInCenter(result.lineNumber)
+        editor.setPosition({ lineNumber: result.lineNumber, column: result.matchStart + 1 })
+        editor.focus()
+        // Highlight the matching text
+        const model = editor.getModel()
+        if (model) {
+          const decorations = editor.deltaDecorations([], [{
+            range: {
+              startLineNumber: result.lineNumber,
+              startColumn: result.matchStart + 1,
+              endLineNumber: result.lineNumber,
+              endColumn: result.matchEnd + 1,
+            },
+            options: { inlineClassName: 'searchHighlight', isWholeLine: false },
+          }])
+          // Clear highlight after 3 seconds
+          setTimeout(() => editor.deltaDecorations(decorations, []), 3000)
+        }
+      }
+    }, 150)
+  }
+
+  const handleReplaceAll = async () => {
+    if (!replaceValue.trim() || results.length === 0) return
+
+    const fileGroups = new Map<string, SearchResult[]>()
+    for (const result of results) {
+      const group = fileGroups.get(result.filePath) || []
+      group.push(result)
+      fileGroups.set(result.filePath, group)
+    }
+
+    for (const [filePath, fileResults] of fileGroups) {
+      try {
+        const { content, encoding } = await window.electronAPI.readFile(filePath)
+        let newContent = content
+
+        // Sort results by position (descending) to replace from end to start
+        const sorted = [...fileResults].sort((a, b) => b.matchStart - a.matchStart)
+
+        for (const result of sorted) {
+          const lineStart = newContent.split('\n').slice(0, result.lineNumber - 1).join('\n').length + (result.lineNumber > 1 ? 1 : 0)
+          const matchStart = lineStart + result.matchStart
+          const matchEnd = lineStart + result.matchEnd
+          newContent = newContent.slice(0, matchStart) + replaceValue + newContent.slice(matchEnd)
+        }
+
+        await window.electronAPI.writeFile(filePath, newContent, encoding)
+
+        // Refresh open editors so Monaco doesn't show stale content
+        if (useEditorStore.getState().openFiles.some((f) => f.path === filePath)) {
+          await useEditorStore.getState().revertFile(filePath)
+        }
+      } catch (error) {
+        console.error(`替换文件失败: ${filePath}`, error)
+      }
+    }
+
+    // Re-search
+    handleSearch()
+  }
+
+  // Group results by file
+  const groupedResults = new Map<string, SearchResult[]>()
+  for (const result of results) {
+    const group = groupedResults.get(result.filePath) || []
+    group.push(result)
+    groupedResults.set(result.filePath, group)
+  }
+
+  return (
+    <div className="h-full flex flex-col text-sm">
+      {/* Search input */}
+      <div className="p-2 space-y-1">
+        <div className="flex items-center gap-1">
+          <div className="flex-1 flex items-center bg-nova-input-bg border border-nova-border rounded px-2 py-1 focus-within:border-nova-accent/50">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="搜索..."
+              className="flex-1 bg-transparent text-nova-text-primary text-xs outline-none placeholder:text-nova-text-muted"
+            />
+            {query && (
+              <button
+                onClick={() => { setQuery(''); setResults([]) }}
+                className="text-nova-text-muted hover:text-nova-text-primary ml-1"
+              >
+                &times;
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Search options */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setCaseSensitive(!caseSensitive)}
+            className={`px-1.5 py-0.5 text-[10px] rounded ${
+              caseSensitive ? 'bg-nova-accent/20 text-nova-accent' : 'text-nova-text-muted hover:bg-nova-hover'
+            }`}
+            title="区分大小写"
+          >
+            Aa
+          </button>
+          <button
+            onClick={() => setWholeWord(!wholeWord)}
+            className={`px-1.5 py-0.5 text-[10px] rounded ${
+              wholeWord ? 'bg-nova-accent/20 text-nova-accent' : 'text-nova-text-muted hover:bg-nova-hover'
+            }`}
+            title="全词匹配"
+          >
+            Ab
+          </button>
+          <button
+            onClick={() => setUseRegex(!useRegex)}
+            className={`px-1.5 py-0.5 text-[10px] rounded ${
+              useRegex ? 'bg-nova-accent/20 text-nova-accent' : 'text-nova-text-muted hover:bg-nova-hover'
+            }`}
+            title="正则表达式"
+          >
+            .*
+          </button>
+          <button
+            onClick={() => setShowReplace(!showReplace)}
+            className={`px-1.5 py-0.5 text-[10px] rounded ${
+              showReplace ? 'bg-nova-accent/20 text-nova-accent' : 'text-nova-text-muted hover:bg-nova-hover'
+            }`}
+            title="替换"
+          >
+            替换
+          </button>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`px-1.5 py-0.5 text-[10px] rounded ml-auto ${
+              showFilters ? 'bg-nova-accent/20 text-nova-accent' : 'text-nova-text-muted hover:bg-nova-hover'
+            }`}
+            title="文件过滤"
+          >
+            过滤
+          </button>
+        </div>
+
+        {/* Replace input */}
+        {showReplace && (
+          <div className="flex items-center gap-1">
+            <div className="flex-1 flex items-center bg-nova-input-bg border border-nova-border rounded px-2 py-1 focus-within:border-nova-accent/50">
+              <input
+                type="text"
+                value={replaceValue}
+                onChange={(e) => setReplaceValue(e.target.value)}
+                placeholder="替换..."
+                className="flex-1 bg-transparent text-nova-text-primary text-xs outline-none placeholder:text-nova-text-muted"
+              />
+            </div>
+            <button
+              onClick={handleReplaceAll}
+              disabled={!replaceValue.trim() || results.length === 0}
+              className="px-2 py-1 text-[10px] bg-nova-accent/20 text-nova-accent rounded hover:bg-nova-accent/30 disabled:opacity-30"
+              title="全部替换"
+            >
+              全部替换
+            </button>
+          </div>
+        )}
+
+        {/* File filters */}
+        {showFilters && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-nova-text-muted w-10 shrink-0">类型</span>
+              <div className="flex-1 flex items-center bg-nova-input-bg border border-nova-border rounded px-2 py-1 focus-within:border-nova-accent/50">
+                <input
+                  type="text"
+                  value={filePattern}
+                  onChange={(e) => setFilePattern(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="*.ts,*.tsx"
+                  className="flex-1 bg-transparent text-nova-text-primary text-xs outline-none placeholder:text-nova-text-muted"
+                />
+                {filePattern && (
+                  <button
+                    onClick={() => setFilePattern('')}
+                    className="text-nova-text-muted hover:text-nova-text-primary ml-1"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-nova-text-muted w-10 shrink-0">排除</span>
+              <div className="flex-1 flex items-center bg-nova-input-bg border border-nova-border rounded px-2 py-1 focus-within:border-nova-accent/50">
+                <input
+                  type="text"
+                  value={excludeFolders}
+                  onChange={(e) => setExcludeFolders(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="node_modules,.git,dist"
+                  className="flex-1 bg-transparent text-nova-text-primary text-xs outline-none placeholder:text-nova-text-muted"
+                />
+                {excludeFolders && (
+                  <button
+                    onClick={() => setExcludeFolders('')}
+                    className="text-nova-text-muted hover:text-nova-text-primary ml-1"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Results count */}
+      {results.length > 0 && (
+        <div className="px-3 py-1 text-[11px] text-nova-text-muted border-t border-nova-border">
+          找到 {results.length} 个结果，{groupedResults.size} 个文件
+        </div>
+      )}
+
+      {/* Results list */}
+      <div className="flex-1 overflow-y-auto">
+        {isSearching && (
+          <div className="p-4 text-center text-nova-text-muted text-xs">
+            搜索中...
+          </div>
+        )}
+
+        {!isSearching && query && results.length === 0 && (
+          <div className="p-4 text-center text-nova-text-muted text-xs">
+            未找到结果
+          </div>
+        )}
+
+        {Array.from(groupedResults.entries()).map(([filePath, fileResults]) => {
+          const fileName = filePath.split(/[/\\]/).pop() || filePath
+          const isExpanded = expandedFiles.has(filePath)
+
+          return (
+            <div key={filePath}>
+              <button
+                className="w-full text-left px-2 py-1.5 flex items-center gap-1 hover:bg-nova-hover text-nova-text-secondary"
+                onClick={() => toggleFile(filePath)}
+              >
+                <span className="text-[10px] text-nova-text-muted">{isExpanded ? '▼' : '▶'}</span>
+                <span className="text-xs font-medium truncate">{fileName}</span>
+                <span className="text-[10px] text-nova-text-muted ml-auto">{fileResults.length}</span>
+              </button>
+
+              {isExpanded && fileResults.map((result, index) => (
+                <button
+                  key={index}
+                  className="w-full text-left px-4 py-1 hover:bg-nova-hover flex items-start gap-2"
+                  onClick={() => handleResultClick(result)}
+                >
+                  <span className="text-[10px] text-nova-text-muted w-8 text-right shrink-0 pt-0.5">
+                    {result.lineNumber}
+                  </span>
+                  <span className="text-xs text-nova-text-secondary truncate font-mono">
+                    {result.lineContent.trim()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}

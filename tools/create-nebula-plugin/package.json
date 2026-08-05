@@ -1,0 +1,14 @@
+{
+  "name": "create-nebula-plugin",
+  "version": "0.1.0",
+  "description": "Scaffold a new OurCode plugin project",
+  "main": "index.ts",
+  "bin": {
+    "create-nebula-plugin": "./index.ts"
+  },
+  "scripts": {
+    "start": "npx tsx index.ts"
+  },
+  "keywords": ["ourcode", "plugin", "scaffold"],
+  "license": "MIT"
+}
