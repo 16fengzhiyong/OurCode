@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type * as monaco from 'monaco-editor'
+import type { monaco } from '@/editor/monacoSetup'
 import { OpenFile, UserPreferences, DEFAULT_PREFERENCES, LANGUAGE_MAP } from '@/types'
 import {
   getFileContent,

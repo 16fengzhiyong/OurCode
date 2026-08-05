@@ -1,4 +1,4 @@
-import * as monaco from 'monaco-editor'
+import { monaco } from '@/editor/monacoSetup'
 
 /**
  * Registry of the live Monaco models for open files.

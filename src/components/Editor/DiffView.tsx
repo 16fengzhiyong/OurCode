@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import * as monaco from 'monaco-editor'
+import { monaco } from '@/editor/monacoSetup'
 
 interface DiffViewProps {
   original: string

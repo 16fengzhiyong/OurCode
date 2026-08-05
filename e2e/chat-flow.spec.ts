@@ -1,4 +1,4 @@
-import { test, expect, _electron as electron } from '@playwright/test'
+import { test, expect, _electron as electron, type Page } from '@playwright/test'
 import path from 'path'
 
 test.describe('Basic App Launch', () => {
@@ -31,6 +31,38 @@ test.describe('Basic App Launch', () => {
         return win?.webContents.getTitle() || ''
       })
     }, { timeout: 5000 }).toContain('OurCode')
+
+    await app.close()
+  })
+
+  test('should wire Monaco language-service workers', async () => {
+    const app = await electron.launch({
+      args: [path.join(__dirname, '../dist-electron/main.js')],
+    })
+
+    // DevTools auto-opens in dev mode; find the window that has the app API
+    let mainWin: Page | null = null
+    for (let i = 0; i < 20 && !mainWin; i++) {
+      for (const p of app.windows()) {
+        try {
+          if (await p.evaluate(() => typeof window.electronAPI !== 'undefined')) {
+            mainWin = p
+            break
+          }
+        } catch { /* closed mid-poll */ }
+      }
+      if (!mainWin) await new Promise((r) => setTimeout(r, 250))
+    }
+    expect(mainWin).toBeTruthy()
+
+    // The modular monacoSetup builds a MonacoEnvironment.getWorker from ?worker
+    // imports; in packaged builds these run the language services off the UI
+    // thread instead of degrading (previously no MonacoEnvironment existed).
+    const getWorkerType = await mainWin!.evaluate(() => {
+      const me = (self as unknown as { MonacoEnvironment?: { getWorker?: unknown } }).MonacoEnvironment
+      return typeof me?.getWorker
+    })
+    expect(getWorkerType).toBe('function')
 
     await app.close()
   })

@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect } from 'react'
-import * as monaco from 'monaco-editor'
+import { monaco } from '@/editor/monacoSetup'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { useConfigStore } from '@/stores/configStore'
 import { useEditorStore } from '@/stores/editorStore'

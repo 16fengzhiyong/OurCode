@@ -5,7 +5,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useShortcutStore, ShortcutPreset } from '@/stores/shortcutStore'
 import { ApiConfigGroup } from '@/types'
-import * as monaco from 'monaco-editor'
+import { monaco } from '@/editor/monacoSetup'
 
 const SYSTEM_PROMPT_TEMPLATES = [
   { name: 'Universal Assistant', prompt: 'You are a professional programming assistant. Current project uses {{language}}, project name: {{projectName}}.' },

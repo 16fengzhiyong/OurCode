@@ -32,7 +32,10 @@ export default defineConfig({
     root: '.',
     build: {
       outDir: 'dist-electron/renderer',
-      emptyOutDir: false,
+      // Stale hashed chunks used to accumulate across builds (the main/preload
+      // outputs live in the same dist-electron root, so only the renderer's own
+      // subdirectory is emptied).
+      emptyOutDir: true,
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'index.html'),
