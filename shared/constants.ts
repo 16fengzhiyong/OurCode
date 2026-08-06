@@ -37,6 +37,11 @@ export const IPC_CHANNELS = {
   STORE_GET_PREFERENCES: 'store:getPreferences',
   STORE_SAVE_PREFERENCES: 'store:savePreferences',
 
+  // Usage statistics
+  USAGE_RECORD: 'usage:record',
+  USAGE_SUMMARY: 'usage:summary',
+  USAGE_CLEAR: 'usage:clear',
+
   // Encryption
   CRYPTO_SET_MASTER_KEY: 'crypto:setMasterKey',
   CRYPTO_UNLOCK: 'crypto:unlock',

@@ -7,8 +7,14 @@ export interface Tool {
   name: string
   description: string
   parameters: Record<string, any> // JSON Schema format
-  execute: (args: Record<string, any>) => Promise<string>
+  execute: (args: Record<string, any>, context?: ToolExecutionContext) => Promise<string>
   requiresApproval?: boolean // Write operations need user confirmation
+}
+
+/** Runtime context passed to tools (used by run_subagent for usage attribution) */
+export interface ToolExecutionContext {
+  sessionId?: string
+  projectPath?: string
 }
 
 /** A tool call from the LLM */

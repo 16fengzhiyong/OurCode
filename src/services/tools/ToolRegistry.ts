@@ -244,6 +244,34 @@ export function createToolRegistry(): Tool[] {
       },
       execute: async () => 'Awaiting user answer',
     },
+    {
+      name: 'run_subagent',
+      description:
+        'Spawn a nested sub-agent to complete a bounded, self-contained sub-task (e.g. code review, ' +
+        'research, refactor of an isolated module). The sub-agent runs autonomously with the full tool ' +
+        'set, records its own usage, and returns a structured report. Use it to parallelize work by ' +
+        'delegating independent sub-tasks, then integrate the results yourself.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '子智能体角色名，如 code-reviewer / researcher / refactorer' },
+          description: { type: 'string', description: '为什么需要这个子智能体（简短背景）' },
+          prompt: { type: 'string', description: '交给子智能体的具体、自包含的任务描述' },
+        },
+        required: ['name', 'prompt'],
+      },
+      execute: async (args, context) => {
+        const { runSubAgent } = await import('@/services/subagents/subagentRunner')
+        return runSubAgent({
+          sessionId: context?.sessionId || '',
+          projectPath: context?.projectPath || '',
+          name: String(args.name || 'subagent'),
+          task: String(args.prompt || ''),
+          description: args.description ? String(args.description) : undefined,
+        })
+      },
+      requiresApproval: true,
+    },
 
     // ──────────────── Web tools (read-only network access) ────────────────
     {

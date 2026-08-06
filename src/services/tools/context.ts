@@ -12,6 +12,8 @@
  * later without changing the prompt shape.
  */
 
+import { listSkills, buildSkillIndex } from '@/services/skills/skillManager'
+
 const SOURCE_EXTENSIONS = '*.ts,*.tsx,*.js,*.jsx,*.mjs,*.cjs,*.py,*.go,*.rs,*.java,*.kt,*.c,*.cpp,*.h,*.hpp,*.cs,*.rb,*.php,*.swift,*.vue,*.svelte,*.html,*.css,*.scss,*.json,*.yaml,*.yml,*.sql,*.sh,*.md,*.toml,*.ini'
 
 const STOPWORDS = new Set([
@@ -178,7 +180,10 @@ async function readFileSnippet(path: string): Promise<string> {
 
 /**
  * Load workspace knowledge: .ourcoderules / rules.json + Claude-style skills
- * (from .claude/skills and .ourcode/skills directories). Cached by mtime.
+ * (from .claude/skills and .ourcode/skills directories). Rules files are
+ * injected in full; skills are injected as a compact index only — the model
+ * loads a skill's full instructions on demand via the skill__<name> tool.
+ * Cached by mtime.
  */
 export async function loadWorkspaceKnowledge(rootPath: string): Promise<string> {
   if (!rootPath) return ''
@@ -186,19 +191,18 @@ export async function loadWorkspaceKnowledge(rootPath: string): Promise<string> 
   try {
     const { stat } = window.electronAPI
     let newest = 0
-    const candidates: string[] = []
     const rulesFiles = ['.ourcoderules', 'rules.json', 'RULES.md']
-    const skillDirs = ['.claude/skills', '.ourcode/skills', 'skills']
-    for (const f of rulesFiles) candidates.push(joinPath(rootPath, f))
-    for (const dir of skillDirs) {
-      const skills = await listSkillFiles(joinPath(rootPath, dir))
-      candidates.push(...skills)
-    }
-    for (const c of candidates) {
+    for (const f of rulesFiles) {
       try {
-        const s = await stat(c)
+        const s = await stat(joinPath(rootPath, f))
         if (s.modifiedAt > newest) newest = s.modifiedAt
       } catch { /* missing */ }
+    }
+    // Skill mtimes come from the shared SkillManager cache (used by the
+    // skill__<name> tools too, so the prompt index stays in sync).
+    const skills = await listSkills(false, rootPath)
+    for (const s of skills) {
+      if (s.mtime > newest) newest = s.mtime
     }
     const cached = KNOWLEDGE_CACHE.get(key)
     if (cached && cached.mtime >= newest) return cached.text
@@ -208,37 +212,13 @@ export async function loadWorkspaceKnowledge(rootPath: string): Promise<string> 
       const text = await tryReadFile(joinPath(rootPath, f))
       if (text) parts.push(text.trim())
     }
-    for (const dir of skillDirs) {
-      const skills = await listSkillFiles(joinPath(rootPath, dir))
-      for (const s of skills) {
-        const text = await tryReadFile(s)
-        if (text) {
-          const skillName = s.split(/[/\\]/).slice(-2)[0] || 'skill'
-          parts.push(`[技能: ${skillName}]\n${text.trim()}`)
-        }
-      }
-    }
+    const skillIndex = await buildSkillIndex(rootPath)
+    if (skillIndex) parts.push(skillIndex)
     const text = parts.length ? `\n\n<workspace_knowledge>\n${parts.join('\n\n')}\n</workspace_knowledge>` : ''
     KNOWLEDGE_CACHE.set(key, { mtime: newest, text })
     return text
   } catch {
     return ''
-  }
-}
-
-async function listSkillFiles(dir: string): Promise<string[]> {
-  try {
-    const entries = await window.electronAPI.listDir(dir)
-    const out: string[] = []
-    for (const e of entries) {
-      if (e.isDirectory) {
-        out.push(joinPath(joinPath(dir, e.name), 'SKILL.md'))
-        out.push(joinPath(joinPath(dir, e.name), 'skill.md'))
-      }
-    }
-    return out
-  } catch {
-    return []
   }
 }
 

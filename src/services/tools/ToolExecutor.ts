@@ -1,14 +1,21 @@
 /**
  * Tool Executor - handles running tools and managing approval flow
  */
+import { v4 as uuidv4 } from 'uuid'
 import { Tool, ToolCall, ToolResult, ToolDefinition } from './types'
 import { createToolRegistry, toToolDefinitions } from './ToolRegistry'
+import { toSkillToolDefinitions, loadSkillContent, getWorkspaceRoot } from '@/services/skills/skillManager'
+import type { UsageEvent, UsageEventCategory } from '@/types'
 
 export class ToolExecutor {
   private tools: Tool[]
   private toolMap: Map<string, Tool>
   /** Dynamic tools from MCP servers (fetched via IPC, merged into definitions) */
   private dynamicTools: ToolDefinition[] = []
+  /** Dynamic skill tools (skill__<name>) from the workspace skill manager */
+  private skillTools: ToolDefinition[] = []
+  /** Session context for usage attribution (set by the agent loop) */
+  private sessionContext: { sessionId: string; projectPath: string } | null = null
 
   constructor() {
     this.tools = createToolRegistry()
@@ -20,6 +27,11 @@ export class ToolExecutor {
     return this.tools
   }
 
+  /** Attribute usage events to the running session */
+  setSessionContext(sessionId: string, projectPath: string): void {
+    this.sessionContext = { sessionId, projectPath }
+  }
+
   /** Refresh MCP tool definitions from the main process */
   async refreshMcpTools(): Promise<void> {
     try {
@@ -29,24 +41,72 @@ export class ToolExecutor {
     }
   }
 
+  /** Refresh skill tool definitions from the workspace SkillManager */
+  async refreshSkillTools(): Promise<void> {
+    try {
+      this.skillTools = await toSkillToolDefinitions()
+    } catch {
+      this.skillTools = []
+    }
+  }
+
   /** Get tool definitions for LLM, optionally filtered by name (plan mode) */
   getToolDefinitions(filter?: (name: string) => boolean): ToolDefinition[] {
     let defs = toToolDefinitions(this.tools)
     if (filter) defs = defs.filter((d) => filter(d.function.name))
     const dynamic = this.dynamicTools.filter((d) => !filter || filter(d.function.name))
-    return [...defs, ...dynamic]
+    const skills = this.skillTools.filter((d) => !filter || filter(d.function.name))
+    return [...defs, ...dynamic, ...skills]
   }
 
   /** Check if a tool requires user approval */
   requiresApproval(toolName: string): boolean {
     // MCP tools are user-configured servers — their calls run without extra approval
     if (toolName.startsWith('mcp__')) return false
+    // Skill tools are read-only (they only load instructions)
+    if (toolName.startsWith('skill__')) return false
     const tool = this.toolMap.get(toolName)
     return tool?.requiresApproval ?? false
   }
 
+  /** Persist one usage event (skills / subagents / MCP) into the dashboard */
+  private recordUsage(category: UsageEventCategory, name: string, startedAt: number, opts: { sub?: string; ok: boolean; error?: string }): void {
+    const event: UsageEvent = {
+      id: uuidv4(),
+      category,
+      name,
+      sub: opts.sub,
+      sessionId: this.sessionContext?.sessionId,
+      projectPath: this.sessionContext?.projectPath,
+      startedAt,
+      durationMs: Date.now() - startedAt,
+      ok: opts.ok,
+      error: opts.error,
+    }
+    window.electronAPI.recordUsage([event]).catch(() => { /* stats are best-effort */ })
+    window.dispatchEvent(new CustomEvent('ourcode:usage-recorded'))
+  }
+
   /** Execute a tool call */
   async execute(toolCall: ToolCall): Promise<ToolResult> {
+    // Skill dynamic tool: skill__<name> — loads the skill's instructions
+    if (toolCall.name.startsWith('skill__')) {
+      const skillName = toolCall.name.slice('skill__'.length)
+      const startedAt = Date.now()
+      try {
+        const content = await loadSkillContent(skillName, getWorkspaceRoot())
+        if (content == null) {
+          this.recordUsage('skill', skillName, startedAt, { ok: false, error: '技能不存在' })
+          return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: 技能 "${skillName}" 不存在`, isError: true }
+        }
+        this.recordUsage('skill', skillName, startedAt, { ok: true })
+        return { toolCallId: toolCall.id, name: toolCall.name, result: content }
+      } catch (error: any) {
+        this.recordUsage('skill', skillName, startedAt, { ok: false, error: error.message })
+        return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: ${error.message}`, isError: true }
+      }
+    }
+
     // MCP dynamic tool: mcp__<server>__<toolName>
     if (toolCall.name.startsWith('mcp__')) {
       const rest = toolCall.name.slice('mcp__'.length)
@@ -56,13 +116,17 @@ export class ToolExecutor {
       }
       const server = rest.slice(0, sep)
       const toolName = rest.slice(sep + 2)
+      const startedAt = Date.now()
       try {
         const res = await window.electronAPI.mcpCallTool(server, toolName, toolCall.arguments || {})
         if (res.ok) {
+          this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: true })
           return { toolCallId: toolCall.id, name: toolCall.name, result: res.result || '(空结果)' }
         }
+        this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: false, error: res.error })
         return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: ${res.error}`, isError: true }
       } catch (error: any) {
+        this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: false, error: error.message })
         return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: ${error.message}`, isError: true }
       }
     }
@@ -78,7 +142,10 @@ export class ToolExecutor {
     }
 
     try {
-      const result = await tool.execute(toolCall.arguments)
+      const result = await tool.execute(toolCall.arguments, {
+        sessionId: this.sessionContext?.sessionId,
+        projectPath: this.sessionContext?.projectPath,
+      })
       return {
         toolCallId: toolCall.id,
         name: toolCall.name,
@@ -118,7 +185,12 @@ export class ToolExecutor {
         return `提交计划: ${args.title || '(未命名)'}`
       case 'ask_user_question':
         return `提问: ${args.question}`
+      case 'run_subagent':
+        return `子智能体 "${args.name || ''}": ${args.prompt || ''}`
       default:
+        if (toolCall.name.startsWith('skill__')) {
+          return `加载技能: ${toolCall.name.slice('skill__'.length)}`
+        }
         if (toolCall.name.startsWith('mcp__')) {
           return `MCP 工具: ${toolCall.name}\n${JSON.stringify(args, null, 2).slice(0, 500)}`
         }

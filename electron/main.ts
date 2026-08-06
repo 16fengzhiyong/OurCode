@@ -12,6 +12,9 @@ import { BackupService } from './services/backup'
 import { LspServer } from './services/lsp'
 import { DebugAdapterClient } from './services/debug'
 import { MCPManager, extractMcpText, toMcpToolDefinition } from './services/mcp-manager'
+import { v4 as uuidv4 } from 'uuid'
+import { IPC_CHANNELS } from '../shared/constants'
+import type { UsageEvent } from '../shared/types'
 
 const DEFAULT_EXCLUDE_FOLDERS = ['node_modules', '.git', 'dist', 'build', 'out']
 
@@ -877,6 +880,25 @@ function registerIpcHandlers(): void {
     return tools.map((t) => toMcpToolDefinition(t))
   })
 
+  // ───────────────────── Usage statistics ─────────────────────
+  ipcMain.handle(IPC_CHANNELS.USAGE_RECORD, (_event, events: UsageEvent[]) => {
+    try {
+      store.recordUsageEvents(Array.isArray(events) ? events : [])
+      return { ok: true }
+    } catch (error: any) {
+      return { ok: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle(IPC_CHANNELS.USAGE_SUMMARY, (_event, rangeDays?: number) => {
+    return store.getUsageSummary(rangeDays)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.USAGE_CLEAR, () => {
+    store.clearUsageEvents()
+    return { ok: true }
+  })
+
   // Git handler
   ipcMain.handle('git:exec', async (_event, cwd: string, args: string[]) => {
     try {
@@ -1029,6 +1051,34 @@ app.whenReady().then(() => {
   store = new SQLiteStore(userDataPath)
   backup = new BackupService(join(userDataPath, 'backups'))
   mcp = new MCPManager()
+
+  // Track MCP server lifecycle for the usage dashboard (ready / failure counts,
+  // mirroring Windsurf's McpServerState tracking)
+  mcp.on('ready', ({ server }: { server: string }) => {
+    store.recordUsageEvents([{
+      id: uuidv4(),
+      category: 'mcp',
+      name: `${server}__server`,
+      sub: server,
+      startedAt: Date.now(),
+      ok: true,
+      payload: { event: 'ready' },
+    }])
+  })
+  mcp.on('error', (error: Error) => {
+    const match = /MCP 服务器 "([^"]+)"/.exec(error.message)
+    const server = match ? match[1] : 'unknown'
+    store.recordUsageEvents([{
+      id: uuidv4(),
+      category: 'mcp',
+      name: `${server}__server`,
+      sub: server,
+      startedAt: Date.now(),
+      ok: false,
+      error: error.message,
+      payload: { event: 'error' },
+    }])
+  })
 
   registerIpcHandlers()
   createWindow()

@@ -88,6 +88,20 @@ export default function ChatInput() {
     }
   }, [input])
 
+  // Listen for "run skill" actions from the usage panel: inject the skill
+  // instructions into the input so the user can review before sending.
+  useEffect(() => {
+    const onSetInput = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail
+      if (typeof detail === 'string') {
+        setInput(detail)
+        textareaRef.current?.focus()
+      }
+    }
+    window.addEventListener('ourcode:set-chat-input', onSetInput)
+    return () => window.removeEventListener('ourcode:set-chat-input', onSetInput)
+  }, [])
+
   // Detect @ trigger
   const searchFiles = useCallback(async (query: string) => {
     try {

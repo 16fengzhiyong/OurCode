@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import ProjectListPanel from './ProjectListPanel'
 import FileChangesPanel from './FileChangesPanel'
 import AgentTasksPanel from './AgentTasksPanel'
+import UsagePanel from './UsagePanel'
 import GitPanel from '../Git/GitPanel'
 import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
@@ -29,6 +30,8 @@ export default function Sidebar() {
         return '文件变更历史'
       case 'agent':
         return t('agent.tasksPanelTitle')
+      case 'usage':
+        return t('usage.panelTitle')
       case 'extensions':
         return '扩展'
       default:
@@ -68,6 +71,17 @@ export default function Sidebar() {
           <path d="M12 8V4" />
           <circle cx="12" cy="3" r="1.2" />
           <path d="M9 13h.01M15 13h.01M9 17h6" />
+        </svg>
+      )
+    }
+    if (activeSidebarTab === 'usage') {
+      return (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="4" y1="20" x2="4" y2="14" />
+          <line x1="10" y1="20" x2="10" y2="6" />
+          <line x1="16" y1="20" x2="16" y2="11" />
+          <line x1="22" y1="20" x2="22" y2="3" />
+          <path d="M2 20h22" />
         </svg>
       )
     }
@@ -148,6 +162,8 @@ export default function Sidebar() {
           <FileChangesPanel />
         ) : activeSidebarTab === 'agent' ? (
           <AgentTasksPanel />
+        ) : activeSidebarTab === 'usage' ? (
+          <UsagePanel />
         ) : null}
       </div>
     </div>

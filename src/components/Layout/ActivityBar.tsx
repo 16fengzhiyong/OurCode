@@ -6,7 +6,7 @@ export default function ActivityBar() {
   const { activeSidebarTab, setActiveSidebarTab, toggleSidebar, openMarketplace, isSidebarVisible } = useUIStore()
   const t = useI18n()
 
-  const topIcons: Array<{ key: 'files' | 'git' | 'changes' | 'agent' | 'extensions'; titleKey: TranslationKey; icon: JSX.Element }> = [
+  const topIcons: Array<{ key: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage'; titleKey: TranslationKey; icon: JSX.Element }> = [
     {
       key: 'files',
       titleKey: 'activityBar.explorer' as TranslationKey,
@@ -49,6 +49,19 @@ export default function ActivityBar() {
           <path d="M12 8V4" />
           <circle cx="12" cy="3" r="1.2" />
           <path d="M9 13h.01M15 13h.01M9 17h6" />
+        </svg>
+      ),
+    },
+    {
+      key: 'usage',
+      titleKey: 'activityBar.usage' as TranslationKey,
+      icon: (
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="4" y1="20" x2="4" y2="14" />
+          <line x1="10" y1="20" x2="10" y2="6" />
+          <line x1="16" y1="20" x2="16" y2="11" />
+          <line x1="22" y1="20" x2="22" y2="3" />
+          <path d="M2 20h22" />
         </svg>
       ),
     },
@@ -97,11 +110,11 @@ export default function ActivityBar() {
       openMarketplace()
       return
     }
-    // File change history / agent tasks: switch to the matching sidebar panel
-    if (key === 'changes' || key === 'agent') {
+    // Sidebar panels (file change history / agent tasks / usage): switch tab
+    if (key === 'changes' || key === 'agent' || key === 'usage') {
       const ui = useUIStore.getState()
       if (!ui.isSidebarVisible) ui.toggleSidebar()
-      ui.setActiveSidebarTab(key as 'changes' | 'agent')
+      ui.setActiveSidebarTab(key as 'changes' | 'agent' | 'usage')
       return
     }
     if (!isSidebarVisible) {

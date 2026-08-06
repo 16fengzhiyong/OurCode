@@ -23,7 +23,7 @@ interface UIState {
   // Sidebar
   isSidebarVisible: boolean
   sidebarWidth: number
-  activeSidebarTab: 'files' | 'git' | 'changes' | 'agent' | 'extensions'
+  activeSidebarTab: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage'
   rootPath: string | null
   recentProjects: string[]
 
@@ -70,7 +70,7 @@ interface UIState {
   // Actions
   toggleSidebar: () => void
   setSidebarWidth: (width: number) => void
-  setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'agent' | 'extensions') => void
+  setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage') => void
   setRootPath: (path: string | null) => void
   removeRecentProject: (path: string) => void
 

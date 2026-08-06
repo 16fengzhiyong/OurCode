@@ -371,3 +371,77 @@ export interface SearchResult {
   matchStart: number
   matchEnd: number
 }
+
+// ───────────────────── Usage statistics ─────────────────────
+
+/** Feature category of a recorded usage event (persisted in usage_events) */
+export type UsageEventCategory = 'llm' | 'skill' | 'subagent' | 'mcp'
+
+/**
+ * One recorded usage event. Collection points:
+ * - 'llm'       name = model id, sub = provider (chatStore / arena)
+ * - 'skill'     name = skill name (SkillManager / skill__ tool)
+ * - 'subagent'  name = subagent role name (subagentRunner)
+ * - 'mcp'       name = `${server}__${tool}` (or `server__<lifecycle>`), sub = server (ToolExecutor / MCPManager)
+ */
+export interface UsageEvent {
+  id: string
+  category: UsageEventCategory
+  name: string
+  sub?: string
+  sessionId?: string
+  projectPath?: string
+  startedAt: number
+  finishedAt?: number
+  durationMs?: number
+  tokensIn?: number
+  tokensOut?: number
+  ok?: boolean
+  error?: string
+  payload?: Record<string, any>
+}
+
+/** One row of an aggregated ranking (byModel / skills / subagents / mcp) */
+export interface UsageRankRow {
+  name: string
+  sub: string
+  count: number
+  tokensIn: number
+  tokensOut: number
+  errors: number
+  lastUsed: number
+}
+
+/** One day of the token-usage trend (key: 'YYYY-MM-DD' local time) */
+export interface UsageDailyRow {
+  day: string
+  tokensIn: number
+  tokensOut: number
+  requests: number
+}
+
+/** A recent usage event, as returned by the summary query (denormalized) */
+export interface UsageRecentRow {
+  id: string
+  category: UsageEventCategory
+  name: string
+  sub: string
+  sessionId: string
+  startedAt: number
+  durationMs: number
+  tokensIn: number
+  tokensOut: number
+  ok: boolean
+  error: string
+}
+
+/** Dashboard payload returned by usage:summary for a given time range */
+export interface UsageSummary {
+  totals: { requests: number; tokensIn: number; tokensOut: number; errors: number }
+  daily: UsageDailyRow[]
+  byModel: UsageRankRow[]
+  skills: UsageRankRow[]
+  subagents: UsageRankRow[]
+  mcp: UsageRankRow[]
+  recent: UsageRecentRow[]
+}

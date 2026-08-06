@@ -3,7 +3,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { CryptoService } from './crypto'
-import { ApiConfigGroup, ChatSession, ChatMessage, ChatBranch, UserPreferences, Memory, Checkpoint, TodoItem, Workflow, AgentRun } from '../../shared/types'
+import { ApiConfigGroup, ChatSession, ChatMessage, ChatBranch, UserPreferences, Memory, Checkpoint, TodoItem, Workflow, AgentRun, UsageEvent, UsageSummary, UsageRankRow } from '../../shared/types'
 import { DEFAULT_PREFERENCES } from '../../shared/constants'
 
 /** Parse a JSON column safely ('' / null / invalid → fallback) */
@@ -194,9 +194,28 @@ export class SQLiteStore {
         updated_at INTEGER NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS usage_events (
+        id TEXT PRIMARY KEY,
+        category TEXT NOT NULL,
+        name TEXT NOT NULL,
+        sub TEXT DEFAULT '',
+        session_id TEXT DEFAULT '',
+        project_path TEXT DEFAULT '',
+        started_at INTEGER NOT NULL,
+        finished_at INTEGER DEFAULT 0,
+        duration_ms INTEGER DEFAULT 0,
+        tokens_in INTEGER DEFAULT 0,
+        tokens_out INTEGER DEFAULT 0,
+        ok INTEGER DEFAULT 1,
+        error TEXT DEFAULT '',
+        payload TEXT DEFAULT '{}'
+      );
+
       CREATE INDEX IF NOT EXISTS idx_messages_session ON chat_messages(session_id, sort_order);
       CREATE INDEX IF NOT EXISTS idx_sessions_config ON chat_sessions(config_group_id);
       CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_usage_category_time ON usage_events(category, started_at);
+      CREATE INDEX IF NOT EXISTS idx_usage_name ON usage_events(name);
     `)
   }
 
@@ -589,6 +608,126 @@ export class SQLiteStore {
     this.db.prepare('DELETE FROM workflows WHERE id = ?').run(id)
   }
 
+  // ───────────────────── Usage statistics (LLM / skills / subagents / MCP) ─────────────────────
+  /** Batch-insert usage events (idempotent per id — INSERT OR REPLACE) */
+  recordUsageEvents(events: UsageEvent[]): void {
+    if (!events || events.length === 0) return
+    const insert = this.db.prepare(`
+      INSERT OR REPLACE INTO usage_events
+        (id, category, name, sub, session_id, project_path, started_at, finished_at,
+         duration_ms, tokens_in, tokens_out, ok, error, payload)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    const insertMany = this.db.transaction((rows: UsageEvent[]) => {
+      for (const e of rows) {
+        insert.run(
+          e.id,
+          e.category,
+          e.name,
+          e.sub || '',
+          e.sessionId || '',
+          e.projectPath || '',
+          e.startedAt,
+          e.finishedAt || 0,
+          e.durationMs || 0,
+          e.tokensIn || 0,
+          e.tokensOut || 0,
+          e.ok === false ? 0 : 1,
+          e.error || '',
+          JSON.stringify(e.payload || {})
+        )
+      }
+    })
+    insertMany(events)
+  }
+
+  /** Aggregate one ranking group (byModel / skills / subagents / mcp) */
+  private usageRank(category: string, cutoff: number): UsageRankRow[] {
+    const sql = `
+      SELECT name, sub, COUNT(*) AS count,
+             IFNULL(SUM(tokens_in), 0) AS tokensIn,
+             IFNULL(SUM(tokens_out), 0) AS tokensOut,
+             IFNULL(SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END), 0) AS errors,
+             MAX(started_at) AS lastUsed
+      FROM usage_events
+      WHERE category = ?${cutoff > 0 ? ' AND started_at >= ?' : ''}
+      GROUP BY name, sub
+      ORDER BY count DESC, lastUsed DESC
+    `
+    const rows = cutoff > 0
+      ? this.db.prepare(sql).all(category, cutoff)
+      : this.db.prepare(sql).all(category)
+    return (rows as any[]).map((r) => ({
+      name: r.name,
+      sub: r.sub || '',
+      count: r.count,
+      tokensIn: r.tokensIn,
+      tokensOut: r.tokensOut,
+      errors: r.errors,
+      lastUsed: r.lastUsed,
+    }))
+  }
+
+  /** Dashboard payload for a time range (rangeDays; 0/undefined = all time) */
+  getUsageSummary(rangeDays?: number): UsageSummary {
+    const cutoff = rangeDays && rangeDays > 0 ? Date.now() - rangeDays * 86400000 : 0
+    const where = cutoff > 0 ? 'WHERE started_at >= ?' : ''
+    const params = cutoff > 0 ? [cutoff] : []
+
+    const totals = this.db.prepare(`
+      SELECT COUNT(*) AS requests,
+             IFNULL(SUM(tokens_in), 0) AS tokensIn,
+             IFNULL(SUM(tokens_out), 0) AS tokensOut,
+             IFNULL(SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END), 0) AS errors
+      FROM usage_events ${where}
+    `).get(...params) as any
+
+    const daily = this.db.prepare(`
+      SELECT date(started_at / 1000, 'unixepoch', 'localtime') AS day,
+             IFNULL(SUM(tokens_in), 0) AS tokensIn,
+             IFNULL(SUM(tokens_out), 0) AS tokensOut,
+             COUNT(*) AS requests
+      FROM usage_events ${where}
+      GROUP BY day ORDER BY day ASC
+    `).all(...params) as any[]
+
+    const recent = this.db.prepare(`
+      SELECT id, category, name, sub, session_id, started_at, duration_ms, tokens_in, tokens_out, ok, error
+      FROM usage_events ORDER BY started_at DESC LIMIT 50
+    `).all() as any[]
+
+    return {
+      totals: {
+        requests: totals.requests,
+        tokensIn: totals.tokensIn,
+        tokensOut: totals.tokensOut,
+        errors: totals.errors,
+      },
+      daily: daily.map((d) => ({ day: d.day, tokensIn: d.tokensIn, tokensOut: d.tokensOut, requests: d.requests })),
+      byModel: this.usageRank('llm', cutoff),
+      skills: this.usageRank('skill', cutoff),
+      subagents: this.usageRank('subagent', cutoff),
+      mcp: this.usageRank('mcp', cutoff),
+      recent: recent.map((r) => ({
+        id: r.id,
+        category: r.category,
+        name: r.name,
+        sub: r.sub || '',
+        sessionId: r.session_id,
+        startedAt: r.started_at,
+        durationMs: r.duration_ms,
+        tokensIn: r.tokens_in,
+        tokensOut: r.tokens_out,
+        ok: r.ok !== 0,
+        error: r.error || '',
+      })),
+    }
+  }
+
+  clearUsageEvents(): void {
+    this.db.exec('DELETE FROM usage_events')
+  }
+
   resetAll(): void {
     this.db.exec('DELETE FROM chat_messages')
     this.db.exec('DELETE FROM chat_sessions')
@@ -597,6 +736,7 @@ export class SQLiteStore {
     this.db.exec('DELETE FROM memories')
     this.db.exec('DELETE FROM checkpoints')
     this.db.exec('DELETE FROM workflows')
+    this.db.exec('DELETE FROM usage_events')
   }
 
   close(): void {

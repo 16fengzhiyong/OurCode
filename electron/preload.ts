@@ -81,6 +81,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   savePreferences: (prefs: any) => ipcRenderer.invoke(IPC_CHANNELS.STORE_SAVE_PREFERENCES, prefs),
   resetAll: () => ipcRenderer.invoke('store:resetAll'),
 
+  // Usage statistics
+  recordUsage: (events: any[]) => ipcRenderer.invoke(IPC_CHANNELS.USAGE_RECORD, events),
+  getUsageSummary: (rangeDays?: number) => ipcRenderer.invoke(IPC_CHANNELS.USAGE_SUMMARY, rangeDays),
+  clearUsage: () => ipcRenderer.invoke(IPC_CHANNELS.USAGE_CLEAR),
+
   // Crypto (Export/Import)
   encryptForExport: (text: string, password: string) => ipcRenderer.invoke('crypto:encryptForExport', text, password),
   decryptForImport: (encryptedData: string, password: string) => ipcRenderer.invoke('crypto:decryptForImport', encryptedData, password),

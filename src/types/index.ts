@@ -121,6 +121,11 @@ export interface ElectronAPI {
   mcpReload: (rootPath: string) => Promise<{ ok: boolean; error?: string }>
   mcpToolDefinitions: () => Promise<import('@shared/types').ToolDefinition[]>
 
+  // Usage statistics (skills / subagents / MCP / LLM)
+  recordUsage: (events: import('@shared/types').UsageEvent[]) => Promise<{ ok: boolean; error?: string }>
+  getUsageSummary: (rangeDays?: number) => Promise<import('@shared/types').UsageSummary>
+  clearUsage: () => Promise<{ ok: boolean }>
+
   // App
   getPath: (name: string) => Promise<string>
   getPlatform: () => Promise<string>

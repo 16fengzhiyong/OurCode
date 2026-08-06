@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, lookupModelMetadata } from '@/types'
+import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, UsageEvent, lookupModelMetadata } from '@/types'
 import { EXHAUSTED_MARKER, AUTO_CONTINUE_KEY, TOOL_ALLOWLIST_PREFIX } from '@shared/constants'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
@@ -18,6 +18,7 @@ import {
   getEditorSelectionContext,
 } from '@/services/tools/context'
 import { v4 as uuidv4 } from 'uuid'
+import { captureCheckpoint as captureCheckpointService } from '@/services/checkpointService'
 
 // Cached git branch (refreshed via refreshGitBranch)
 let _cachedGitBranch = ''
@@ -1262,6 +1263,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
 // ─────────────────────────── Agent loop ───────────────────────────
 
+/** Build a 'llm' usage event for the usage dashboard (tokens from real usage) */
+function makeLlmUsageEvent(opts: {
+  sessionId: string
+  projectPath: string
+  model: string
+  provider: string
+  startedAt: number
+  durationMs?: number
+  tokensIn?: number
+  tokensOut?: number
+  ok?: boolean
+  error?: string
+}): UsageEvent {
+  return {
+    id: uuidv4(),
+    category: 'llm',
+    name: opts.model,
+    sub: opts.provider,
+    sessionId: opts.sessionId,
+    projectPath: opts.projectPath,
+    startedAt: opts.startedAt,
+    durationMs: opts.durationMs || 0,
+    tokensIn: opts.tokensIn || 0,
+    tokensOut: opts.tokensOut || 0,
+    ok: opts.ok ?? true,
+    error: opts.error,
+  }
+}
+
+/** Flush recorded usage events to the main process + notify the dashboard */
+function flushUsageEvents(events: UsageEvent[]): void {
+  if (!events || events.length === 0) return
+  window.electronAPI.recordUsage(events).catch(() => { /* stats are best-effort */ })
+  window.dispatchEvent(new CustomEvent('ourcode:usage-recorded'))
+}
+
 /**
  * Core agent loop: streams the LLM response, executes tool calls with approval,
  * handles plan-mode / todos / questions / checkpoints, and saves the session.
@@ -1282,8 +1319,9 @@ async function runAgentLoop(
 
   const agentMode = opts?.agentModeOverride || (session.agentMode === 'agent' ? 'agent' : 'chat')
 
-  // Refresh dynamic tools (MCP servers) before building the tool list
+  // Refresh dynamic tools (MCP servers + workspace skills) before building the tool list
   await toolExecutor.refreshMcpTools()
+  await toolExecutor.refreshSkillTools()
 
   // Build the system prompt with memories / rules / skills / retrieved context
   const lastUserMessage = [...session.messages].reverse().find((m) => m.role === 'user')
@@ -1331,6 +1369,8 @@ async function runAgentLoop(
   // Agent mode: start (or resume) the run record + live trace. Also load the
   // persisted per-project "always allow" list for the approval checks below.
   const projectPath = session.projectPath || getWorkspaceRoot()
+  // Attribute tool usage (MCP / skills / subagents) to this session
+  toolExecutor.setSessionContext(sessionId, projectPath)
   let runId: string | undefined
   if (agentMode === 'agent') {
     const st = useChatStore.getState()
@@ -1362,6 +1402,8 @@ async function runAgentLoop(
   const abortController = new AbortController()
   set({ abortController })
 
+  const usageEvents: UsageEvent[] = []
+
   try {
     const model = session.model || configGroup.defaultModel
     let iterationsLeft = MAX_AGENT_ITERATIONS
@@ -1388,26 +1430,52 @@ async function runAgentLoop(
       let fullContent = ''
       let fullThinking = ''
       let toolCalls: any[] = []
+      const reqStartedAt = Date.now()
+      let reqTokensIn = 0
+      let reqTokensOut = 0
 
-      for await (const chunk of sendLLMRequest(req, configGroup)) {
-        if (abortController.signal.aborted) break
+      try {
+        for await (const chunk of sendLLMRequest(req, configGroup)) {
+          if (abortController.signal.aborted) break
 
-        if (chunk.thinking) {
-          fullThinking += chunk.thinking
-          set({ streamingThinking: fullThinking })
+          if (chunk.thinking) {
+            fullThinking += chunk.thinking
+            set({ streamingThinking: fullThinking })
+          }
+
+          if (chunk.content) {
+            fullContent += chunk.content
+            set({ streamingContent: fullContent })
+          }
+
+          if (chunk.toolCalls) {
+            toolCalls = chunk.toolCalls
+          }
+
+          // Real token usage reported by the provider (parsed by the adapters) —
+          // persisted into the usage dashboard instead of being dropped.
+          if (chunk.usage) {
+            reqTokensIn = chunk.usage.promptTokens
+            reqTokensOut = chunk.usage.completionTokens
+          }
+
+          if (chunk.done) break
         }
-
-        if (chunk.content) {
-          fullContent += chunk.content
-          set({ streamingContent: fullContent })
-        }
-
-        if (chunk.toolCalls) {
-          toolCalls = chunk.toolCalls
-        }
-
-        if (chunk.done) break
+      } catch (requestError: any) {
+        usageEvents.push(makeLlmUsageEvent({
+          sessionId, projectPath, model, provider: configGroup.provider,
+          startedAt: reqStartedAt, ok: false, error: requestError.message,
+        }))
+        throw requestError
       }
+
+      usageEvents.push(makeLlmUsageEvent({
+        sessionId, projectPath, model, provider: configGroup.provider,
+        startedAt: reqStartedAt,
+        durationMs: Date.now() - reqStartedAt,
+        tokensIn: reqTokensIn,
+        tokensOut: reqTokensOut,
+      }))
 
       // No tool calls - we're done
       if (toolCalls.length === 0) {
@@ -1711,6 +1779,9 @@ async function runAgentLoop(
     _questionResolve = null
     chatStore.saveSession(sessionId)
 
+    // Persist this run's token/timing events into the usage dashboard
+    flushUsageEvents(usageEvents)
+
     // Process queued messages (type-ahead while the agent was working)
     const queued = useChatStore.getState().queuedMessages
     if (queued.length > 0) {
@@ -1729,37 +1800,15 @@ function planWasSubmitted(sessionId: string): boolean {
 
 /**
  * Snapshot the file(s) a write tool is about to touch so the user can revert.
- * Stored in SQLite via IPC; also mirrored into the renderer's checkpoint list.
+ * Stored in SQLite via IPC (shared checkpoint service, also used by subagents);
+ * mirrored into the renderer's checkpoint list.
  */
 async function captureCheckpoint(sessionId: string, tc: ToolCall, messageId: string): Promise<void> {
-  const target = tc.arguments?.path
-  if (typeof target !== 'string' || !target) return
-
-  const files: Array<{ path: string; content: string; existed: boolean }> = []
-  if (tc.name !== 'create_directory') {
-    try {
-      const { content } = await window.electronAPI.readFile(target)
-      files.push({ path: target, content, existed: true })
-    } catch {
-      // File doesn't exist yet (write_file creating a new file)
-      files.push({ path: target, content: '', existed: false })
-    }
-  }
-
-  if (files.length === 0) return
-
-  const checkpoint: Checkpoint = {
-    id: uuidv4(),
-    sessionId,
-    createdAt: Date.now(),
-    label: `${tc.name} → ${target.split(/[/\\]/).pop() || target}`,
-    messageId: messageId || undefined,
-    files,
-  }
-
   try {
-    await window.electronAPI.checkpointCreate(checkpoint)
-    useChatStore.setState((s) => ({ checkpoints: [checkpoint, ...s.checkpoints] }))
+    const checkpoint = await captureCheckpointService(sessionId, tc, messageId)
+    if (checkpoint) {
+      useChatStore.setState((s) => ({ checkpoints: [checkpoint, ...s.checkpoints] }))
+    }
   } catch (error) {
     console.error('创建检查点失败:', error)
   }
