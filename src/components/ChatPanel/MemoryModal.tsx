@@ -3,7 +3,7 @@ import { useMemoryStore } from '@/stores/memoryStore'
 import { useI18n } from '@/i18n/useI18n'
 
 /**
- * Memory manager (Windsurf-style Memories). Memories are injected into the
+ * Memory manager. Memories are injected into the
  * agent's system prompt when they match the current message, so the assistant
  * remembers the user's preferences across sessions.
  */
@@ -50,7 +50,7 @@ export default function MemoryModal({ onClose }: { onClose: () => void }) {
               >
                 <span
                   className={`mt-1 text-[10px] px-1.5 py-0.5 rounded shrink-0 ${
-                    m.scope === 'project' ? 'bg-[#57A3F8]/20 text-[#57A3F8]' : 'bg-nova-accent/20 text-nova-accent'
+                    m.scope === 'project' ? 'bg-nova-accent/20 text-nova-accent' : 'bg-nova-accent/20 text-nova-accent'
                   }`}
                 >
                   {m.scope === 'project' ? t('chat.scopeProject') : t('chat.scopeGlobal')}
@@ -94,7 +94,7 @@ export default function MemoryModal({ onClose }: { onClose: () => void }) {
                 onClick={handleAdd}
                 disabled={!content.trim()}
                 className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
-                style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
+                style={{ background: 'var(--grad-brand)' }}
               >
                 {t('chat.saveMemory')}
               </button>

@@ -3,7 +3,7 @@ interface WaveLogoProps {
   color?: string
 }
 
-/** Windsurf Cascade-style wave mark */
+/** OurCode AI wave mark */
 export default function WaveLogo({ size = 18, color = '#fff' }: WaveLogoProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round">

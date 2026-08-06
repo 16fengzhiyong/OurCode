@@ -5,49 +5,52 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Root — Windsurf 2026 Dark design tokens (from Windsurf 1.110.1 theme-2026) */
+/* Root — Dark design tokens (zinc palette + blue accent) */
 :root {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --bg: #121314;
-  --surface: #191a1b;
-  --sidebar: #191a1b;
-  --card: #202122;
-  --editor-bg: #121314;
-  --border: #2a2b2c;
-  --hover: #262728;
-  --input-bg: #191a1b;
-  --text-primary: #bfbfbf;
-  --text-secondary: #bfbfbf;
-  --text-muted: #8c8c8c;
-  --text-placeholder: #777777;
-  --text-disabled: #666666;
-  --accent: var(--primary-color, #3994bc);
-  --accent-purple: var(--primary-color, #3994bc);
-  --primary-color: #3994bc;
-  --primary-color-10: rgba(57, 148, 188, 0.1);
-  --primary-color-20: rgba(57, 148, 188, 0.2);
-  --primary-color-30: rgba(57, 148, 188, 0.3);
-  --ai-bg: #191a1b;
-  --ai-surface: #202122;
-  --ai-border: #2a2b2c;
-  --ai-accent: #3994bc;
-  --ai-glow: #3e9bc4;
-  --bg-activity: #191a1b;
-  --bg-tabs: #191a1b;
-  --bg-tab-active: #121314;
-  --bg-statusbar: #191a1b;
-  --bg-selected: rgba(57, 148, 188, 0.15);
+  --bg: #18181b;
+  --surface: #1f1f23;
+  --sidebar: #1f1f23;
+  --card: #27272a;
+  --editor-bg: #18181b;
+  --border: #27272a;
+  --border-strong: #3f3f46;
+  --hover: #2e2e33;
+  --input-bg: #1f1f23;
+  --text-primary: #d4d4d8;
+  --text-secondary: #c4c4c8;
+  --text-muted: #a1a1aa;
+  --text-placeholder: #52525b;
+  --text-disabled: #52525b;
+  --accent: var(--primary-color, #2563eb);
+  --accent-purple: var(--primary-color, #2563eb);
+  --primary-color: #2563eb;
+  --primary-color-10: rgba(37, 99, 235, 0.1);
+  --primary-color-20: rgba(37, 99, 235, 0.2);
+  --primary-color-30: rgba(37, 99, 235, 0.3);
+  --ai-bg: #1f1f23;
+  --ai-surface: #27272a;
+  --ai-border: #3f3f46;
+  --ai-accent: #3b82f6;
+  --ai-glow: #3b82f6;
+  --bg-activity: #1f1f23;
+  --bg-tabs: #1f1f23;
+  --bg-tab-active: #18181b;
+  --bg-statusbar: #1f1f23;
+  --bg-selected: rgba(59, 130, 246, 0.16);
   --text-active: #ffffff;
-  --selection: #276782;
-  --link: #48a0c7;
-  --green: #73c991;
+  --selection: #2563eb;
+  --link: #3b82f6;
+  --green: #22c55e;
   --red: #f48771;
   --yellow: #e5ba7d;
-  --info: #57a3f8;
-  --bubble-user: rgba(255, 255, 255, 0.075);
-  --bubble-user-hover: rgba(255, 255, 255, 0.13);
+  --info: #3b82f6;
+  --bubble-user: #27272a;
+  --bubble-user-hover: #2e2e33;
+  --grad-brand: linear-gradient(135deg, #3b82f6, #2563eb);
+  --grad-avatar: linear-gradient(135deg, #60a5fa, #8b5cf6);
 
-  /* Radius / elevation / backdrop (Windsurf 2026 styles.css) */
+  /* Radius / elevation / backdrop */
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
@@ -60,43 +63,46 @@
   --backdrop-blur: blur(20px) saturate(180%) brightness(0.55);
 }
 
-/* Light theme — Windsurf 2026 Light */
+/* Light theme — zinc-100 palette + blue accent */
 :root:not(.dark) {
-  --bg: #ffffff;
-  --surface: #fafafd;
-  --sidebar: #fafafd;
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --sidebar: #ffffff;
   --card: #ffffff;
   --editor-bg: #ffffff;
-  --border: #e6e8eb;
-  --hover: #ececef;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --hover: #f4f4f5;
   --input-bg: #ffffff;
-  --text-primary: #202020;
-  --text-secondary: #202020;
-  --text-muted: #707070;
-  --text-placeholder: #8a8a8a;
-  --text-disabled: #b0b0b0;
-  --accent: var(--primary-color, #0069cc);
-  --accent-purple: var(--primary-color, #0069cc);
-  --primary-color: #0069cc;
-  --ai-bg: #fafafd;
-  --ai-surface: #ffffff;
-  --ai-border: #e6e8eb;
-  --ai-accent: #0069cc;
-  --ai-glow: #0069cc;
-  --bg-activity: #fafafd;
-  --bg-tabs: #fafafd;
-  --bg-tab-active: #ffffff;
-  --bg-statusbar: #fafafd;
-  --bg-selected: rgba(0, 105, 204, 0.1);
+  --text-primary: #18181b;
+  --text-secondary: #27272a;
+  --text-muted: #71717a;
+  --text-placeholder: #a1a1aa;
+  --text-disabled: #d4d4d8;
+  --accent: var(--primary-color, #2563eb);
+  --accent-purple: var(--primary-color, #2563eb);
+  --primary-color: #2563eb;
+  --ai-bg: #ffffff;
+  --ai-surface: #fafafa;
+  --ai-border: #e4e4e7;
+  --ai-accent: #2563eb;
+  --ai-glow: #2563eb;
+  --bg-activity: #ffffff;
+  --bg-tabs: #ffffff;
+  --bg-tab-active: #fafafa;
+  --bg-statusbar: #ffffff;
+  --bg-selected: rgba(37, 99, 235, 0.12);
   --text-active: #ffffff;
-  --selection: #0069cc;
-  --link: #0069cc;
-  --green: #1a7f4d;
+  --selection: #2563eb;
+  --link: #2563eb;
+  --green: #16a34a;
   --red: #d33b2a;
   --yellow: #9a6a00;
-  --info: #0069cc;
+  --info: #2563eb;
   --bubble-user: #eef4fb;
-  --bubble-user-hover: #e6edfa;
+  --bubble-user-hover: #e3edfa;
+  --grad-brand: linear-gradient(135deg, #3b82f6, #2563eb);
+  --grad-avatar: linear-gradient(135deg, #60a5fa, #8b5cf6);
   --backdrop-blur: blur(20px) saturate(180%);
 }
 
@@ -248,9 +254,9 @@ body {
   background: var(--surface);
 }
 
-/* Context menu (Windsurf 2026: blurred floating panel) */
+/* Context menu (blurred floating panel) */
 .context-menu {
-  background: color-mix(in srgb, var(--card, #202122) 85%, transparent);
+  background: color-mix(in srgb, var(--card, #27272a) 85%, transparent);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
@@ -295,7 +301,7 @@ body {
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
-  background: color-mix(in srgb, var(--card, #202122) 90%, transparent);
+  background: color-mix(in srgb, var(--card, #27272a) 90%, transparent);
   color: var(--text-primary);
   padding: 4px 10px;
   border-radius: var(--radius-sm);
@@ -407,7 +413,7 @@ body {
 }
 
 /* highlight.js inside chat code blocks inherits the surface background so it
-   blends into the Windsurf 2026 dark chrome instead of its own #0d1117 */
+   blends into the dark chrome instead of its own #0d1117 */
 .code-block .hljs {
   background: transparent;
 }
@@ -417,11 +423,11 @@ body {
   background: var(--surface);
 }
 
-/* Search result highlight (Windsurf find-match teal) */
+/* Search result highlight (find-match blue) */
 .searchHighlight {
-  background-color: rgba(57, 148, 188, 0.35);
+  background-color: rgba(59, 130, 246, 0.35);
   border-radius: 2px;
-  outline: 1px solid rgba(57, 148, 188, 0.6);
+  outline: 1px solid rgba(59, 130, 246, 0.6);
 }
 
 /* Resizer handle */
@@ -464,10 +470,10 @@ body {
   background: var(--primary-color-30);
 }
 
-/* Logo pulse animation (teal accent) */
+/* Logo pulse animation (blue accent) */
 @keyframes logo-pulse {
-  0%, 100% { box-shadow: 0 0 6px #3994bc88; }
-  50% { box-shadow: 0 0 14px #3994bc, 0 0 24px #3994bc66; }
+  0%, 100% { box-shadow: 0 0 6px #2563eb88; }
+  50% { box-shadow: 0 0 14px #3b82f6, 0 0 24px #3b82f666; }
 }
 
 .animate-logo-pulse {
@@ -493,9 +499,9 @@ body {
   animation: blink 1.1s step-end infinite;
 }
 
-/* Windsurf 2026 utilities — floating glass panels, cards and radii */
+/* 2026 utilities — floating glass panels, cards and radii */
 .glass-panel {
-  background: color-mix(in srgb, var(--card, #202122) 85%, transparent);
+  background: color-mix(in srgb, var(--card, #27272a) 85%, transparent);
   backdrop-filter: var(--backdrop-blur);
   -webkit-backdrop-filter: var(--backdrop-blur);
   border: 1px solid var(--border);
@@ -503,13 +509,13 @@ body {
 }
 
 .card-panel {
-  background: var(--card, #202122);
+  background: var(--card, #27272a);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
-/* Cascade-style pill section (top-bar button groups) */
+/* Pill section (top-bar button groups) */
 .pill-section {
   display: flex;
   align-items: center;
@@ -517,7 +523,7 @@ body {
   padding: 3px;
   border: 1px solid #5959592f;
   border-radius: var(--radius-lg);
-  background: var(--editor-bg, #121314);
+  background: var(--editor-bg, #18181b);
   box-shadow: 0 2px 4px #0000001a;
 }
 
@@ -540,15 +546,15 @@ body {
 }
 
 .pill-btn.active {
-  background: color-mix(in srgb, var(--accent, #3994bc) 15%, transparent);
+  background: color-mix(in srgb, var(--accent, #2563eb) 15%, transparent);
   color: var(--text-primary);
 }
 
 .pill-btn.primary {
-  background: color-mix(in srgb, var(--accent, #3994bc) 95%, transparent);
+  background: color-mix(in srgb, var(--accent, #2563eb) 95%, transparent);
   color: #ffffff;
 }
 
 .pill-btn.primary:hover {
-  background: var(--ai-glow, #3e9bc4);
+  background: var(--ai-glow, #3b82f6);
 }

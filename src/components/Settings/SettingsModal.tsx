@@ -23,7 +23,7 @@ const SYSTEM_PROMPT_TEMPLATES: Array<{ id: 'universal' | 'python' | 'reviewer' |
 
 // Accent color presets for the Appearance section (the picker writes the
 // --accent / --primary-color CSS variables used by the whole UI)
-const THEME_COLOR_PRESETS = ['#3994bc', '#007acc', '#3b82f6', '#7c5cbf', '#e11d48', '#059669']
+const THEME_COLOR_PRESETS = ['#2563eb', '#3b82f6', '#007acc', '#7c5cbf', '#e11d48', '#059669']
 
 export default function SettingsModal() {
   const {

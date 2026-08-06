@@ -9,6 +9,7 @@ import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoade
 import { ensureLanguageService, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
 import { setPendingVibeReplace } from '@/services/vibeReplace'
 import { attachLsp, detachLsp } from '@/services/lsp/lspClient'
+import { executeCommand } from '@/services/commands/commandRegistry'
 import BreadcrumbBar from './BreadcrumbBar'
 import type { UserPreferences } from '@/types'
 import { useI18n } from '@/i18n/useI18n'
@@ -237,7 +238,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     useUIStore.getState().toggleChat()
   }, [])
 
-  // Vibe and Replace (Windsurf-style): stash the selection, focus the chat
+  // Vibe and Replace: stash the selection, focus the chat
   // input, and let the user describe the rewrite. The description + selection
   // are combined on submit (see ChatInput), and the reply's code block can be
   // applied back to the selection via "应用到编辑器".
@@ -385,15 +386,33 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
           </div>
         )}
         {!activeFilePath && (
-          <div className="absolute inset-0 flex items-center justify-center text-nova-text-muted pointer-events-none">
-            <div className="text-center">
-              <div className="text-6xl mb-4 opacity-30">📝</div>
-              <div className="text-lg text-nova-text-secondary">{t('editor.emptyEditor')}</div>
-              <div className="text-sm mt-2">
-                {t('editor.quickOpenHint', { shortcut: 'Ctrl+P' })}
+          // Welcome card (design: card container + explicit primary/secondary actions)
+          <div className="absolute inset-0 flex items-center justify-center p-8">
+            <div className="bg-[#27272a] rounded-xl p-10 max-w-md w-full text-center border border-[#3f3f46] shadow-2xl">
+              <div className="mb-5 text-[#a1a1aa] bg-[#18181b] w-16 h-16 mx-auto flex items-center justify-center rounded-full border border-[#3f3f46]">
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
               </div>
-              <div className="text-sm mt-1">
-                {t('editor.openFolderHint', { shortcut: 'Ctrl+O' })}
+              <h1 className="text-white text-lg font-semibold mb-1.5">{t('editor.emptyEditor')}</h1>
+              <p className="text-sm text-[#a1a1aa] mb-6">{t('editor.welcomeDesc')}</p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => executeCommand('openFolder')}
+                  className="w-full bg-[#2563eb] hover:bg-[#3b82f6] text-white text-sm font-medium py-2.5 rounded transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                  {t('commands.openFolder')} (Ctrl+O)
+                </button>
+                <button
+                  onClick={() => executeCommand('newFile')}
+                  className="w-full bg-transparent hover:bg-[#3f3f46] text-[#a1a1aa] border border-[#3f3f46] text-sm font-medium py-2.5 rounded transition-colors"
+                >
+                  {t('commands.newFile')}
+                </button>
               </div>
             </div>
           </div>

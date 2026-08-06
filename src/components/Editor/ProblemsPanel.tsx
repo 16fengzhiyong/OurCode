@@ -9,8 +9,8 @@ import type { TranslationKey } from '@/i18n'
 const SEVERITY_STYLE: Record<ProblemSeverity, { icon: string; color: string }> = {
   error: { icon: '✕', color: '#f48771' },
   warning: { icon: '⚠', color: '#cca700' },
-  info: { icon: 'ⓘ', color: '#57a3f8' },
-  hint: { icon: '💡', color: '#57a3f8' },
+  info: { icon: 'ⓘ', color: '#3b82f6' },
+  hint: { icon: '💡', color: '#3b82f6' },
 }
 
 const SEVERITY_LABEL_KEY: Record<ProblemSeverity, TranslationKey> = {
@@ -26,7 +26,7 @@ export default function ProblemsPanel() {
   const toggle = useProblemsStore((s) => s.toggle)
   const t = useI18n()
 
-  /** Windsurf-style "Explain and Fix": send the diagnostic to the chat agent */
+  /** "Explain and Fix": send the diagnostic to the chat agent */
   const explainAndFix = () => {
     const target = problems.find((p) => p.severity === 'error') || problems[0]
     if (!target) return
@@ -66,7 +66,7 @@ export default function ProblemsPanel() {
         <span className="font-medium text-nova-text-secondary mr-2">{t('editor.problems')}</span>
         <span className="px-1.5 rounded text-[10px] text-red-400 bg-red-500/10" title={t('editor.severityError')}>{count('error')}</span>
         <span className="px-1.5 rounded text-[10px] text-yellow-400 bg-yellow-500/10" title={t('editor.severityWarning')}>{count('warning')}</span>
-        <span className="px-1.5 rounded text-[10px] text-[#57a3f8] bg-[#57a3f8]/10" title={t('editor.severityInfo')}>{count('info')}</span>
+        <span className="px-1.5 rounded text-[10px] text-[#3b82f6] bg-[#3b82f6]/10" title={t('editor.severityInfo')}>{count('info')}</span>
         <span className="flex-1" />
         <button
           onClick={explainAndFix}

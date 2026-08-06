@@ -50,6 +50,12 @@ export interface ChatSession {
   archivedAt?: number
   // Agent mode (Windsurf-style): 'chat' answers freely, 'plan' produces a plan first
   agentMode?: 'chat' | 'plan'
+  // Project edit mode: controls tool-approval behavior when agentMode='plan'
+  // 'confirm_before_change' — ask before every file-modifying tool
+  // 'auto_edit' — auto-approve file edits (write/edit files)
+  // 'plan' — read-only → submit plan → approve → execute
+  // 'full_access' — auto-approve all tool calls
+  projectEditMode?: 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access'
   // Agent-managed todo list shown in the chat panel
   todos?: TodoItem[]
   // Plan awaiting approval (set by submit_plan)
@@ -110,6 +116,17 @@ export interface UserQuestion {
   options?: string[]
 }
 
+// Structured LLM error (rendered as a friendly error card instead of raw text)
+export interface ChatError {
+  /** HTTP status code when the upstream service returned one */
+  code?: number
+  type: 'auth' | 'timeout' | 'network' | 'rate_limit' | 'server' | 'unknown'
+  /** Localized, user-friendly message shown in the error card */
+  message: string
+  /** Raw upstream detail (e.g. the JSON error body) — shown in a collapsible area */
+  detail?: string
+}
+
 // Chat Message
 export interface ChatMessage {
   id: string
@@ -124,6 +141,7 @@ export interface ChatMessage {
   toolCalls?: Array<{ id: string; name: string; arguments: Record<string, any> }>
   toolResults?: Array<{ toolCallId: string; name: string; result: string; isError?: boolean }>
   toolCallId?: string
+  error?: ChatError
 }
 
 // Open File

@@ -72,7 +72,7 @@ export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalP
                 <span className="w-4 text-right text-[10px] text-nova-text-muted shrink-0">{index + 1}</span>
                 <span
                   className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    message.role === 'user' ? 'bg-[#57A3F8]' : message.role === 'tool' ? 'bg-[#E5BA7D]' : 'bg-[#3994BC]'
+                    message.role === 'user' ? 'bg-[#3B82F6]' : message.role === 'tool' ? 'bg-[#E5BA7D]' : 'bg-[#2563EB]'
                   }`}
                 />
                 <span className="text-[10px] text-nova-text-muted w-8 shrink-0">{roleLabel[message.role] ?? message.role}</span>

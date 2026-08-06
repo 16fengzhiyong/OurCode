@@ -5,7 +5,7 @@ import { useConfigStore } from '@/stores/configStore'
 import { useI18n } from '@/i18n/useI18n'
 
 /**
- * Workflows — reusable prompt templates (Windsurf-style). Create once, run
+ * Workflows — reusable prompt templates. Create once, run
  * against the current workspace anytime. The prompt is sent to the active chat
  * session like a normal message.
  */
@@ -82,7 +82,7 @@ export default function WorkflowModal({ onClose }: { onClose: () => void }) {
                   <button
                     onClick={() => handleRun(w.prompt)}
                     className="px-3 py-1 text-xs text-white rounded hover:opacity-90 transition-opacity"
-                    style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
+                    style={{ background: 'var(--grad-brand)' }}
                   >
                     {t('chat.workflowRun')}
                   </button>
@@ -129,7 +129,7 @@ export default function WorkflowModal({ onClose }: { onClose: () => void }) {
               onClick={handleSave}
               disabled={!prompt.trim()}
               className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
-              style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
+              style={{ background: 'var(--grad-brand)' }}
             >
               {t('chat.saveWorkflow')}
             </button>

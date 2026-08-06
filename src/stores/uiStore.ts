@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-const DEFAULT_THEME_COLOR = '#3994bc'
+const DEFAULT_THEME_COLOR = '#2563eb'
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16)
@@ -30,6 +30,9 @@ interface UIState {
   isChatVisible: boolean
   chatWidth: number
   chatPosition: 'right' | 'bottom'
+  /** Whether the chat panel's session list (history) is open — lifted here so
+   *  the activity-bar "history" icon can open it across components */
+  isChatSessionListOpen: boolean
 
   // Terminal
   isTerminalVisible: boolean
@@ -66,6 +69,7 @@ interface UIState {
   toggleChat: () => void
   setChatWidth: (width: number) => void
   setChatPosition: (position: 'right' | 'bottom') => void
+  setChatSessionListOpen: (open: boolean) => void
 
   toggleTerminal: () => void
   setTerminalHeight: (height: number) => void
@@ -114,6 +118,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   isChatVisible: true,
   chatWidth: 400,
   chatPosition: 'right',
+  isChatSessionListOpen: false,
 
   // Terminal
   isTerminalVisible: false,
@@ -150,6 +155,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   toggleChat: () => set((s) => ({ isChatVisible: !s.isChatVisible })),
   setChatWidth: (width) => set({ chatWidth: width }),
   setChatPosition: (position) => set({ chatPosition: position }),
+  setChatSessionListOpen: (open) => set({ isChatSessionListOpen: open }),
 
   toggleTerminal: () => set((s) => ({ isTerminalVisible: !s.isTerminalVisible })),
   setTerminalHeight: (height) => set({ terminalHeight: height }),

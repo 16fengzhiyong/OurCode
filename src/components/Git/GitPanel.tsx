@@ -154,7 +154,7 @@ export default function GitPanel() {
     }
   }
 
-  // Lifeguard: pre-commit AI bug check (Windsurf-style)
+  // Lifeguard: pre-commit AI bug check
   const [lifeguardFindings, setLifeguardFindings] = useState<LifeguardFinding[]>([])
   const [lifeguardRunning, setLifeguardRunning] = useState(false)
   const [lifeguardError, setLifeguardError] = useState<string | null>(null)
@@ -250,7 +250,7 @@ export default function GitPanel() {
     const diffResult = await runGitCommand(['diff', '--cached'])
     const diffText = diffResult.success ? diffResult.output : ''
 
-    // Prefer the AI-generated message (Windsurf-style) when a model is configured
+    // Prefer the AI-generated message when a model is configured
     const configGroup = useConfigStore.getState().getActiveConfigGroup()
     if (configGroup && configGroup.defaultModel && (diffText || gitStatus.length)) {
       setGeneratingCommit(true)

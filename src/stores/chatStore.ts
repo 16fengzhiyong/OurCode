@@ -6,6 +6,7 @@ import { useEditorStore } from './editorStore'
 import { useMemoryStore } from './memoryStore'
 import { getFileContent } from '@/editor/modelRegistry'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
+import { parseLLMError } from '@/services/llm/errors'
 import { ToolExecutor } from '@/services/tools'
 import { ToolCall, ToolResult } from '@/services/tools/types'
 import {
@@ -228,6 +229,7 @@ interface ChatState {
 
   // Agent mode (chat / plan) + plan approval
   setAgentMode: (sessionId: string, mode: 'chat' | 'plan') => void
+  setProjectEditMode: (sessionId: string, mode: 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access') => void
   approvePlan: (sessionId: string) => Promise<void>
   dismissPlan: (sessionId: string) => void
   setTodos: (sessionId: string, todos: TodoItem[]) => void
@@ -492,6 +494,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({
       sessions: s.sessions.map((sess) =>
         sess.id === sessionId ? { ...sess, agentMode: mode, updatedAt: Date.now() } : sess
+      ),
+    }))
+    get().saveSession(sessionId)
+  },
+
+  setProjectEditMode: (sessionId, mode) => {
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === sessionId ? { ...sess, projectEditMode: mode, updatedAt: Date.now() } : sess
       ),
     }))
     get().saveSession(sessionId)
@@ -1033,7 +1044,7 @@ async function runAgentLoop(
   const userContent = lastUserMessage?.content || ''
   const baseSystemPrompt = configGroup.systemPrompt || 'You are a helpful AI coding assistant.'
   let systemPrompt = await buildSystemPrompt(baseSystemPrompt, userContent, lastUserMessage?.contextFiles || [])
-  if (agentMode === 'plan') {
+  if (agentMode === 'plan' && (session.projectEditMode || 'plan') === 'plan') {
     systemPrompt += PLAN_MODE_INSTRUCTION
   }
   if (opts?.extraSystemText) {
@@ -1055,8 +1066,11 @@ async function runAgentLoop(
   // exceeds the model's budget (keeps the current user turn + a notice).
   messages = trimHistoryForContext(messages, session.model || configGroup.defaultModel)
 
-  // Plan mode exposes only read-only + agent-control tools
-  const toolDefinitions = agentMode === 'plan'
+  // Plan mode exposes only read-only + agent-control tools when projectEditMode='plan'
+  // (the default). Other project edit modes expose all tools but vary approval behavior.
+  const projectEditMode = session.projectEditMode || 'plan'
+  const usePlanTools = agentMode === 'plan' && projectEditMode === 'plan'
+  const toolDefinitions = usePlanTools
     ? toolExecutor.getToolDefinitions((name) => PLAN_TOOLS.has(name))
     : toolExecutor.getToolDefinitions()
 
@@ -1215,8 +1229,19 @@ async function runAgentLoop(
           await captureCheckpoint(sessionId, tc, assistantMsgId)
         }
 
-        // Check if tool requires approval
-        if (toolExecutor.requiresApproval(tc.name)) {
+        // Check if tool requires approval — project edit mode can override
+        const editMode = session.projectEditMode || 'plan'
+        const FILE_EDIT_TOOLS = new Set(['write_file', 'edit_file'])
+        let needsApproval = toolExecutor.requiresApproval(tc.name)
+        if (agentMode === 'plan') {
+          if (editMode === 'full_access') {
+            needsApproval = false
+          } else if (editMode === 'auto_edit' && FILE_EDIT_TOOLS.has(tc.name)) {
+            needsApproval = false
+          }
+          // confirm_before_change and plan: use default approval behavior
+        }
+        if (needsApproval) {
           const preview = toolExecutor.getPreview(tc)
           useChatStore.setState({ pendingApproval: { toolCall: tc, preview } })
 
@@ -1298,7 +1323,7 @@ async function runAgentLoop(
         role: 'assistant',
         content: '[已达到最大工具调用轮数 (20)。点击下方"继续"按钮可继续执行。]',
       })
-      // Auto-continue (Windsurf-style) — but only once per conversation turn, so
+      // Auto-continue — but only once per conversation turn, so
       // a model that keeps exhausting cannot loop forever. The exhausted message
       // just added is counted below.
       const autoContinue = localStorage.getItem(AUTO_CONTINUE_KEY) === '1'
@@ -1322,10 +1347,14 @@ async function runAgentLoop(
         })
       }
     } else {
+      // Structured, user-friendly error card instead of dumping the raw
+      // upstream error (which may be a JSON body) into the chat as text.
+      const chatError = parseLLMError(error)
       console.error('发送消息失败:', error instanceof Error ? error.message : 'Unknown error')
       chatStore.addMessage(sessionId, {
         role: 'assistant',
-        content: `错误: ${error.message}`,
+        content: chatError.message,
+        error: chatError,
       })
     }
   } finally {

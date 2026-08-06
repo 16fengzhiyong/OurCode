@@ -1,5 +1,5 @@
 /**
- * Workflow store — reusable prompt templates (Windsurf-style Workflows).
+ * Workflow store — reusable prompt templates.
  *
  * A workflow is a named prompt that can be re-run against the current
  * workspace/selection. Stored in SQLite (optionally encrypted) and invoked by

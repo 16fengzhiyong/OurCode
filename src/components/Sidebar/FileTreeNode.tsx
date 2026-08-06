@@ -255,7 +255,7 @@ export default function FileTreeNode({
                 ? 'text-[#73C991]'
                 : entry.gitStatus === 'deleted'
                 ? 'text-[#F48771]'
-                : 'text-[#57A3F8]'
+                : 'text-[#3B82F6]'
             }`}
           >
             {entry.gitStatus === 'modified' ? 'M' : entry.gitStatus === 'added' ? 'A' : entry.gitStatus === 'deleted' ? 'D' : 'R'}

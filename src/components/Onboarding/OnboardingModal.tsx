@@ -65,7 +65,7 @@ export default function OnboardingModal({ onComplete }: OnboardingModalProps) {
       <div className="bg-nova-surface border border-nova-border rounded-2xl shadow-2xl w-[520px] overflow-hidden">
         {/* Header */}
         <div className="px-8 pt-8 pb-4 text-center">
-          <div className="w-14 h-14 mx-auto mb-4 rounded-xl bg-gradient-to-br from-[#57A3F8] to-[#3994BC] flex items-center justify-center">
+          <div className="w-14 h-14 mx-auto mb-4 rounded-xl bg-gradient-to-br from-[#3B82F6] to-[#2563EB] flex items-center justify-center">
             <span className="text-2xl font-bold text-white">N</span>
           </div>
           <h1 className="text-xl font-bold text-nova-text-primary mb-1">{t('onboarding.welcome')}</h1>

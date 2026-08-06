@@ -164,7 +164,7 @@ export default function StatusBar() {
   const encodings = ['UTF-8', 'GBK', 'GB2312', 'GB18030', 'ASCII', 'ISO-8859-1', 'UTF-16']
 
   return (
-    <div className="h-[22px] text-nova-text-muted text-[11px] flex items-center px-3 select-none shrink-0" style={{ background: '#191A1B', borderTop: '1px solid #2A2B2C' }}>
+    <div className="h-[22px] text-nova-text-muted text-[11px] flex items-center px-3 select-none shrink-0" style={{ background: 'var(--bg-statusbar)', borderTop: '1px solid var(--border)' }}>
       {/* Left side */}
       <div className="flex items-center gap-3">
         {/* Git branch */}
@@ -284,6 +284,8 @@ export default function StatusBar() {
               )}
             </div>
 
+            <span className="opacity-90">{activeFile.lineEnding === 'crlf' ? 'CRLF' : 'LF'}</span>
+
             <span className="opacity-90">{t('statusBar.spaces', { count: preferences.tabSize })}</span>
           </>
         )}
@@ -296,7 +298,7 @@ export default function StatusBar() {
               onClick={() => setShowConfigMenu(!showConfigMenu)}
               title={t('statusBar.switchConfigGroup')}
             >
-              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: activeConfigGroup?.color || '#3994bc' }} />
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: activeConfigGroup?.color || '#3b82f6' }} />
               <span className="truncate">{activeConfigGroup?.name || t('statusBar.notConfigured')}</span>
             </button>
             {showConfigMenu && (

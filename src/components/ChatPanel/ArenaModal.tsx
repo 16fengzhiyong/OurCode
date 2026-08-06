@@ -6,7 +6,7 @@ import MarkdownRenderer from '../Common/MarkdownRenderer'
 import { useI18n } from '@/i18n/useI18n'
 
 /**
- * Arena — parallel model comparison (Windsurf-style). Run the same prompt on
+ * Arena — parallel model comparison. Run the same prompt on
  * several models and adopt the best answer into the conversation.
  */
 export default function ArenaModal({ onClose }: { onClose: () => void }) {
@@ -119,7 +119,7 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
               onClick={handleRun}
               disabled={running || !prompt.trim() || selected.length < 2}
               className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
-              style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
+              style={{ background: 'var(--grad-brand)' }}
             >
               {running ? t('chat.arenaRunning') : t('chat.arenaStart', { count: selected.length })}
             </button>
@@ -152,7 +152,7 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
                     <button
                       onClick={() => adopt(r)}
                       className="px-3 py-1 text-xs text-white rounded hover:opacity-90 transition-opacity"
-                      style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
+                      style={{ background: 'var(--grad-brand)' }}
                     >
                       {t('chat.arenaAdopt')}
                     </button>

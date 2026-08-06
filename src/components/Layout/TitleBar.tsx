@@ -29,6 +29,7 @@ export default function TitleBar() {
   const isMaximized = useUIStore((s) => s.isMaximized)
   const rootPath = useUIStore((s) => s.rootPath)
   const isChatVisible = useUIStore((s) => s.isChatVisible)
+  const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
   const t = useI18n()
 
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
@@ -297,12 +298,12 @@ export default function TitleBar() {
   }
 
   return (
-    <div className="h-12 flex items-center drag-region select-none shrink-0" style={{ background: '#191A1B', borderBottom: '1px solid #2A2B2C' }}>
+    <div className="h-12 flex items-center drag-region select-none shrink-0" style={{ background: 'var(--bg-tabs)', borderBottom: '1px solid var(--border)' }}>
       {/* Logo */}
       <div className="flex items-center px-4 gap-2 no-drag">
         <div
           className="w-3.5 h-3.5 rounded-full animate-logo-pulse shrink-0"
-          style={{ background: 'radial-gradient(circle, #3E9BC4 0%, #3994BC 100%)', boxShadow: '0 0 6px #3994bc88' }}
+          style={{ background: 'radial-gradient(circle, #3B82F6 0%, #2563EB 100%)', boxShadow: '0 0 6px #2563eb88' }}
         />
         <span className="text-xs text-nova-text-muted">
           OurCode
@@ -367,13 +368,13 @@ export default function TitleBar() {
         ))}
       </div>
 
-      {/* Command center (Windsurf-style centered pill) */}
+      {/* Command center (centered pill) */}
       <div className="flex-1 flex justify-center min-w-0 px-4 no-drag">
         <button
           onClick={() => (rootPath ? useUIStore.getState().toggleSidebar() : openCommandPalette())}
           className="hidden md:flex items-center gap-2 px-3 h-7 rounded-lg text-xs transition-colors min-w-0 max-w-[420px]"
           style={{
-            background: 'color-mix(in srgb, var(--card, #202122) 60%, transparent)',
+            background: 'color-mix(in srgb, var(--card, #27272a) 60%, transparent)',
             border: '1px solid var(--border)',
             backdropFilter: 'var(--backdrop-blur)',
             WebkitBackdropFilter: 'var(--backdrop-blur)',
@@ -386,9 +387,11 @@ export default function TitleBar() {
           <span className="truncate text-nova-text-secondary">
             {rootPath ? rootPath.split(/[/\\]/).pop() || rootPath : t('layout.openFolder')}
           </span>
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${activeConfigGroupId ? 'bg-green-400' : 'bg-nova-text-muted'}`}
+          />
           <span className="text-nova-text-muted text-[11px] shrink-0">
-            {isChatVisible ? t('layout.cascadeConnected') : 'AI'}
+            {activeConfigGroupId ? (isChatVisible ? 'OurCode AI' : 'AI') : t('layout.notConfigured')}
           </span>
         </button>
       </div>

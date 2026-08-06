@@ -1,5 +1,5 @@
 /**
- * Vibe-and-Replace pending state (Windsurf-style).
+ * Vibe-and-Replace pending state.
  *
  * When the user picks "Vibe 替换" in the editor context menu, the selected code
  * is stashed here and the chat input is focused. On submit, the input handler

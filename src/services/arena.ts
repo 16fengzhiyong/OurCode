@@ -1,6 +1,6 @@
 /**
  * Arena — run the same prompt across multiple models in parallel and compare
- * (Windsurf-style Arena mode). Each result can be adopted into the chat.
+ * (Arena mode). Each result can be adopted into the chat.
  */
 import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { ApiConfigGroup } from '@/types'

@@ -1,5 +1,5 @@
 /**
- * Context engine — Windsurf-style automatic context.
+ * Context engine — automatic context retrieval.
  *
  * Given the user's message, retrieves the most relevant files in the workspace
  * (by name match + content keyword search) and appends them as a bounded

@@ -5,7 +5,7 @@ import type { TranslationKey } from '@/i18n'
 
 /**
  * Agent status panel: shows the agent's todo list (manage_todo) and the plan
- * approval card (submit_plan) — Windsurf Cascade-style in-chat task tracking.
+ * approval card (submit_plan) — in-chat agent task tracking.
  */
 
 const STATUS_LABEL_KEY: Record<TodoItem['status'], TranslationKey> = {
@@ -17,7 +17,7 @@ const STATUS_LABEL_KEY: Record<TodoItem['status'], TranslationKey> = {
 
 const STATUS_STYLE: Record<TodoItem['status'], string> = {
   pending: 'text-nova-text-muted border-nova-border',
-  in_progress: 'text-[#57A3F8] border-[#57A3F8]/40 bg-[#57A3F8]/10',
+  in_progress: 'text-[#3B82F6] border-[#3B82F6]/40 bg-[#3B82F6]/10',
   completed: 'text-green-400 border-green-500/40 bg-green-500/10',
   failed: 'text-red-400 border-red-500/40 bg-red-500/10',
 }
@@ -103,7 +103,7 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
             onClick={() => approvePlan(sessionId)}
             disabled={isLoading}
             className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-40 hover:opacity-90 transition-opacity"
-            style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
+            style={{ background: 'var(--grad-brand)' }}
           >
             {t('agent.approveAndRun')}
           </button>

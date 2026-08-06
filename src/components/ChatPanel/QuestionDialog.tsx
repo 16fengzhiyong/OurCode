@@ -3,7 +3,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
 
 /**
- * Ask-user-question dialog (Windsurf-style). The agent calls ask_user_question
+ * Ask-user-question dialog. The agent calls ask_user_question
  * when it needs clarification; the answer is fed back as the tool result.
  */
 export default function QuestionDialog() {
@@ -60,7 +60,7 @@ export default function QuestionDialog() {
           <button
             onClick={() => customAnswer.trim() ? submit(customAnswer.trim()) : submit(t('chat.askNoInput'))}
             className="px-4 py-2 text-sm text-white rounded-lg hover:opacity-90 transition-opacity"
-            style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
+            style={{ background: 'var(--grad-brand)' }}
           >
             {t('chat.send')}
           </button>

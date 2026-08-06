@@ -14,7 +14,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'deepseek-chat': 64000, 'deepseek-coder': 64000, 'gemini-1.5-pro': 2000000, 'gemini-1.5-flash': 1000000,
 }
 
-// Suggested prompts shown on the welcome view (Windsurf-style). The display text
+// Suggested prompts shown on the welcome view. The display text
 // is localized via its key; the prompt content stays as-is (it goes to the LLM).
 const SUGGESTED_PROMPTS: Array<{ icon: string; key: 'chat.suggestExplain' | 'chat.suggestTest' | 'chat.suggestOverview' | 'chat.suggestRefactor'; prompt: string }> = [
   { icon: '✨', key: 'chat.suggestExplain', prompt: '请解释当前文件的功能和关键实现' },
@@ -170,7 +170,7 @@ export default function ChatMessages() {
         <BranchTreeModal sessionId={activeSession.id} onClose={() => setShowBranchTree(false)} />
       )}
 
-      {/* Agent todo list + pending plan (Windsurf Cascade-style) */}
+      {/* Agent todo list + pending plan */}
       <TodoPanel sessionId={activeSession.id} />
       <PlanCard sessionId={activeSession.id} />
 
@@ -200,16 +200,16 @@ export default function ChatMessages() {
 
       {messages.length === 0 && !isLoading && (
         <div className="flex-1 flex flex-col">
-          {/* Welcome (Windsurf-style: centered icon + title + suggested prompts) */}
+          {/* Welcome card (design: centered icon + title + description) */}
           <div className="flex-1 flex flex-col items-center justify-center text-center px-4 min-h-0">
             <div
-              className="w-12 h-12 rounded-full flex items-center justify-center mb-3"
-              style={{ background: 'rgba(57,148,188,0.15)' }}
+              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+              style={{ background: 'var(--grad-avatar)', boxShadow: '0 8px 24px rgba(59,130,246,0.3)' }}
             >
-              <WaveLogo size={22} color="#3994BC" />
+              <WaveLogo size={24} />
             </div>
-            <div className="text-[13px] font-semibold text-nova-text-primary">OurCode AI</div>
-            <div className="text-[11px] text-nova-text-muted mt-1 max-w-[280px] leading-relaxed">
+            <div className="text-base font-semibold text-nova-text-primary">OurCode AI</div>
+            <div className="text-xs text-nova-text-muted mt-1.5 max-w-[280px] leading-relaxed">
               {t('chat.welcomeDesc')}
             </div>
           </div>
@@ -222,7 +222,7 @@ export default function ChatMessages() {
                 <button
                   key={p.key}
                   onClick={() => useChatStore.getState().sendMessage(p.prompt)}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-[11px] text-nova-text-secondary bg-nova-card border border-nova-border hover:bg-nova-hover hover:text-nova-text-primary transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-nova-text-secondary bg-nova-card border border-nova-border hover:bg-nova-hover hover:text-nova-text-primary transition-colors"
                 >
                   <span>{p.icon}</span>
                   {t(p.key)}
@@ -261,10 +261,13 @@ export default function ChatMessages() {
 
       {isLoading && (
         <div className="flex gap-2.5 animate-fade-in">
-          <div className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 mt-0.5" style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}>
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ background: 'var(--grad-brand)' }}>
             <WaveLogo size={14} />
           </div>
           <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
+              <span>OurCode AI</span>
+            </div>
             {streamingThinking && <ThinkingBlock content={streamingThinking} />}
             {streamingContent ? (
               <div className="text-sm text-nova-text-primary whitespace-pre-wrap">

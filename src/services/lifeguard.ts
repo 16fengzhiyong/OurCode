@@ -1,5 +1,5 @@
 /**
- * Lifeguard — pre-commit AI bug checking (Windsurf-style).
+ * Lifeguard — pre-commit AI bug checking.
  *
  * Feeds the staged/unstaged diff to the configured model and asks for a strict
  * JSON list of potential bugs. Findings are rendered in the Git panel so the

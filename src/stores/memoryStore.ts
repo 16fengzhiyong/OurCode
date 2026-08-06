@@ -1,5 +1,5 @@
 /**
- * Memory store — persistent user memories (Windsurf-style Memories).
+ * Memory store — persistent user memories.
  *
  * Memories are stored in SQLite (main process, optionally encrypted) and are
  * injected into the system prompt by the chat store when they match the

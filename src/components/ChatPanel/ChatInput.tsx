@@ -174,7 +174,7 @@ export default function ChatInput() {
       ? `（Vibe 替换）请按我的要求改写下面的代码，直接输出替换后的完整新代码（单个代码块，不要解释）：\n\n要求: ${input.trim()}\n\n--- 当前选中代码 (${vibe.filePath}) ---\n\`\`\`${vibe.language}\n${vibe.text}\n\`\`\``
       : input.trim()
 
-    // While the agent is working, Enter queues the message (Windsurf-style type-ahead)
+    // While the agent is working, Enter queues the message (type-ahead)
     if (isLoading) {
       queueMessage(content)
       setInput('')
@@ -295,8 +295,6 @@ export default function ChatInput() {
 
   const getFileName = (path: string) => path.split(/[/\\]/).pop() || path
 
-  const currentModelName = activeConfigGroupId ? t('chat.aiModel') : t('chat.notConfigured')
-
   return (
     <div className="border-t border-nova-border p-3">
       {/* Context Files */}
@@ -368,57 +366,38 @@ export default function ChatInput() {
         )}
 
         <div
-          className="overflow-hidden transition-colors focus-within:border-nova-accent/70"
+          className="overflow-hidden transition-colors focus-within:border-[#3B82F6]"
           style={{
-            background: 'var(--card, #202122)',
-            border: '1px solid #333536',
-            borderRadius: 12,
+            background: 'var(--bg)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 8,
           }}
         >
-          {/* Toolbar */}
-          <div className="flex items-center gap-1 px-2 py-1.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <button
-              className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors text-xs"
-              title={t('chat.insertCodeBlock')}
-            >
-              &lt;/&gt;
-            </button>
+          {/* Attachment / context buttons row (above textarea) */}
+          <div className="flex gap-0.5 px-2 pt-2">
             <button
               onClick={handleAddFile}
-              className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
+              className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors hover:bg-nova-hover shrink-0"
               title={t('chat.addFile')}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
               </svg>
             </button>
             <button
-              className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors text-xs font-medium"
-              title={t('chat.referenceFile')}
-            >
-              @
-            </button>
-            <button
-              onClick={toggleVoiceInput}
-              className={`p-1 rounded transition-colors ${listening ? 'text-red-400 bg-red-500/15' : 'text-nova-text-muted hover:text-nova-text-primary'}`}
-              title={t('chat.voiceInput')}
+              onClick={handleAddFile}
+              className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors hover:bg-nova-hover shrink-0"
+              title={t('chat.addAttachment')}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
-              </svg>
-            </button>
-            <div className="flex-1" />
-            <button className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors" title={t('chat.modelSettings')}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
               </svg>
             </button>
           </div>
 
-          {/* Textarea */}
+          {/* Auto-grow textarea */}
           <textarea
             ref={textareaRef}
             value={input}
@@ -428,45 +407,74 @@ export default function ChatInput() {
             rows={1}
             disabled={!activeConfigGroupId}
             data-ai-input
-            className="w-full bg-transparent resize-none text-nova-text-primary text-sm outline-none max-h-[200px] placeholder:text-nova-text-muted disabled:opacity-50 px-2.5 py-2"
+            className="w-full bg-transparent resize-none text-nova-text-primary text-sm outline-none max-h-[150px] placeholder:text-nova-text-muted disabled:opacity-50 px-3 pt-2 pb-1"
           />
 
-          {/* Footer */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            <span className="text-[11px] flex-1 text-nova-text-muted">
-              {currentModelName} · {isLoading ? t('chat.generatingQueue') : t('chat.ctrlEnterSend')}
-            </span>
-            <label
-              className="flex items-center gap-1 text-[10px] text-nova-text-muted cursor-pointer select-none hover:text-nova-text-secondary transition-colors"
-              title={t('chat.autoContinueHint')}
-            >
-              <input
-                type="checkbox"
-                checked={autoContinue}
-                onChange={toggleAutoContinue}
-                className="accent-nova-accent w-3 h-3"
-              />
-              {t('chat.autoContinue')}
-            </label>
-            {queuedHint && <span className="text-[11px] text-nova-accent">{t('chat.queuedHint')}</span>}
-            {isLoading ? (
-              <button
-                onClick={stopGeneration}
-                className="px-3 py-1 text-xs text-red-400 hover:text-red-300 transition-colors rounded-lg"
-                style={{ background: 'rgba(244,135,113,0.15)' }}
+          {/* Footer: hints left, voice + send/stop right */}
+          <div className="flex items-center justify-between px-2 pb-2 pt-1">
+            <div className="flex items-center gap-1.5 text-[10px] text-nova-text-muted">
+              <label
+                className="flex items-center gap-1 cursor-pointer select-none hover:text-nova-text-secondary transition-colors"
+                title={t('chat.autoContinueHint')}
               >
-                {t('chat.stop')}
-              </button>
-            ) : (
+                <input
+                  type="checkbox"
+                  checked={autoContinue}
+                  onChange={toggleAutoContinue}
+                  className="accent-nova-accent w-3 h-3"
+                />
+                {t('chat.autoContinue')}
+              </label>
               <button
-                onClick={handleSubmit}
-                disabled={!input.trim() || !activeConfigGroupId}
-                className="px-3.5 py-1 text-xs text-white font-medium rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
-                style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
+                className="p-0.5 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
+                title={t('chat.autoContinueSettingsHint')}
+                onClick={() => {
+                  // Future: open auto-continue settings
+                }}
               >
-                {t('chat.send')}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                </svg>
               </button>
-            )}
+              {queuedHint && (
+                <>
+                  <span className="w-px h-3 bg-nova-border" />
+                  <span className="text-nova-accent">{t('chat.queuedHint')}</span>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleVoiceInput}
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${listening ? 'bg-red-500/20 text-red-400' : 'bg-nova-hover text-nova-text-muted hover:bg-nova-border hover:text-nova-text-primary'}`}
+                title={t('chat.voiceInput')}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+              </button>
+              {isLoading ? (
+                <button
+                  onClick={stopGeneration}
+                  className="px-3.5 py-1.5 text-xs text-white font-medium rounded-lg transition-colors"
+                  style={{ background: 'rgba(244,135,113,0.85)' }}
+                >
+                  {t('chat.stop')}
+                </button>
+              ) : (
+                <button
+                  onClick={handleSubmit}
+                  disabled={!input.trim() || !activeConfigGroupId}
+                  className="bg-[#2563eb] hover:bg-[#3b82f6] text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  {t('chat.send')}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

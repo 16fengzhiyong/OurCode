@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import ChatMessages from './ChatMessages'
 import ChatInput from './ChatInput'
-import HistoryEditor from './HistoryEditor'
 import ChatSidebar from './ChatSidebar'
 import MemoryModal from './MemoryModal'
 import ArenaModal from './ArenaModal'
@@ -17,7 +16,7 @@ function IconButton({ title, onClick, children }: { title: string; onClick: () =
   return (
     <button
       onClick={onClick}
-      className="p-1.5 rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+      className="w-7 h-7 flex items-center justify-center rounded-md text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
       title={title}
     >
       {children}
@@ -29,17 +28,21 @@ export default function ChatPanel() {
   const activeSession = useChatStore((s) => s.getActiveSession())
   const createSession = useChatStore((s) => s.createSession)
   const setAgentMode = useChatStore((s) => s.setAgentMode)
+  const setProjectEditMode = useChatStore((s) => s.setProjectEditMode)
   const { activeConfigGroupId, models } = useConfigStore()
+  const activeConfigGroup = useConfigStore((s) => s.configGroups.find((g) => g.id === s.activeConfigGroupId))
   const { openSettings } = useUIStore()
   const t = useI18n()
-  const [showHistory, setShowHistory] = useState(true)
-  const [showSessionList, setShowSessionList] = useState(false)
+  const isChatSessionListOpen = useUIStore((s) => s.isChatSessionListOpen)
+  const setChatSessionListOpen = useUIStore((s) => s.setChatSessionListOpen)
   const [showMemories, setShowMemories] = useState(false)
   const [showArena, setShowArena] = useState(false)
   const [showWorkflows, setShowWorkflows] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
 
   const agentMode = activeSession?.agentMode || 'chat'
+  const projectEditMode = activeSession?.projectEditMode || 'plan'
   const activeModel = activeSession?.model || ''
 
   const handleNewSession = () => {
@@ -51,10 +54,10 @@ export default function ChatPanel() {
   }
 
   return (
-    <div className="h-full flex" style={{ background: '#191A1B' }}>
+    <div className="h-full flex" style={{ background: 'var(--surface)' }}>
       {/* Session sidebar (collapsible) */}
-      {showSessionList && (
-        <ChatSidebar onClose={() => setShowSessionList(false)} />
+      {isChatSessionListOpen && (
+        <ChatSidebar onClose={() => setChatSessionListOpen(false)} />
       )}
 
       {/* Memory manager */}
@@ -67,42 +70,57 @@ export default function ChatPanel() {
       {showWorkflows && <WorkflowModal onClose={() => setShowWorkflows(false)} />}
 
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Cascade-style header */}
-        <div className="px-3 py-2 border-b shrink-0" style={{ background: '#191A1B', borderColor: '#2A2B2C' }}>
+        {/* Chat header */}
+        <div className="px-3 py-2 border-b shrink-0" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
           <div className="flex items-center justify-between gap-2">
             {/* Brand */}
             <div className="flex items-center gap-2 min-w-0">
-              <button
-                onClick={() => setShowSessionList(!showSessionList)}
-                className="p-1.5 rounded hover:bg-nova-hover transition-colors text-nova-text-muted hover:text-nova-text-primary shrink-0"
-                title={t('chat.sessionList')}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6h16M4 12h16M4 18h7" />
-                </svg>
-              </button>
               <div
-                className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
-                style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)', boxShadow: '0 2px 8px #3994bc44' }}
+                className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                style={{ background: 'var(--grad-brand)', boxShadow: '0 2px 8px #2563eb44' }}
               >
                 <WaveLogo />
               </div>
               <div className="min-w-0">
-                <strong className="text-nova-text-primary text-sm block truncate leading-tight">OurCode AI</strong>
-                <span className="text-[10px] text-nova-text-muted flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-                  {t('chat.connected')}
+                <div className="flex items-center gap-1.5">
+                  <strong className="text-nova-text-primary text-sm block truncate leading-tight">OurCode AI</strong>
+                  {activeConfigGroup ? (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] text-green-500 bg-green-500/10 border border-green-500/20 shrink-0">
+                      <span className="w-1 h-1 rounded-full bg-green-500 animate-pulse-dot" />
+                      {t('chat.connected')}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={openSettings}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] text-nova-text-muted bg-nova-hover hover:text-nova-text-primary border border-nova-border shrink-0 transition-colors"
+                      title={t('chat.notConfigured')}
+                    >
+                      <span className="w-1 h-1 rounded-full bg-gray-500" />
+                      {t('chat.notConfigured')}
+                    </button>
+                  )}
+                </div>
+                <span className="text-[10px] text-nova-text-muted block truncate">
+                  {activeConfigGroup ? activeConfigGroup.name : t('chat.selectModelHint')}
                 </span>
               </div>
             </div>
 
             {/* Model pill + mode toggle + actions */}
             <div className="flex items-center gap-1.5 shrink-0">
+              {/* History (timeline) — opens the session list (design: header toolbar entry) */}
+              <IconButton title={t('chat.historyHint')} onClick={() => setChatSessionListOpen(true)}>
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                  <polyline points="3 3 3 8 8 8" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+              </IconButton>
               {activeSession && (
                 <div className="relative">
                   <button
                     onClick={() => setShowModelPicker(!showModelPicker)}
-                    className="pill-btn flex items-center gap-1 max-w-[150px] text-[11px]"
+                    className="pill-btn flex items-center gap-1 max-w-[150px] text-[11px] border border-nova-border bg-nova-hover/50"
                     title={t('chat.selectModel')}
                   >
                     <span className="truncate">
@@ -116,7 +134,7 @@ export default function ChatPanel() {
                       <div className="fixed inset-0 z-40" onClick={() => setShowModelPicker(false)} />
                       <div
                         className="absolute right-0 top-full mt-1 z-50 w-[380px] max-h-[70vh] overflow-y-auto p-3 rounded-xl border shadow-2xl"
-                        style={{ background: '#191A1B', borderColor: '#2A2B2C' }}
+                        style={{ background: 'var(--surface)', borderColor: 'var(--border-strong)' }}
                       >
                         <ModelSelector />
                       </div>
@@ -124,44 +142,68 @@ export default function ChatPanel() {
                   )}
                 </div>
               )}
-              {activeSession && (
-                <div className="pill-section" title={t('chat.agentMode')}>
-                  <button
-                    onClick={() => setAgentMode(activeSession.id, 'chat')}
-                    className={`pill-btn ${agentMode === 'chat' ? 'active' : ''}`}
-                    title={t('chat.chatModeHint')}
-                  >
-                    {t('chat.chatMode')}
-                  </button>
-                  <button
-                    onClick={() => setAgentMode(activeSession.id, 'plan')}
-                    className={`pill-btn ${agentMode === 'plan' ? 'active' : ''}`}
-                    title={t('chat.planModeHint')}
-                  >
-                    {t('chat.planMode')}
-                  </button>
-                </div>
-              )}
               <div className="flex items-center gap-0.5">
-                <IconButton title={t('chat.arenaCompare')} onClick={() => setShowArena(true)}>
-                  <span className="text-sm leading-none">⚖️</span>
-                </IconButton>
-                <IconButton title={t('chat.workflows')} onClick={() => setShowWorkflows(true)}>
-                  <span className="text-sm leading-none">🔁</span>
-                </IconButton>
-                <IconButton title={t('chat.memory')} onClick={() => setShowMemories(true)}>
-                  <span className="text-sm leading-none">🧠</span>
-                </IconButton>
-                <IconButton title={t('chat.newChat')} onClick={handleNewSession}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </IconButton>
-                <IconButton title={t('chat.settings')} onClick={openSettings}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-                  </svg>
-                </IconButton>
+                {/* ⋮ overflow menu — keeps the header clean (design: logo + connected + model + ⋮) */}
+                <div className="relative">
+                  <IconButton title={t('chat.more')} onClick={() => setShowMoreMenu(!showMoreMenu)}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                      <circle cx="12" cy="5" r="1.7" />
+                      <circle cx="12" cy="12" r="1.7" />
+                      <circle cx="12" cy="19" r="1.7" />
+                    </svg>
+                  </IconButton>
+                  {showMoreMenu && (
+                    <>
+                      {/* Backdrop: click anywhere to close */}
+                      <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
+                      <div
+                        className="absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border shadow-2xl py-1 animate-fade-in"
+                        style={{ background: 'var(--surface)', borderColor: 'var(--border-strong)' }}
+                      >
+                        <button
+                          onClick={() => { handleNewSession(); setShowMoreMenu(false) }}
+                          className="w-full text-left px-3 py-1.5 text-xs text-nova-text-secondary hover:bg-nova-accent/15 hover:text-white flex items-center gap-2 transition-colors"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 5v14M5 12h14" />
+                          </svg>
+                          {t('chat.newChat')}
+                        </button>
+                        <button
+                          onClick={() => { setShowArena(true); setShowMoreMenu(false) }}
+                          className="w-full text-left px-3 py-1.5 text-xs text-nova-text-secondary hover:bg-nova-accent/15 hover:text-white flex items-center gap-2 transition-colors"
+                        >
+                          <span className="text-sm leading-none">⚖️</span>
+                          {t('chat.arenaCompare')}
+                        </button>
+                        <button
+                          onClick={() => { setShowWorkflows(true); setShowMoreMenu(false) }}
+                          className="w-full text-left px-3 py-1.5 text-xs text-nova-text-secondary hover:bg-nova-accent/15 hover:text-white flex items-center gap-2 transition-colors"
+                        >
+                          <span className="text-sm leading-none">🔁</span>
+                          {t('chat.workflows')}
+                        </button>
+                        <button
+                          onClick={() => { setShowMemories(true); setShowMoreMenu(false) }}
+                          className="w-full text-left px-3 py-1.5 text-xs text-nova-text-secondary hover:bg-nova-accent/15 hover:text-white flex items-center gap-2 transition-colors"
+                        >
+                          <span className="text-sm leading-none">🧠</span>
+                          {t('chat.memory')}
+                        </button>
+                        <div className="h-px bg-nova-border my-1" />
+                        <button
+                          onClick={() => { openSettings(); setShowMoreMenu(false) }}
+                          className="w-full text-left px-3 py-1.5 text-xs text-nova-text-secondary hover:bg-nova-accent/15 hover:text-white flex items-center gap-2 transition-colors"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                          </svg>
+                          {t('chat.settings')}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -172,31 +214,65 @@ export default function ChatPanel() {
           {activeSession ? (
             <>
               <ChatMessages />
+
+              {/* Mode bar — chat / project */}
+              <div className="shrink-0 px-3 py-1.5 border-t border-nova-border flex items-center justify-between gap-1.5" style={{ background: 'var(--surface)' }}>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setAgentMode(activeSession.id, 'chat')}
+                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${agentMode === 'chat' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
+                    title={t('chat.chatModeHint')}
+                  >
+                    {t('chat.modeChat')}
+                  </button>
+                  <button
+                    onClick={() => setAgentMode(activeSession.id, 'plan')}
+                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${agentMode === 'plan' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
+                    title={t('chat.modeProjectHint')}
+                  >
+                    {t('chat.modeProject')}
+                  </button>
+                </div>
+                {agentMode === 'plan' && (
+                  <select
+                    value={projectEditMode}
+                    onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}
+                    className="text-xs rounded-md px-2 py-1 border border-nova-border bg-nova-hover/50 text-nova-text-primary outline-none cursor-pointer hover:border-nova-accent focus:border-nova-accent transition-colors"
+                    title={t('chat.projectEditModeLabel')}
+                    style={{ backgroundImage: 'none' }}
+                  >
+                    <option value="confirm_before_change" title={t('chat.projectEditModeConfirmHint')}>{t('chat.projectEditModeConfirm')}</option>
+                    <option value="auto_edit" title={t('chat.projectEditModeAutoHint')}>{t('chat.projectEditModeAuto')}</option>
+                    <option value="plan" title={t('chat.projectEditModePlanHint')}>{t('chat.projectEditModePlan')}</option>
+                    <option value="full_access" title={t('chat.projectEditModeFullHint')}>{t('chat.projectEditModeFull')}</option>
+                  </select>
+                )}
+              </div>
+
               <ChatInput />
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center p-4">
-              <div className="text-center">
+              <div className="text-center max-w-[320px]">
                 <div
-                  className="text-4xl mb-3 font-bold"
-                  style={{
-                    background: 'linear-gradient(135deg, #57A3F8, #3994BC)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                  }}
+                  className="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center"
+                  style={{ background: 'var(--grad-avatar)', boxShadow: '0 8px 24px rgba(59,130,246,0.35)' }}
                 >
+                  <WaveLogo size={24} />
+                </div>
+                <div className="text-xl font-semibold text-nova-text-primary mb-1">
                   OurCode AI
                 </div>
                 <div className="text-sm text-nova-text-muted mb-2">
                   {t('chat.emptyTitle')}
                 </div>
-                <div className="text-xs text-nova-text-muted mb-6 max-w-xs mx-auto">
+                <div className="text-xs text-nova-text-muted mb-6 max-w-xs mx-auto leading-relaxed">
                   {t('chat.emptyDesc')}
                 </div>
                 <button
                   onClick={handleNewSession}
-                  className="px-6 py-2.5 text-white rounded-full text-sm hover:opacity-90 transition-opacity shadow-lg"
-                  style={{ background: 'linear-gradient(135deg, #57A3F8, #3994BC)' }}
+                  className="px-5 py-2 text-white rounded-lg text-sm hover:opacity-90 transition-opacity shadow-lg"
+                  style={{ background: 'var(--grad-brand)', boxShadow: '0 4px 14px rgba(37,99,235,0.35)' }}
                 >
                   {t('chat.startNewChat')}
                 </button>
@@ -212,15 +288,6 @@ export default function ChatPanel() {
             </div>
           )}
         </div>
-
-        {/* History Editor */}
-        {activeSession && activeSession.messages.length > 0 && (
-          <HistoryEditor
-            sessionId={activeSession.id}
-            isExpanded={showHistory}
-            onToggle={() => setShowHistory(!showHistory)}
-          />
-        )}
       </div>
     </div>
   )

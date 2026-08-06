@@ -84,7 +84,7 @@ export default function PluginMarketplace() {
   const getStatusBadge = (status: PluginInfo['status']) => {
     const styles: Record<string, string> = {
       active: 'bg-green-500/20 text-green-400 border-green-500/30',
-      installed: 'bg-[#3994BC]/20 text-[#57A3F8] border-[#3994BC]/30',
+      installed: 'bg-[#3B82F6]/20 text-[#3B82F6] border-[#3B82F6]/30',
       disabled: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
       error: 'bg-red-500/20 text-red-400 border-red-500/30',
     }
@@ -127,7 +127,7 @@ export default function PluginMarketplace() {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-nova-border">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#57A3F8] to-[#3994BC] flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#3B82F6] to-[#2563EB] flex items-center justify-center">
               <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
@@ -369,8 +369,8 @@ function PluginCard({
     <div className="bg-nova-bg border border-nova-border rounded-lg overflow-hidden hover:border-nova-accent/30 transition-colors">
       <div className="flex items-center gap-4 p-4">
         {/* Icon */}
-        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#3994BC]/20 to-[#57A3F8]/20 border border-nova-border flex items-center justify-center shrink-0">
-          <span className="text-lg font-bold text-[#57A3F8]">
+        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#2563EB]/20 to-[#3B82F6]/20 border border-nova-border flex items-center justify-center shrink-0">
+          <span className="text-lg font-bold text-[#3B82F6]">
             {plugin.manifest.name.charAt(0).toUpperCase()}
           </span>
         </div>

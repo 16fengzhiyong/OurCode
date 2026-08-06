@@ -6,7 +6,7 @@ export default function ActivityBar() {
   const { activeSidebarTab, setActiveSidebarTab, toggleSidebar, openMarketplace, isSidebarVisible } = useUIStore()
   const t = useI18n()
 
-  const topIcons: Array<{ key: 'files' | 'search' | 'git' | 'extensions'; titleKey: TranslationKey; icon: JSX.Element }> = [
+  const topIcons: Array<{ key: 'files' | 'search' | 'git' | 'history' | 'extensions'; titleKey: TranslationKey; icon: JSX.Element }> = [
     {
       key: 'files',
       titleKey: 'activityBar.explorer',
@@ -39,6 +39,17 @@ export default function ActivityBar() {
           <line x1="6" y1="9" x2="6" y2="15" stroke="currentColor" strokeWidth="1.5" />
           <path d="M6 12 C6 12, 12 9, 15 6" fill="none" stroke="currentColor" strokeWidth="1.5" />
           <path d="M6 12 C6 12, 12 15, 15 18" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      ),
+    },
+    {
+      key: 'history',
+      titleKey: 'activityBar.history',
+      icon: (
+        <svg viewBox="0 0 24 24" width="22" height="22">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <polyline points="3 3 3 8 8 8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M12 7v5l3 2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       ),
     },
@@ -87,6 +98,13 @@ export default function ActivityBar() {
       openMarketplace()
       return
     }
+    // History: open the chat panel and its session list (design: clock icon entry)
+    if (key === 'history') {
+      const ui = useUIStore.getState()
+      if (!ui.isChatVisible) ui.toggleChat()
+      ui.setChatSessionListOpen(true)
+      return
+    }
     if (!isSidebarVisible) {
       toggleSidebar()
     }
@@ -98,8 +116,8 @@ export default function ActivityBar() {
       className="shrink-0 flex flex-col select-none"
       style={{
         width: 48,
-        background: '#191A1B',
-        borderRight: '1px solid #2A2B2C',
+        background: 'var(--bg-activity)',
+        borderRight: '1px solid var(--border)',
       }}
     >
       {/* Top icons */}
@@ -115,16 +133,16 @@ export default function ActivityBar() {
               style={{
                 width: 48,
                 height: 48,
-                color: isActive ? '#EDEDED' : '#8C8C8C',
-                borderLeft: isActive ? '2px solid #3994BC' : '2px solid transparent',
-                background: isActive ? 'rgba(57,148,188,0.12)' : 'transparent',
+                color: isActive ? '#EDEDED' : '#A1A1AA',
+                borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+                background: isActive ? 'var(--bg-selected)' : 'transparent',
                 transition: 'color 0.15s, border-color 0.15s, background 0.15s',
               }}
               onMouseEnter={(e) => {
                 if (!isActive) e.currentTarget.style.color = '#EDEDED'
               }}
               onMouseLeave={(e) => {
-                if (!isActive) e.currentTarget.style.color = '#8C8C8C'
+                if (!isActive) e.currentTarget.style.color = '#A1A1AA'
               }}
             >
               {item.icon}
