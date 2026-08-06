@@ -51,6 +51,9 @@ interface UIState {
   // Plugin Marketplace
   isMarketplaceOpen: boolean
 
+  // Skill Registry
+  isSkillRegistryOpen: boolean
+
   // Window state
   isMaximized: boolean
 
@@ -93,6 +96,9 @@ interface UIState {
 
   openMarketplace: () => void
   closeMarketplace: () => void
+
+  openSkillRegistry: () => void
+  closeSkillRegistry: () => void
 
   setMaximized: (isMaximized: boolean) => void
 
@@ -144,6 +150,9 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   // Plugin Marketplace
   isMarketplaceOpen: false,
+
+  // Skill Registry
+  isSkillRegistryOpen: false,
 
   // Window state
   isMaximized: false,
@@ -203,6 +212,9 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   openMarketplace: () => set({ isMarketplaceOpen: true }),
   closeMarketplace: () => set({ isMarketplaceOpen: false }),
+
+  openSkillRegistry: () => set({ isSkillRegistryOpen: true }),
+  closeSkillRegistry: () => set({ isSkillRegistryOpen: false }),
 
   setMaximized: (isMaximized) => set({ isMaximized }),
 

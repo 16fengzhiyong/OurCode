@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
-import { filterSlashCommands, buildSlashPrompt, getEditorSlashContext, SlashCommand } from '@/services/commands/slashCommands'
+import { filterSlashCommands, buildSlashPrompt, getEditorSlashContext, getAllSlashCommands, SLASH_COMMANDS, SlashCommand } from '@/services/commands/slashCommands'
 import { takePendingVibeReplace } from '@/services/vibeReplace'
 import { AUTO_CONTINUE_KEY } from '@shared/constants'
 import { useI18n } from '@/i18n/useI18n'
@@ -20,6 +20,8 @@ export default function ChatInput() {
   const [showSlashMenu, setShowSlashMenu] = useState(false)
   const [slashQuery, setSlashQuery] = useState('')
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0)
+  /** Static templates + skill-derived commands (skills loaded once on mount). */
+  const [allSlashCommands, setAllSlashCommands] = useState<SlashCommand[]>(SLASH_COMMANDS)
   const [queuedHint, setQueuedHint] = useState(false)
   const [autoContinue, setAutoContinue] = useState(() => localStorage.getItem(AUTO_CONTINUE_KEY) === '1')
   const [autoRun, setAutoRun] = useState(false)
@@ -100,6 +102,16 @@ export default function ChatInput() {
     }
     window.addEventListener('ourcode:set-chat-input', onSetInput)
     return () => window.removeEventListener('ourcode:set-chat-input', onSetInput)
+  }, [])
+
+  // Load slash commands (static templates + workspace skills). Skill-derived
+  // commands only carry name/description — the body stays on demand.
+  useEffect(() => {
+    let cancelled = false
+    getAllSlashCommands()
+      .then((cmds) => { if (!cancelled) setAllSlashCommands(cmds) })
+      .catch(() => { if (!cancelled) setAllSlashCommands([]) })
+    return () => { cancelled = true }
   }, [])
 
   // Detect @ trigger
@@ -248,7 +260,7 @@ export default function ChatInput() {
     }
 
     // Slash-command menu navigation
-    const slashCommands = filterSlashCommands(slashQuery)
+    const slashCommands = filterSlashCommands(slashQuery, allSlashCommands)
     if (showSlashMenu && slashCommands.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -339,11 +351,11 @@ export default function ChatInput() {
       {/* Input Area */}
       <div className="relative">
         {/* Slash-command menu ("/" at the start of a line) */}
-        {showSlashMenu && filterSlashCommands(slashQuery).length > 0 && (
+        {showSlashMenu && filterSlashCommands(slashQuery, allSlashCommands).length > 0 && (
           <div
             className="absolute bottom-full left-0 right-0 mb-1 bg-nova-surface border border-nova-border rounded shadow-xl max-h-48 overflow-y-auto z-50"
           >
-            {filterSlashCommands(slashQuery).map((cmd, index) => (
+            {filterSlashCommands(slashQuery, allSlashCommands).map((cmd, index) => (
               <div
                 key={cmd.id}
                 className={`px-3 py-2 cursor-pointer text-sm flex items-center gap-2 ${

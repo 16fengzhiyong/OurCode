@@ -31,3 +31,7 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+
+# Runtime-generated MCP test config dirs
+electron/__tests__/fixtures/mcp-config-*/
+electron/__tests__/fixtures/mcp-http-config-*/

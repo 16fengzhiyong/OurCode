@@ -12,6 +12,7 @@ import CommandPalette from '../CommandPalette/CommandPalette'
 import QuickOpen from '../Sidebar/QuickOpen'
 import ContextMenu from '../Common/ContextMenu'
 import PluginMarketplace from '../Plugin/PluginMarketplace'
+import SkillRegistryModal from '../Skills/SkillRegistryModal'
 import ProblemsPanel from '../Editor/ProblemsPanel'
 import RecentFilesModal from '../Editor/RecentFilesModal'
 import DebugPanel from '../Editor/DebugPanel'
@@ -269,6 +270,7 @@ export default function MainLayout() {
       {isRecentFilesOpen && <RecentFilesModal />}
       {contextMenu && <ContextMenu />}
       <PluginMarketplace />
+      <SkillRegistryModal />
     </div>
   )
 }

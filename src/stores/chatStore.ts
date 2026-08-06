@@ -10,6 +10,7 @@ import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { parseLLMError } from '@/services/llm/errors'
 import { ToolExecutor } from '@/services/tools'
 import { ToolCall, ToolResult } from '@/services/tools/types'
+import { runWithConcurrency } from '@/services/subagents/parallel'
 import {
   extractKeywords,
   scoreAgainstKeywords,
@@ -216,6 +217,9 @@ const PLAN_TOOLS = new Set([
 const CHECKPOINT_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory'])
 
 const MAX_AGENT_ITERATIONS = 20
+
+// Max concurrent run_subagent executions within one tool-call batch
+const MAX_PARALLEL_SUBAGENTS = 3
 
 // Undo stack for message deletion
 interface UndoEntry {
@@ -1545,7 +1549,35 @@ async function runAgentLoop(
         }
       }
 
-      // Execute each tool call
+      // Execute each tool call. run_subagent calls within the same batch are
+      // launched concurrently — each subagent is fully isolated (own executor,
+      // permission guard, iteration/token budgets, usage recording), so only
+      // execution is parallelized; approvals/checkpoints stay sequential above.
+      // Deferred results are awaited together and finalized in original order
+      // (all providers match tool results by tool_call_id, so order of the
+      // tool messages across the batch is irrelevant).
+      const deferredSubagents: Array<{ tc: ToolCall; promise: Promise<ToolResult> }> = []
+
+      const finalizeToolResult = (tc: ToolCall, result: ToolResult): void => {
+        useChatStore.getState().setTraceStatus(tc.id, result.isError ? 'error' : 'success')
+        chatStore.addMessage(sessionId, {
+          role: 'tool',
+          content: result.result,
+          toolResults: [result],
+          toolCallId: tc.id,
+        })
+        messages.push({
+          role: 'tool',
+          content: result.result,
+          toolCallId: tc.id,
+          toolCalls: undefined,
+        })
+        // Write tools changed files on disk — notify open editors to reload
+        if (CHECKPOINT_TOOLS.has(tc.name) && tc.arguments?.path) {
+          notifyFileChanged(tc.arguments.path)
+        }
+      }
+
       for (const tc of parsedToolCalls) {
         if (abortController.signal.aborted) break
 
@@ -1687,28 +1719,44 @@ async function runAgentLoop(
           }
         }
 
-        // Execute the tool
+        // Execute the tool — run_subagent calls are deferred for parallel execution
+        if (tc.name === 'run_subagent') {
+          deferredSubagents.push({
+            tc,
+            promise: toolExecutor.execute(tc).catch((error: any) => ({
+              toolCallId: tc.id,
+              name: tc.name,
+              result: `Error: ${error?.message || String(error)}`,
+              isError: true,
+            })),
+          })
+          continue
+        }
+
         const result = await toolExecutor.execute(tc)
+        finalizeToolResult(tc, result)
+      }
 
-        useChatStore.getState().setTraceStatus(tc.id, result.isError ? 'error' : 'success')
-
-        chatStore.addMessage(sessionId, {
-          role: 'tool',
-          content: result.result,
-          toolResults: [result],
-          toolCallId: tc.id,
-        })
-
-        messages.push({
-          role: 'tool',
-          content: result.result,
-          toolCallId: tc.id,
-          toolCalls: undefined,
-        })
-
-        // Write tools changed files on disk — notify open editors to reload
-        if (CHECKPOINT_TOOLS.has(tc.name) && tc.arguments?.path) {
-          notifyFileChanged(tc.arguments.path)
+      // Await the deferred subagents concurrently (capped), finalize in order
+      if (deferredSubagents.length > 0) {
+        const settled = await runWithConcurrency(
+          deferredSubagents.map((d) => () => d.promise),
+          MAX_PARALLEL_SUBAGENTS,
+        )
+        for (let i = 0; i < deferredSubagents.length; i++) {
+          const { tc } = deferredSubagents[i]
+          const s = settled[i]
+          finalizeToolResult(
+            tc,
+            s.ok && s.value
+              ? s.value
+              : {
+                  toolCallId: tc.id,
+                  name: tc.name,
+                  result: `Error: ${String(s.reason ?? '子智能体执行失败')}`,
+                  isError: true,
+                },
+          )
         }
       }
 

@@ -1,0 +1,11 @@
+{
+  "registry": {
+    "url": "https://example.com/ourcode-registry/index.json"
+  },
+  "skills": {
+    "deploy": {
+      "enabled": false,
+      "version": "1.0.0"
+    }
+  }
+}

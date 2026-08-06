@@ -10,6 +10,7 @@
  * Each invocation is recorded into the usage dashboard (category 'skill').
  */
 import type { ToolDefinition } from '@/services/tools/types'
+import { isSkillEnabled } from '@/services/skills/skillRegistry'
 
 export interface SkillInfo {
   name: string
@@ -105,7 +106,7 @@ interface SkillCache {
 let _cache: SkillCache | null = null
 
 /** Discover + parse all skills (cached by newest mtime across all skill files) */
-export async function listSkills(force = false, rootOverride?: string): Promise<SkillInfo[]> {
+export async function listSkills(force = false, rootOverride?: string, includeDisabled = false): Promise<SkillInfo[]> {
   const root = rootOverride ?? getWorkspaceRoot()
   const global = await getGlobalSkillsDir()
   const workspaceDirs = SKILL_DIRS.map((d) => joinPath(root, d))
@@ -123,13 +124,16 @@ export async function listSkills(force = false, rootOverride?: string): Promise<
     }
   }
 
-  // Cache invalidation: newest file mtime across all candidates
+  // Cache invalidation: newest file mtime across all candidates, plus the
+  // skills.json config mtime (a disabled/enabled toggle must invalidate too)
   let newest = 0
   for (const c of candidates) {
     const s = await statSafe(c.path)
     if (s && s.modifiedAt > newest) newest = s.modifiedAt
   }
-  if (!force && _cache && _cache.root === root && _cache.mtime >= newest) return _cache.skills
+  const configMtime = (await statSafe(joinPath(root, 'skills.json')))?.modifiedAt || 0
+  const cacheMtime = Math.max(newest, configMtime)
+  if (!force && _cache && _cache.root === root && _cache.mtime >= cacheMtime) return _cache.skills
 
   // One non-empty content per skill directory (SKILL.md wins over skill.md)
   const byDir = new Map<string, { content: string; source: 'workspace' | 'global'; dir: string }>()
@@ -152,10 +156,16 @@ export async function listSkills(force = false, rootOverride?: string): Promise<
       mtime: newest,
     })
   }
-  skills.sort((a, b) => a.name.localeCompare(b.name))
+  // Respect skills.json enable/disable overrides (default: enabled). The
+  // registry UI passes includeDisabled=true so toggles stay visible.
+  const visible: SkillInfo[] = []
+  for (const skill of skills) {
+    if (includeDisabled || (await isSkillEnabled(skill.name, root))) visible.push(skill)
+  }
+  visible.sort((a, b) => a.name.localeCompare(b.name))
 
-  _cache = { root, mtime: newest, skills }
-  return skills
+  _cache = { root, mtime: cacheMtime, skills: visible }
+  return visible
 }
 
 /** Compact index block injected into the system prompt (content stays on demand) */

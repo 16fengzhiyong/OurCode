@@ -8,6 +8,11 @@
  * it stays revertable. Usage is recorded into the dashboard (category
  * 'subagent'). Execution is serial (nested inside the parent's tool call);
  * parallel subagents are future work.
+ *
+ * The role/limits come from a definition (`.ourcode/agents/<name>.md` with
+ * frontmatter, or a built-in archetype). Permission isolation is enforced by
+ * SubagentGuard — monotonic decay: the subagent only sees/uses the tools,
+ * paths and commands its definition allows.
  */
 import { v4 as uuidv4 } from 'uuid'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
@@ -15,6 +20,7 @@ import { ToolExecutor } from '@/services/tools'
 import type { ToolCall } from '@/services/tools/types'
 import { captureCheckpoint } from '@/services/checkpointService'
 import { buildSkillIndex, listSkills } from '@/services/skills/skillManager'
+import { loadAgentDefinition, SubagentGuard } from '@/services/subagents/subagentDefinitions'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useEditorStore } from '@/stores/editorStore'
@@ -35,19 +41,10 @@ export interface SubAgentOptions {
   description?: string
 }
 
-/**
- * Role instructions for built-in subagent archetypes. A user-provided
- * `.ourcode/agents/<name>.md` (frontmatter: name/description) can override
- * these per-project in a future iteration.
- */
-function rolePrompt(name: string): string {
-  return `你是「${name}」子智能体，由主智能体派生的专责执行者。你需要自主、专注地完成交给你的子任务，然后向主智能体报告结果。`
-}
-
-/** Build the subagent's system prompt: role + environment + current file + skill index */
-async function buildSubSystemPrompt(opts: SubAgentOptions): Promise<string> {
+/** Build the subagent's system prompt: definition role + environment + current file + skills */
+async function buildSubSystemPrompt(opts: SubAgentOptions, defSystemPrompt: string): Promise<string> {
   const rootPath = opts.projectPath
-  let prompt = rolePrompt(opts.name)
+  let prompt = defSystemPrompt
   prompt += `\n\n<subagent_environment>
 工作区路径: ${rootPath || '(无)'}
 平台: ${navigator.platform}
@@ -114,17 +111,28 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
     return `Error: 无法运行子智能体「${opts.name}」— 会话未绑定有效的 API 配置或模型。`
   }
 
-  const systemPrompt = await buildSubSystemPrompt(opts)
+  // Resolve the agent definition (workspace .md → global → builtin) and its
+  // permission guard. The definition drives role, tool allowlist, path scope,
+  // iteration budget and token budget.
+  const def = await loadAgentDefinition(opts.name, opts.projectPath)
+  const guard = new SubagentGuard(def, opts.projectPath)
+
+  const systemPrompt = await buildSubSystemPrompt(opts, def.systemPrompt)
   const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; toolCalls?: LLMToolCall[]; toolCallId?: string }> = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: opts.task },
   ]
 
-  let iterationsLeft = MAX_SUBAGENT_ITERATIONS
+  let iterationsLeft = def.maxIterations ?? MAX_SUBAGENT_ITERATIONS
   let finalText = ''
   let toolCallCount = 0
+  let tokensUsed = 0
   const changedPaths = new Set<string>()
   let lastError = ''
+  let hitTokenBudget = false
+
+  // Only the subagent's allowlisted tools reach its LLM (monotonic decay)
+  const toolDefinitions = executor.getToolDefinitions((name) => guard.toolAllowed(name))
 
   try {
     while (iterationsLeft-- > 0) {
@@ -137,12 +145,12 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
           toolCallId: m.toolCallId,
         })),
         stream: true,
-        temperature: session?.modelParams.temperature ?? 0.2,
+        temperature: def.temperature ?? session?.modelParams.temperature ?? 0.2,
         maxTokens: session?.modelParams.maxTokens ?? 0,
         topP: session?.modelParams.topP ?? 1.0,
         frequencyPenalty: session?.modelParams.frequencyPenalty ?? 0,
         presencePenalty: session?.modelParams.presencePenalty ?? 0,
-        tools: executor.getToolDefinitions(),
+        tools: toolDefinitions,
       }
 
       let fullContent = ''
@@ -152,11 +160,18 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
         for await (const chunk of sendLLMRequest(req, configGroup)) {
           if (chunk.content) fullContent += chunk.content
           if (chunk.toolCalls) toolCalls = chunk.toolCalls
+          if (chunk.usage) tokensUsed += (chunk.usage.promptTokens || 0) + (chunk.usage.completionTokens || 0)
           if (chunk.done) break
         }
       } catch (error: any) {
         lastError = error.message
         break
+      }
+
+      // Token budget exceeded — stop and report what was completed
+      if (def.maxTokensBudget && tokensUsed >= def.maxTokensBudget) {
+        hitTokenBudget = true
+        if (!fullContent && toolCalls.length === 0) break
       }
 
       // No tool calls — the subagent is done
@@ -176,6 +191,14 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
           })(),
         }
 
+        // Permission gate (defense in depth — beyond tool visibility filtering):
+        // block control tools, off-allowlist tools and out-of-scope paths.
+        const blocked = guard.checkCall(tc.name, tc.arguments)
+        if (blocked) {
+          messages.push({ role: 'tool', content: `Error: ${blocked}`, toolCallId: tc.id })
+          continue
+        }
+
         // Snapshot files before write tools so the subagent's edits stay revertable
         if (WRITE_TOOLS.has(tc.name)) {
           await captureCheckpoint(opts.sessionId, tc).catch(() => {})
@@ -193,25 +216,30 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
 
         messages.push({ role: 'tool', content: result.result, toolCallId: tc.id })
       }
+
+      // Budget hit — process the batch, then stop instead of requesting more
+      if (hitTokenBudget) break
     }
 
     if (!finalText) {
-      finalText = iterationsLeft <= 0 && !lastError
-        ? '[子智能体达到最大工具调用轮数，任务可能未完全完成]'
-        : lastError
+      finalText = hitTokenBudget
+        ? `[子智能体达到 token 预算上限 (${tokensUsed} tokens)，任务可能未完全完成]`
+        : iterationsLeft <= 0 && !lastError
+          ? '[子智能体达到最大工具调用轮数，任务可能未完全完成]'
+          : lastError
     }
 
     recordEvent({
       ok: !lastError || !!finalText,
       error: lastError || undefined,
       durationMs: Date.now() - startedAt,
-      payload: { toolCallCount, fileChangeCount: changedPaths.size, summary: finalText.slice(0, 500) },
+      payload: { toolCallCount, fileChangeCount: changedPaths.size, tokensUsed, summary: finalText.slice(0, 500) },
     })
 
     return [
       `## 子智能体「${opts.name}」执行报告`,
       opts.description ? `**任务背景**: ${opts.description}` : '',
-      `**工具调用**: ${toolCallCount} 次 · **修改文件**: ${changedPaths.size} 个`,
+      `**工具调用**: ${toolCallCount} 次 · **修改文件**: ${changedPaths.size} 个${tokensUsed ? ` · **消耗 token**: ${tokensUsed}` : ''}`,
       changedPaths.size > 0 ? `**涉及文件**:\n${Array.from(changedPaths).map((p) => `- ${p}`).join('\n')}` : '',
       '',
       `**结果**:`,

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "git": {
+      "command": "node",
+      "args": ["mcp-servers/git-server/server.js"],
+      "env": { "GIT_PAGER": "cat" }
+    }
+  }
+}

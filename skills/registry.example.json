@@ -1,0 +1,25 @@
+{
+  "skills": [
+    {
+      "name": "code-review",
+      "description": "对指定代码/变更进行结构化代码审查，输出按严重程度分级的审查报告",
+      "version": "1.0.0",
+      "author": "OurCode 社区",
+      "contentUrl": "https://example.com/ourcode-registry/code-review/SKILL.md"
+    },
+    {
+      "name": "generate-tests",
+      "description": "为目标代码模块生成单元测试，运行测试并迭代修复直到通过",
+      "version": "1.1.0",
+      "author": "OurCode 社区",
+      "contentUrl": "https://example.com/ourcode-registry/generate-tests/SKILL.md"
+    },
+    {
+      "name": "deploy",
+      "description": "执行「测试 → 构建 → 部署」端到端发布流程",
+      "version": "2.0.0",
+      "author": "OurCode 社区",
+      "contentUrl": "https://example.com/ourcode-registry/deploy/SKILL.md"
+    }
+  ]
+}

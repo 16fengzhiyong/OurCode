@@ -880,6 +880,34 @@ function registerIpcHandlers(): void {
     return tools.map((t) => toMcpToolDefinition(t))
   })
 
+  // MCP resources (context injection on demand)
+  ipcMain.handle('mcp:listResources', async () => {
+    return mcp.listResources()
+  })
+
+  ipcMain.handle('mcp:readResource', async (_event, server: string, uri: string) => {
+    try {
+      const result = await mcp.readResource(server, uri)
+      return { ok: true, result: extractMcpText(result) }
+    } catch (error: any) {
+      return { ok: false, error: error.message }
+    }
+  })
+
+  // MCP prompts (reusable prompt templates)
+  ipcMain.handle('mcp:listPrompts', async () => {
+    return mcp.listPrompts()
+  })
+
+  ipcMain.handle('mcp:getPrompt', async (_event, server: string, name: string, args?: Record<string, any>) => {
+    try {
+      const result = await mcp.getPrompt(server, name, args)
+      return { ok: true, result }
+    } catch (error: any) {
+      return { ok: false, error: error.message }
+    }
+  })
+
   // ───────────────────── Usage statistics ─────────────────────
   ipcMain.handle(IPC_CHANNELS.USAGE_RECORD, (_event, events: UsageEvent[]) => {
     try {
@@ -1054,7 +1082,7 @@ app.whenReady().then(() => {
 
   // Track MCP server lifecycle for the usage dashboard (ready / failure counts,
   // mirroring Windsurf's McpServerState tracking)
-  mcp.on('ready', ({ server }: { server: string }) => {
+  mcp.on('ready', ({ server, restarted }: { server: string; restarted?: boolean }) => {
     store.recordUsageEvents([{
       id: uuidv4(),
       category: 'mcp',
@@ -1062,7 +1090,7 @@ app.whenReady().then(() => {
       sub: server,
       startedAt: Date.now(),
       ok: true,
-      payload: { event: 'ready' },
+      payload: { event: restarted ? 'restarted' : 'ready' },
     }])
   })
   mcp.on('error', (error: Error) => {

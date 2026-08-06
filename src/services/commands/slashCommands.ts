@@ -2,6 +2,13 @@
  * Chat slash commands (Copilot-style): typing "/" in the chat input shows a
  * menu of prompt templates; selecting one fills the input with a prompt that
  * embeds the current editor selection / file context.
+ *
+ * The menu is a hybrid of:
+ *  - static prompt templates (SLASH_COMMANDS below), and
+ *  - skill-derived commands: every discovered SKILL.md becomes a `/name`
+ *    command whose template tells the agent to load skill__<name> first
+ *    (progressive loading — the full instructions stay out of the prompt
+ *    until the model actually invokes the skill tool).
  */
 
 export interface SlashCommand {
@@ -53,10 +60,42 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 ]
 
 /** Filter commands by the typed query (e.g. "/tes" → test). */
-export function filterSlashCommands(query: string): SlashCommand[] {
+export function filterSlashCommands(query: string, source: SlashCommand[] = SLASH_COMMANDS): SlashCommand[] {
   const q = query.toLowerCase()
-  if (!q) return SLASH_COMMANDS
-  return SLASH_COMMANDS.filter((c) => c.name.startsWith(q) || c.description.includes(q))
+  if (!q) return source
+  return source.filter((c) => c.name.startsWith(q) || c.description.includes(q))
+}
+
+/** Template for a skill-backed slash command (placeholders handled by buildSlashPrompt). */
+function skillCommandTemplate(skillName: string, description: string): string {
+  const intro = description ? `（技能简介：${description}）` : ''
+  return (
+    `请加载并使用技能「${skillName}」完成以下任务${intro}。\n` +
+    `请先调用 skill__${skillName} 工具获取该技能的完整说明，再严格遵循其中的步骤执行，最后汇总结果。\n\n` +
+    '```{{language}}\n{{selection}}\n```\n\n当前文件: {{file}}'
+  )
+}
+
+/**
+ * Skill-derived slash commands: one `/name` command per discovered SKILL.md
+ * (workspace + global). Keeps the skill index compact — the command only
+ * carries the one-line description; the body loads on demand via skill__<name>.
+ */
+export async function getSkillSlashCommands(rootOverride?: string): Promise<SlashCommand[]> {
+  const { listSkills } = await import('@/services/skills/skillManager')
+  const skills = await listSkills(false, rootOverride)
+  return skills.map((s) => ({
+    id: `skill-${s.name}`,
+    name: s.name,
+    description: `[技能] ${s.description || s.name}`,
+    template: skillCommandTemplate(s.name, s.description),
+  }))
+}
+
+/** Full slash-command list: static templates + discovered skills. */
+export async function getAllSlashCommands(rootOverride?: string): Promise<SlashCommand[]> {
+  const skills = await getSkillSlashCommands(rootOverride).catch(() => [])
+  return [...SLASH_COMMANDS, ...skills]
 }
 
 /** Fill a command's template with the current editor context. */

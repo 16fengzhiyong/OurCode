@@ -103,6 +103,7 @@ export function registerCoreCommands(): void {
   registerCommand({ id: 'quickOpen', title: t('commands.quickOpen'), category: t('commands.catView'), shortcut: 'Ctrl+P', run: () => useUIStore.getState().openQuickOpen() })
   registerCommand({ id: 'recentFiles', title: t('commands.recentFiles'), category: t('commands.catFile'), shortcut: 'Ctrl+R', run: () => useRecentFilesStore.getState().toggle() })
   registerCommand({ id: 'openMarketplace', title: t('commands.openMarketplace'), category: t('commands.catView'), shortcut: 'Ctrl+Shift+X', run: () => useUIStore.getState().openMarketplace() })
+  registerCommand({ id: 'openSkillRegistry', title: t('commands.openSkillRegistry'), category: t('commands.catView'), run: () => useUIStore.getState().openSkillRegistry() })
   registerCommand({ id: 'openSettings', title: t('commands.openSettings'), category: t('commands.catView'), run: () => useUIStore.getState().openSettings() })
   registerCommand({ id: 'newWindow', title: t('commands.newWindow'), category: t('commands.catView'), run: () => window.electronAPI.openNewWindow() })
   registerCommand({ id: 'splitPanelHorizontal', title: t('commands.splitPanelHorizontal'), category: t('commands.catView'), shortcut: 'Ctrl+\\', run: () => useEditorStore.getState().splitPanel('horizontal') })

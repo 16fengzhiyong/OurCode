@@ -162,6 +162,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('mcp:callTool', server, toolName, args),
   mcpReload: (rootPath: string) => ipcRenderer.invoke('mcp:reload', rootPath),
   mcpToolDefinitions: () => ipcRenderer.invoke('mcp:toolDefinitions'),
+  mcpListResources: () => ipcRenderer.invoke('mcp:listResources'),
+  mcpReadResource: (server: string, uri: string) => ipcRenderer.invoke('mcp:readResource', server, uri),
+  mcpListPrompts: () => ipcRenderer.invoke('mcp:listPrompts'),
+  mcpGetPrompt: (server: string, name: string, args?: Record<string, any>) =>
+    ipcRenderer.invoke('mcp:getPrompt', server, name, args),
 
   // App
   getPath: (name: string) => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_PATH, name),
