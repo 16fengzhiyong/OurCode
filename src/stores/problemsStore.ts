@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { monaco } from '@/editor/monacoSetup'
 import { useEditorStore } from '@/stores/editorStore'
+import { fileUri } from '@/editor/modelRegistry'
 
 export type ProblemSeverity = 'error' | 'warning' | 'info' | 'hint'
 
@@ -53,7 +54,7 @@ function markerToProblem(
 
 /** Reveal a position in the editor once its model matches the target file. */
 async function revealInEditor(filePath: string, line: number, column: number): Promise<void> {
-  const targetUri = monaco.Uri.parse(`file:///${filePath}`).toString()
+  const targetUri = fileUri(filePath).toString()
   for (let i = 0; i < 30; i++) {
     const editor = (window as unknown as { __monacoEditor?: monaco.editor.IStandaloneCodeEditor }).__monacoEditor
     if (editor) {
@@ -83,7 +84,7 @@ export const useProblemsStore = create<ProblemsState>((set) => ({
     // paths with backslashes normalize differently through Uri.parse)
     const uriToFile = new Map<string, string>()
     for (const f of openFiles) {
-      uriToFile.set(monaco.Uri.parse(`file:///${f.path}`).toString(), f.path)
+      uriToFile.set(fileUri(f.path).toString(), f.path)
     }
 
     const problems: Problem[] = []

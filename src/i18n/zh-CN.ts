@@ -93,12 +93,12 @@ export const zhCN = {
   'layout.clearDataConfirm': '确定要清除所有数据？此操作不可恢复！',
 
   // ── 活动栏 ─────────────────────────────────────────────────────────────
-  'activityBar.explorer': '资源管理器 (Ctrl+Shift+E)',
-  'activityBar.search': '搜索 (Ctrl+Shift+F)',
-  'activityBar.scm': '源代码管理 (Ctrl+Shift+G)',
-  'activityBar.extensions': '扩展 (Ctrl+Shift+X)',
-  'activityBar.history': '历史记录',
-  'activityBar.settings': '设置 (Ctrl+,)',
+  'activityBar.explorer': '项目列表',
+  'activityBar.search': '搜索',
+  'activityBar.scm': '代码管理',
+  'activityBar.extensions': '扩展',
+  'activityBar.history': '文件变更历史',
+  'activityBar.settings': '设置',
   'activityBar.account': '账户',
 
   // ── 状态栏 ─────────────────────────────────────────────────────────────

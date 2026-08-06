@@ -157,7 +157,6 @@ export async function retrieveRelevantContext(
       if (bytes > MAX_CONTEXT_BYTES) break
       lines.push(line)
     }
-    void fileName
   }
 
   if (lines.length === 0) return ''

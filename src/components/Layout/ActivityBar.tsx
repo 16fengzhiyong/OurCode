@@ -6,63 +6,50 @@ export default function ActivityBar() {
   const { activeSidebarTab, setActiveSidebarTab, toggleSidebar, openMarketplace, isSidebarVisible } = useUIStore()
   const t = useI18n()
 
-  const topIcons: Array<{ key: 'files' | 'search' | 'git' | 'history' | 'extensions'; titleKey: TranslationKey; icon: JSX.Element }> = [
+  const topIcons: Array<{ key: 'files' | 'git' | 'changes' | 'extensions'; titleKey: TranslationKey; icon: JSX.Element }> = [
     {
       key: 'files',
-      titleKey: 'activityBar.explorer',
+      titleKey: 'activityBar.explorer' as TranslationKey,
       icon: (
-        <svg viewBox="0 0 24 24" width="22" height="22">
-          <rect x="2" y="2" width="20" height="20" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <line x1="2" y1="8" x2="22" y2="8" stroke="currentColor" strokeWidth="1.5" />
-          <line x1="8" y1="2" x2="8" y2="8" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
-      ),
-    },
-    {
-      key: 'search',
-      titleKey: 'activityBar.search',
-      icon: (
-        <svg viewBox="0 0 24 24" width="22" height="22">
-          <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="1.8" />
-          <line x1="16.5" y1="16.5" x2="21" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
         </svg>
       ),
     },
     {
       key: 'git',
-      titleKey: 'activityBar.scm',
+      titleKey: 'activityBar.scm' as TranslationKey,
       icon: (
-        <svg viewBox="0 0 24 24" width="22" height="22">
-          <circle cx="6" cy="6" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <circle cx="18" cy="6" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <circle cx="6" cy="18" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <line x1="6" y1="9" x2="6" y2="15" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M6 12 C6 12, 12 9, 15 6" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M6 12 C6 12, 12 15, 15 18" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <circle cx="6" cy="6" r="2.5" />
+          <circle cx="18" cy="6" r="2.5" />
+          <circle cx="6" cy="18" r="2.5" />
+          <line x1="6" y1="8.5" x2="6" y2="15.5" />
+          <path d="M6 12C6 12 12 9 15.5 6" />
+          <path d="M6 12C6 12 12 15 15.5 18" />
         </svg>
       ),
     },
     {
-      key: 'history',
-      titleKey: 'activityBar.history',
+      key: 'changes',
+      titleKey: 'activityBar.history' as TranslationKey,
       icon: (
-        <svg viewBox="0 0 24 24" width="22" height="22">
-          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          <polyline points="3 3 3 8 8 8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M12 7v5l3 2" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+          <circle cx="12" cy="12" r="9" />
+          <polyline points="12 7 12 12 15 15" />
         </svg>
       ),
     },
     {
       key: 'extensions',
-      titleKey: 'activityBar.extensions',
+      titleKey: 'activityBar.extensions' as TranslationKey,
       icon: (
-        <svg viewBox="0 0 24 24" width="22" height="22">
-          <rect x="2" y="2" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <rect x="13" y="2" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <rect x="2" y="13" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <line x1="16" y1="13" x2="22" y2="13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="19" y1="10" x2="19" y2="16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="2" y="2" width="8" height="8" rx="1.2" />
+          <rect x="14" y="2" width="8" height="8" rx="1.2" />
+          <rect x="2" y="14" width="8" height="8" rx="1.2" />
+          <line x1="17" y1="14" x2="23" y2="14" />
+          <line x1="20" y1="11" x2="20" y2="17" />
         </svg>
       ),
     },
@@ -71,22 +58,22 @@ export default function ActivityBar() {
   const bottomIcons: Array<{ key: string; titleKey: TranslationKey; icon: JSX.Element; action: () => void }> = [
     {
       key: 'settings',
-      titleKey: 'activityBar.settings',
+      titleKey: 'activityBar.settings' as TranslationKey,
       icon: (
-        <svg viewBox="0 0 24 24" width="22" height="22">
-          <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <circle cx="12" cy="12" r="2.5" />
+          <path d="M12 1v3M12 20v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M1 12h3M20 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" strokeLinecap="round" />
         </svg>
       ),
       action: () => useUIStore.getState().openSettings(),
     },
     {
       key: 'account',
-      titleKey: 'activityBar.account',
+      titleKey: 'activityBar.account' as TranslationKey,
       icon: (
-        <svg viewBox="0 0 24 24" width="22" height="22">
-          <circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <circle cx="12" cy="8" r="3.5" />
+          <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" strokeLinecap="round" />
         </svg>
       ),
       action: () => {},
@@ -98,30 +85,30 @@ export default function ActivityBar() {
       openMarketplace()
       return
     }
-    // History: open the chat panel and its session list (design: clock icon entry)
-    if (key === 'history') {
+    // File change history: switch to the changes panel in the sidebar
+    if (key === 'changes') {
       const ui = useUIStore.getState()
-      if (!ui.isChatVisible) ui.toggleChat()
-      ui.setChatSessionListOpen(true)
+      if (!ui.isSidebarVisible) ui.toggleSidebar()
+      ui.setActiveSidebarTab('changes')
       return
     }
     if (!isSidebarVisible) {
       toggleSidebar()
     }
-    setActiveSidebarTab(key as 'files' | 'search' | 'git')
+    setActiveSidebarTab(key as 'files' | 'git')
   }
 
   return (
     <div
       className="shrink-0 flex flex-col select-none"
       style={{
-        width: 48,
+        width: 44,
         background: 'var(--bg-activity)',
         borderRight: '1px solid var(--border)',
       }}
     >
       {/* Top icons */}
-      <div className="flex flex-col items-center flex-1">
+      <div className="flex flex-col items-center flex-1 py-1 gap-px">
         {topIcons.map((item) => {
           const isActive = isSidebarVisible && activeSidebarTab === item.key
           return (
@@ -129,22 +116,41 @@ export default function ActivityBar() {
               key={item.key}
               aria-label={t(item.titleKey)} title={t(item.titleKey)}
               onClick={() => handleClick(item.key)}
-              className="relative flex items-center justify-center"
+              className="relative flex items-center justify-center rounded-sm transition-all"
               style={{
-                width: 48,
-                height: 48,
-                color: isActive ? '#EDEDED' : '#A1A1AA',
-                borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
-                background: isActive ? 'var(--bg-selected)' : 'transparent',
-                transition: 'color 0.15s, border-color 0.15s, background 0.15s',
+                width: 38,
+                height: 38,
+                color: isActive ? '#EDEDED' : '#71717A',
+                background: isActive ? 'rgba(37, 99, 235, 0.12)' : 'transparent',
+                margin: '1px 0',
               }}
               onMouseEnter={(e) => {
-                if (!isActive) e.currentTarget.style.color = '#EDEDED'
+                if (!isActive) {
+                  e.currentTarget.style.color = '#E4E4E7'
+                  e.currentTarget.style.background = '#2E2E33'
+                }
               }}
               onMouseLeave={(e) => {
-                if (!isActive) e.currentTarget.style.color = '#A1A1AA'
+                if (!isActive) {
+                  e.currentTarget.style.color = '#71717A'
+                  e.currentTarget.style.background = 'transparent'
+                }
               }}
             >
+              {/* Active indicator bar */}
+              {isActive && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 6,
+                    bottom: 6,
+                    width: 2,
+                    background: 'var(--accent)',
+                    borderRadius: '0 2px 2px 0',
+                  }}
+                />
+              )}
               {item.icon}
             </button>
           )
@@ -152,24 +158,34 @@ export default function ActivityBar() {
       </div>
 
       {/* Bottom icons */}
-      <div className="flex flex-col items-center">
+      <div className="flex flex-col items-center pb-1 gap-px">
         {bottomIcons.map((item) => (
           <button
             key={item.key}
             aria-label={t(item.titleKey)} title={t(item.titleKey)}
             onClick={item.action}
             style={{
-              width: 48,
-              height: 48,
-              color: '#8C8C8C',
-              borderLeft: '2px solid transparent',
+              width: 38,
+              height: 38,
+              color: '#71717A',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              transition: 'color 0.15s',
+              transition: 'color 0.15s, background 0.15s',
+              borderRadius: 6,
+              margin: '1px 0',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#EDEDED' }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = '#8C8C8C' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = '#E4E4E7'
+              e.currentTarget.style.background = '#2E2E33'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = '#71717A'
+              e.currentTarget.style.background = 'transparent'
+            }}
           >
             {item.icon}
           </button>

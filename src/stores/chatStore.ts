@@ -4,6 +4,7 @@ import { EXHAUSTED_MARKER, AUTO_CONTINUE_KEY } from '@shared/constants'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
 import { useMemoryStore } from './memoryStore'
+import { useUIStore } from './uiStore'
 import { getFileContent } from '@/editor/modelRegistry'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { parseLLMError } from '@/services/llm/errors'
@@ -430,6 +431,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   createSession: (configGroupId) => {
     const id = uuidv4()
+    const rootPath = document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
     const session: ChatSession = {
       id,
       title: '新对话',
@@ -442,6 +444,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       agentMode: 'chat',
       todos: [],
       planStatus: 'none',
+      projectPath: rootPath || undefined,
     }
 
     set((s) => ({

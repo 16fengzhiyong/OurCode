@@ -131,7 +131,7 @@ export default function QuickOpen({ rootPath }: { rootPath?: string }) {
             }}
             onKeyDown={handleKeyDown}
             placeholder={t('sidebar.quickOpenPlaceholder')}
-            className="w-full bg-nova-input text-nova-text-primary outline-none placeholder-nova-text-muted px-3 py-2 rounded border border-nova-border focus:border-nova-accent/50 transition-colors"
+            className="w-full bg-nova-input-bg text-nova-text-primary outline-none placeholder-nova-text-muted px-3 py-2 rounded border border-nova-border focus:border-nova-accent/50 transition-colors"
           />
         </div>
 

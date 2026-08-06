@@ -5,7 +5,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useInlineCompletion } from '@/hooks/useInlineCompletion'
-import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoader, trackLoad } from '@/editor/modelRegistry'
+import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoader, trackLoad, fileUri } from '@/editor/modelRegistry'
 import { ensureLanguageService, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
 import { setPendingVibeReplace } from '@/services/vibeReplace'
 import { attachLsp, detachLsp } from '@/services/lsp/lspClient'
@@ -298,7 +298,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
       let model = getModel(activeFilePath)
 
       if (!model) {
-        const uri = monaco.Uri.parse(`file:///${activeFilePath}`)
+        const uri = fileUri(activeFilePath)
         // Start empty; a registered stream loader fills it chunk by chunk so large
         // files load without freezing the UI. Large files are plain text (no
         // syntax highlighting) — see PLAINTEXT_THRESHOLD_BYTES.
@@ -386,21 +386,23 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
           </div>
         )}
         {!activeFilePath && (
-          // Welcome card (design: card container + explicit primary/secondary actions)
+          // Welcome card (design: card container + explicit primary/secondary actions).
+          // Styled entirely from theme tokens so it follows the Settings theme
+          // (dark / light) instead of hardcoded colors.
           <div className="absolute inset-0 flex items-center justify-center p-8">
-            <div className="bg-[#27272a] rounded-xl p-10 max-w-md w-full text-center border border-[#3f3f46] shadow-2xl">
-              <div className="mb-5 text-[#a1a1aa] bg-[#18181b] w-16 h-16 mx-auto flex items-center justify-center rounded-full border border-[#3f3f46]">
+            <div className="bg-nova-card rounded-xl p-10 max-w-md w-full text-center border border-nova-border shadow-xl">
+              <div className="mb-5 text-nova-text-muted bg-nova-surface w-16 h-16 mx-auto flex items-center justify-center rounded-full border border-nova-border">
                 <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                   <polyline points="14 2 14 8 20 8" />
                 </svg>
               </div>
-              <h1 className="text-white text-lg font-semibold mb-1.5">{t('editor.emptyEditor')}</h1>
-              <p className="text-sm text-[#a1a1aa] mb-6">{t('editor.welcomeDesc')}</p>
+              <h1 className="text-nova-text-primary text-lg font-semibold mb-1.5">{t('editor.emptyEditor')}</h1>
+              <p className="text-sm text-nova-text-muted mb-6">{t('editor.welcomeDesc')}</p>
               <div className="flex flex-col gap-3">
                 <button
                   onClick={() => executeCommand('openFolder')}
-                  className="w-full bg-[#2563eb] hover:bg-[#3b82f6] text-white text-sm font-medium py-2.5 rounded transition-colors flex items-center justify-center gap-2"
+                  className="w-full bg-nova-accent hover:opacity-90 text-white text-sm font-medium py-2.5 rounded-lg transition-opacity flex items-center justify-center gap-2 shadow-md"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
@@ -409,7 +411,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
                 </button>
                 <button
                   onClick={() => executeCommand('newFile')}
-                  className="w-full bg-transparent hover:bg-[#3f3f46] text-[#a1a1aa] border border-[#3f3f46] text-sm font-medium py-2.5 rounded transition-colors"
+                  className="w-full bg-nova-hover hover:bg-nova-border text-nova-text-secondary hover:text-nova-text-primary border border-nova-border text-sm font-medium py-2.5 rounded-lg transition-colors"
                 >
                   {t('commands.newFile')}
                 </button>

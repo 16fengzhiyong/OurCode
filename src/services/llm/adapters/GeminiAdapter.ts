@@ -20,13 +20,43 @@ export class GeminiAdapter implements LLMAdapter {
     }
 
     // Convert messages to Gemini format
-    const systemInstruction = req.messages.find((m) => m.role === 'system')
+    // Join all system messages into a single system instruction
+    const systemMessages = req.messages.filter((m) => m.role === 'system')
+    const systemInstruction = systemMessages.length > 0
+      ? { parts: systemMessages.map((m) => ({ text: m.content })) }
+      : undefined
+
     const contents = req.messages
       .filter((m) => m.role !== 'system')
-      .map((m) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      }))
+      .map((m) => {
+        const parts: Array<Record<string, any>> = [{ text: m.content || '' }]
+        // Preserve tool calls in assistant messages
+        if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+          for (const tc of m.toolCalls) {
+            let parsedArgs: Record<string, any> = {}
+            try { parsedArgs = JSON.parse(tc.function.arguments) } catch { /* keep empty */ }
+            parts.push({
+              functionCall: {
+                name: tc.function.name,
+                args: parsedArgs,
+              },
+            })
+          }
+        }
+        // Preserve tool result in tool messages
+        if (m.role === 'tool' && m.toolCallId) {
+          parts.push({
+            functionResponse: {
+              name: m.toolCallId,
+              response: { result: m.content },
+            },
+          })
+        }
+        return {
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts,
+        }
+      })
 
     const body: Record<string, any> = {
       contents,
@@ -38,7 +68,14 @@ export class GeminiAdapter implements LLMAdapter {
     }
 
     if (systemInstruction) {
-      body.systemInstruction = { parts: [{ text: systemInstruction.content }] }
+      body.systemInstruction = systemInstruction
+    }
+
+    // Add tools if provided (Gemini uses its own tool format)
+    if (req.tools && req.tools.length > 0) {
+      body.tools = req.tools.map((t) => ({
+        functionDeclarations: [{ name: t.function.name, description: t.function.description, parameters: t.function.parameters }],
+      }))
     }
 
     const response = await fetch(url, {

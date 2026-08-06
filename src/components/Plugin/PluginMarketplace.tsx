@@ -83,19 +83,19 @@ export default function PluginMarketplace() {
 
   const getStatusBadge = (status: PluginInfo['status']) => {
     const styles: Record<string, string> = {
-      active: 'bg-green-500/20 text-green-400 border-green-500/30',
-      installed: 'bg-[#3B82F6]/20 text-[#3B82F6] border-[#3B82F6]/30',
-      disabled: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
-      error: 'bg-red-500/20 text-red-400 border-red-500/30',
+      active: 'bg-[#22c55e]/15 text-[#22c55e] border-[#22c55e]/30',
+      installed: 'bg-[#2563eb]/15 text-[#2563eb] border-[#2563eb]/30',
+      disabled: 'bg-gray-500/15 text-gray-400 border-gray-500/30',
+      error: 'bg-red-500/15 text-red-400 border-red-500/30',
     }
     const labelKeys: Record<string, string> = {
-      active: t('plugin.statusActive'),
-      installed: t('plugin.statusInstalled'),
-      disabled: t('plugin.statusDisabled'),
-      error: t('plugin.statusError'),
+      active: '已启用',
+      installed: '已安装',
+      disabled: '已禁用',
+      error: '错误',
     }
     return (
-      <span className={`text-[10px] px-1.5 py-0.5 rounded border ${styles[status] || styles.installed}`}>
+      <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${styles[status] || styles.installed}`}>
         {labelKeys[status] || status}
       </span>
     )
@@ -365,38 +365,49 @@ function PluginCard({
   const [expanded, setExpanded] = useState(false)
   const t = useI18n()
 
+  // Color based on first letter
+  const iconColors = [
+    { bg: 'rgba(37,99,235,0.15)', fg: '#2563eb' },
+    { bg: 'rgba(168,85,247,0.15)', fg: '#a855f7' },
+    { bg: 'rgba(34,197,94,0.15)', fg: '#22c55e' },
+    { bg: 'rgba(34,211,238,0.15)', fg: '#22d3ee' },
+    { bg: 'rgba(251,146,60,0.15)', fg: '#fb923c' },
+  ]
+  const colorIdx = plugin.manifest.name.charCodeAt(0) % iconColors.length
+  const iconColor = iconColors[colorIdx]
+
   return (
-    <div className="bg-nova-bg border border-nova-border rounded-lg overflow-hidden hover:border-nova-accent/30 transition-colors">
-      <div className="flex items-center gap-4 p-4">
+    <div className="bg-nova-card border border-nova-border rounded-xl overflow-hidden hover:border-nova-border-strong transition-all cursor-pointer shadow-sm">
+      <div className="flex items-center gap-3 p-3">
         {/* Icon */}
-        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[#2563EB]/20 to-[#3B82F6]/20 border border-nova-border flex items-center justify-center shrink-0">
-          <span className="text-lg font-bold text-[#3B82F6]">
-            {plugin.manifest.name.charAt(0).toUpperCase()}
-          </span>
+        <div
+          className="w-9 h-9 rounded-md flex items-center justify-center text-sm font-bold shrink-0"
+          style={{ background: iconColor.bg, color: iconColor.fg }}
+        >
+          {plugin.manifest.name.charAt(0).toUpperCase()}
         </div>
 
         {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-medium text-nova-text-primary truncate">
+            <h3 className="text-xs font-semibold text-nova-text-primary truncate">
               {plugin.manifest.name}
             </h3>
-            <span className="text-[10px] text-nova-text-muted">v{plugin.manifest.version}</span>
-            {getStatusBadge(plugin.status)}
+            <span className="text-[10px] text-nova-text-muted shrink-0">v{plugin.manifest.version}</span>
           </div>
-          <p className="text-xs text-nova-text-muted mt-0.5 truncate">
+          <p className="text-[10px] text-nova-text-muted mt-0.5 truncate">
             {plugin.manifest.description || t('plugin.noDescription')}
-          </p>
-          <p className="text-[10px] text-nova-text-muted mt-1">
-            {plugin.manifest.author} &middot; {t('plugin.permissionsCount', { count: plugin.manifest.permissions.length })}
           </p>
         </div>
 
+        {/* Status badge */}
+        {getStatusBadge(plugin.status)}
+
         {/* Actions */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={() => setExpanded(!expanded)}
-            className="p-1.5 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
+            className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
             title={t('plugin.details')}
           >
             <svg className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -405,17 +416,17 @@ function PluginCard({
           </button>
           <button
             onClick={onToggle}
-            className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+            className={`px-2.5 py-1 text-[10px] font-medium rounded-md transition-colors ${
               plugin.status === 'active'
-                ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/30'
-                : 'bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30'
+                ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 hover:bg-yellow-500/25'
+                : 'bg-green-500/15 text-green-400 border border-green-500/25 hover:bg-green-500/25'
             }`}
           >
             {plugin.status === 'active' ? t('plugin.disable') : t('plugin.enable')}
           </button>
           <button
             onClick={onUninstall}
-            className="px-3 py-1 text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded-md hover:bg-red-500/20 transition-colors"
+            className="px-2.5 py-1 text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20 rounded-md hover:bg-red-500/20 transition-colors"
           >
             {t('plugin.uninstall')}
           </button>

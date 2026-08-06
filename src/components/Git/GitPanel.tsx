@@ -302,18 +302,15 @@ export default function GitPanel() {
     <div className="h-full flex flex-col text-sm">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-nova-border">
-        <div className="flex items-center gap-2">
-          <svg className="w-4 h-4 text-nova-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="flex items-center gap-2 min-w-0">
+          <svg className="w-4 h-4 text-nova-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
-          <span className="text-xs font-semibold text-nova-text-secondary">{t('git.title')}</span>
+          <span className="text-xs font-semibold text-nova-text-secondary truncate">
+            {gitBranch || t('git.title')}
+          </span>
         </div>
         <div className="flex items-center gap-1">
-          {gitBranch && (
-            <span className="text-[10px] px-1.5 py-0.5 bg-nova-hover rounded text-nova-text-muted">
-              {gitBranch}
-            </span>
-          )}
           <button
             onClick={refreshStatus}
             className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
@@ -326,65 +323,64 @@ export default function GitPanel() {
         </div>
       </div>
 
-      {/* Commit message input */}
-      <div className="p-3 border-b border-nova-border">
+      {/* Commit message input — moved to top */}
+      <div className="p-3 border-b border-nova-border bg-nova-bg/50">
         <textarea
           value={commitMessage}
           onChange={(e) => setCommitMessage(e.target.value)}
           placeholder={t('git.commitPlaceholder')}
-          className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-lg text-xs text-nova-text-primary outline-none focus:border-nova-accent/50 resize-none"
+          className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-lg text-xs text-nova-text-primary outline-none focus:border-nova-accent/50 resize-none transition-colors"
           rows={2}
+          style={{ minHeight: 48, lineHeight: 1.5 }}
           onKeyDown={(e) => {
             if (e.ctrlKey && e.key === 'Enter') {
               handleCommit()
             }
           }}
         />
-        <div className="flex gap-2 mt-2">
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
           <button
             onClick={handleCommit}
             disabled={!commitMessage.trim()}
-            className="flex-1 px-3 py-1.5 text-xs bg-nova-accent text-white rounded-lg hover:opacity-90 disabled:opacity-30 transition-colors"
+            className="px-3 py-1.5 text-xs bg-nova-accent text-white rounded-md hover:opacity-90 disabled:opacity-30 transition-colors inline-flex items-center gap-1"
           >
-            {t('git.commit')}
+            ✓ 提交
           </button>
           <button
             onClick={handlePush}
-            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors"
+            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors"
             title={t('git.pushTitle')}
           >
-            {t('git.push')}
+            ↑ 推送
           </button>
           <button
             onClick={handlePull}
-            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors"
+            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors"
             title={t('git.pullTitle')}
           >
-            {t('git.pull')}
+            ↓ 拉取
           </button>
           <button
             onClick={() => { showLog ? setShowLog(false) : handleViewLog() }}
-            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors"
+            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors"
           >
-            {t('git.log')}
+            📋 日志
           </button>
-        </div>
-        <div className="flex items-center gap-3 mt-1.5">
           <button
             onClick={handleGenerateCommitMessage}
             disabled={generatingCommit}
-            className="text-[10px] text-nova-text-muted hover:text-nova-accent transition-colors disabled:opacity-40"
+            className="px-2 py-1.5 text-xs text-nova-text-muted hover:text-nova-accent transition-colors disabled:opacity-40 bg-transparent border-none cursor-pointer"
             title={t('git.generateCommitHint')}
           >
-            {generatingCommit ? t('git.generating') : t('git.generateCommit')}
+            {generatingCommit ? t('git.generating') : '🤖 AI 生成'}
           </button>
           <button
             onClick={handleLifeguard}
             disabled={lifeguardRunning}
-            className="text-[10px] text-nova-text-muted hover:text-red-400 transition-colors disabled:opacity-40"
+            className="px-2 py-1.5 text-xs text-nova-text-muted hover:text-red-400 transition-colors disabled:opacity-40 bg-transparent border-none cursor-pointer"
             title={t('git.lifeguardHint')}
           >
-            {lifeguardRunning ? t('git.lifeguardRunning') : t('git.lifeguard')}
+            {lifeguardRunning ? t('git.lifeguardRunning') : '🔍 预检'}
           </button>
         </div>
 
@@ -592,7 +588,7 @@ export default function GitPanel() {
 
       {/* Git Log */}
       {showLog && (
-        <div className="border-t border-nova-border max-h-[200px] overflow-y-auto">
+        <div className="border-t border-nova-border max-h-[200px] overflow-y-auto overflow-x-hidden">
           <div className="flex items-center justify-between px-3 py-1.5 text-[10px] text-nova-text-muted bg-nova-bg">
             <span>{t('git.recentCommits')}</span>
             <button onClick={() => setShowLog(false)} className="hover:text-nova-text-primary">
@@ -609,7 +605,7 @@ export default function GitPanel() {
             log.map((commit) => (
               <div key={commit.hash} className="px-3 py-1.5 hover:bg-nova-hover">
                 <div className="text-xs text-nova-text-primary truncate">{commit.message}</div>
-                <div className="text-[10px] text-nova-text-muted">
+                <div className="text-[10px] text-nova-text-muted truncate">
                   {commit.hash.slice(0, 7)} · {commit.author} · {commit.date}
                 </div>
               </div>

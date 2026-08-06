@@ -10,7 +10,7 @@ const ANTHROPIC_MODELS = [
 ]
 
 export class AnthropicAdapter implements LLMAdapter {
-  async *sendRequest(req: LLMRequest, config: ApiConfigGroup): AsyncGenerator<LLMStreamChunk> {
+  async *sendRequest(req: LLMRequest, config: ApiConfigGroup, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
     const url = `${config.baseUrl.replace(/\/+$/, '')}/messages`
 
     const headers: Record<string, string> = {
@@ -92,6 +92,7 @@ export class AnthropicAdapter implements LLMAdapter {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
+      signal,
     })
 
     if (!response.ok) {

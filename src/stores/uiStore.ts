@@ -23,8 +23,9 @@ interface UIState {
   // Sidebar
   isSidebarVisible: boolean
   sidebarWidth: number
-  activeSidebarTab: 'files' | 'search' | 'git' | 'extensions'
+  activeSidebarTab: 'files' | 'git' | 'changes' | 'extensions'
   rootPath: string | null
+  recentProjects: string[]
 
   // Chat Panel
   isChatVisible: boolean
@@ -57,14 +58,21 @@ interface UIState {
   theme: 'light' | 'dark' | 'system'
   themeColor: string
 
+  // Project navigation (sidebar: list ↔ file-tree)
+  projectListView: 'list' | 'tree'
+  activeProjectPath: string | null
+  enterProject: (path: string) => void
+  backToProjectList: () => void
+
   // Context Menu
   contextMenu: { x: number; y: number; items: ContextMenuItem[] } | null
 
   // Actions
   toggleSidebar: () => void
   setSidebarWidth: (width: number) => void
-  setActiveSidebarTab: (tab: 'files' | 'search' | 'git') => void
+  setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'extensions') => void
   setRootPath: (path: string | null) => void
+  removeRecentProject: (path: string) => void
 
   toggleChat: () => void
   setChatWidth: (width: number) => void
@@ -113,6 +121,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   sidebarWidth: 260,
   activeSidebarTab: 'files',
   rootPath: null,
+  recentProjects: (() => { try { return JSON.parse(localStorage.getItem('recentProjects') || '[]') } catch { return [] } })(),
 
   // Chat Panel
   isChatVisible: true,
@@ -143,6 +152,10 @@ export const useUIStore = create<UIState>((set, get) => ({
   theme: 'dark',
   themeColor: localStorage.getItem('themeColor') || DEFAULT_THEME_COLOR,
 
+  // Project navigation
+  projectListView: 'list',
+  activeProjectPath: null,
+
   // Context Menu
   contextMenu: null,
 
@@ -150,7 +163,26 @@ export const useUIStore = create<UIState>((set, get) => ({
   toggleSidebar: () => set((s) => ({ isSidebarVisible: !s.isSidebarVisible })),
   setSidebarWidth: (width) => set({ sidebarWidth: width }),
   setActiveSidebarTab: (tab) => set({ activeSidebarTab: tab }),
-  setRootPath: (path) => set({ rootPath: path }),
+  setRootPath: (path) => {
+    set({ rootPath: path })
+    if (path) {
+      set((s) => {
+        const filtered = s.recentProjects.filter((p) => p !== path)
+        const updated = [path, ...filtered].slice(0, 20) // keep last 20
+        localStorage.setItem('recentProjects', JSON.stringify(updated))
+        return { recentProjects: updated }
+      })
+    }
+  },
+  removeRecentProject: (path) => {
+    set((s) => {
+      const updated = s.recentProjects.filter((p) => p !== path)
+      localStorage.setItem('recentProjects', JSON.stringify(updated))
+      // If removing the current project, clear rootPath too
+      const newRoot = s.rootPath === path ? null : s.rootPath
+      return { recentProjects: updated, rootPath: newRoot }
+    })
+  },
 
   toggleChat: () => set((s) => ({ isChatVisible: !s.isChatVisible })),
   setChatWidth: (width) => set({ chatWidth: width }),
@@ -193,6 +225,9 @@ export const useUIStore = create<UIState>((set, get) => ({
     set({ themeColor: color })
     applyThemeColor(color)
   },
+
+  enterProject: (path) => set({ projectListView: 'tree', activeProjectPath: path, rootPath: path }),
+  backToProjectList: () => set({ projectListView: 'list', activeProjectPath: null }),
 
   showContextMenu: (x, y, items) => set({ contextMenu: { x, y, items } }),
   hideContextMenu: () => set({ contextMenu: null }),

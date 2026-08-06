@@ -7,6 +7,7 @@
  */
 import { monaco } from '@/editor/monacoSetup'
 import { useEditorStore } from '@/stores/editorStore'
+import { fileUri } from '@/editor/modelRegistry'
 
 // Files above this size are skipped (getValue() copies the whole buffer)
 const LSP_MAX_BYTES = 5 * 1024 * 1024
@@ -30,7 +31,7 @@ function serverCommandFor(languageId: string): { command: string; args: string[]
 }
 
 function uriFor(filePath: string): string {
-  return monaco.Uri.parse(`file:///${filePath}`).toString()
+  return fileUri(filePath).toString()
 }
 
 /** Start a language server for an open model (call when the model is created). */

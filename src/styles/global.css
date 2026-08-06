@@ -126,6 +126,19 @@ body {
   height: 10px;
 }
 
+/* Native <select> dropdown lists (e.g. the plan/edit-mode picker) are rendered
+   by Chromium with a light default background; recolor the options so they
+   follow the current theme instead of flashing white. */
+select option {
+  background-color: var(--card, #27272a);
+  color: var(--text-primary);
+}
+
+:root:not(.dark) select option {
+  background-color: var(--card, #ffffff);
+  color: var(--text-primary);
+}
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }

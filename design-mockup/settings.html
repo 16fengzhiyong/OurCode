@@ -1,0 +1,1107 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OurCode IDE - 设置</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #18181b;
+    --surface: #1f1f23;
+    --card: #27272a;
+    --border: #2e2e33;
+    --border-strong: #3f3f46;
+    --hover: #2e2e33;
+    --input-bg: #1f1f23;
+    --text-primary: #e4e4e7;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    --accent: #2563eb;
+    --accent-soft: rgba(37, 99, 235, 0.15);
+    --accent-hover: #3b82f6;
+    --green: #22c55e;
+    --green-soft: rgba(34, 197, 94, 0.15);
+    --red: #f48771;
+    --red-soft: rgba(244, 135, 113, 0.15);
+    --yellow: #e5ba7d;
+    --yellow-soft: rgba(229, 186, 125, 0.15);
+    --purple: #a78bfa;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
+    --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== Scrollbar ===== */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #52525b; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #71717a; }
+
+  /* ===== Settings Modal ===== */
+  .settings-overlay {
+    position: fixed; inset: 0; z-index: 150;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .settings-dialog {
+    width: 960px; max-width: 95vw; max-height: 88vh;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lg);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    animation: dialogIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes dialogIn {
+    from { opacity: 0; transform: scale(0.96) translateY(12px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  /* ===== Header ===== */
+  .settings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 28px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .settings-header-left { display: flex; align-items: center; gap: 12px; }
+  .settings-icon {
+    width: 36px; height: 36px;
+    background: var(--accent-soft);
+    border-radius: var(--radius-md);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent);
+  }
+  .settings-title { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+  .settings-close {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: var(--radius-sm); color: var(--text-muted);
+    background: none; border: none; cursor: pointer;
+    transition: all var(--transition);
+  }
+  .settings-close:hover { background: var(--hover); color: var(--text-primary); }
+
+  /* ===== Tabs ===== */
+  .settings-tabs {
+    display: flex; gap: 4px;
+    padding: 6px 28px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    background: var(--bg);
+  }
+  .settings-tab {
+    display: flex; align-items: center; gap: 7px;
+    padding: 8px 16px;
+    font-size: 13px; font-weight: 500;
+    color: var(--text-muted);
+    background: none; border: none; border-radius: var(--radius-sm);
+    cursor: pointer; transition: all var(--transition);
+    white-space: nowrap;
+  }
+  .settings-tab:hover { color: var(--text-secondary); background: var(--hover); }
+  .settings-tab.active {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .settings-tab svg { width: 16px; height: 16px; flex-shrink: 0; }
+
+  /* ===== Content Area ===== */
+  .settings-content {
+    flex: 1; overflow-y: auto; padding: 24px 28px;
+    display: flex; flex-direction: column; gap: 24px;
+  }
+
+  /* ===== Section ===== */
+  .section { display: flex; flex-direction: column; gap: 14px; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; }
+  .section-title {
+    font-size: 13px; font-weight: 600; color: var(--text-primary);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-title::before {
+    content: ''; width: 3px; height: 14px;
+    background: var(--accent); border-radius: 2px;
+  }
+  .section-desc { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+  /* ===== Cards ===== */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+  .config-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    transition: all var(--transition);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+  }
+  .config-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-md);
+  }
+  .config-card.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 0 20px rgba(37,99,235,0.12);
+  }
+  .config-card.active::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), #8b5cf6);
+  }
+  .config-card-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  }
+  .config-card-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+  .config-card-name { font-size: 14px; font-weight: 600; }
+  .config-card-badge {
+    font-size: 10px; font-weight: 500; padding: 2px 8px; border-radius: 100px;
+  }
+  .config-card-url {
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    color: var(--text-muted); margin-bottom: 6px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .config-card-key {
+    font-size: 11px; color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .config-card-actions {
+    display: flex; gap: 6px; margin-top: 12px;
+    padding-top: 12px; border-top: 1px solid var(--border);
+  }
+
+  /* ===== Buttons ===== */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; font-size: 12px; font-weight: 500;
+    border-radius: var(--radius-sm); cursor: pointer;
+    transition: all var(--transition); border: none;
+    font-family: inherit; white-space: nowrap;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-secondary { background: var(--hover); color: var(--text-secondary); }
+  .btn-secondary:hover { background: var(--border-strong); color: var(--text-primary); }
+  .btn-ghost { background: transparent; color: var(--text-muted); }
+  .btn-ghost:hover { background: var(--hover); color: var(--text-primary); }
+  .btn-danger { background: var(--red-soft); color: var(--red); }
+  .btn-danger:hover { background: rgba(244,135,113,0.25); }
+  .btn-success { background: var(--green-soft); color: var(--green); }
+  .btn-success:hover { background: rgba(34,197,94,0.25); }
+  .btn-sm { padding: 5px 10px; font-size: 11px; }
+  .btn-xs { padding: 3px 8px; font-size: 10px; border-radius: 4px; }
+  .btn-icon {
+    width: 30px; height: 30px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ===== Form Elements ===== */
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-label {
+    font-size: 12px; font-weight: 500; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .form-label .required { color: var(--red); }
+  .form-input, .form-select, .form-textarea {
+    padding: 8px 12px;
+    font-size: 13px; font-family: inherit;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    transition: all var(--transition);
+    outline: none;
+  }
+  .form-input:focus, .form-select:focus, .form-textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+  }
+  .form-input::placeholder { color: var(--text-muted); }
+  .form-input.mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+  .form-select {
+    appearance: none; padding-right: 32px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center;
+    cursor: pointer;
+  }
+  .form-textarea { resize: vertical; min-height: 60px; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+  /* ===== Toggle ===== */
+  .toggle {
+    width: 40px; height: 22px; border-radius: 11px;
+    background: var(--border); border: none; cursor: pointer;
+    transition: all var(--transition); position: relative; flex-shrink: 0;
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle::after {
+    content: ''; position: absolute; top: 2px; left: 2px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; transition: all var(--transition);
+  }
+  .toggle.on::after { left: 20px; }
+
+  /* ===== Setting Row ===== */
+  .setting-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    gap: 16px;
+    transition: border-color var(--transition);
+  }
+  .setting-row:hover { border-color: var(--border-strong); }
+  .setting-row-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .setting-row-label { font-size: 13px; font-weight: 500; }
+  .setting-row-desc { font-size: 11px; color: var(--text-muted); }
+  .setting-row-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+  /* ===== Color Picker ===== */
+  .color-swatches { display: flex; gap: 6px; }
+  .color-swatch {
+    width: 24px; height: 24px; border-radius: 50%; cursor: pointer;
+    border: 2px solid transparent; transition: all var(--transition);
+  }
+  .color-swatch:hover { transform: scale(1.15); }
+  .color-swatch.active { border-color: #fff; box-shadow: 0 0 0 2px var(--accent); }
+
+  /* ===== Shortcut Key ===== */
+  .shortcut-group { display: flex; flex-direction: column; gap: 4px; }
+  .shortcut-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    transition: background var(--transition);
+  }
+  .shortcut-row:hover { background: var(--hover); }
+  .shortcut-desc { font-size: 12px; color: var(--text-secondary); }
+  .shortcut-keys {
+    font-size: 11px; font-family: 'JetBrains Mono', monospace;
+    color: var(--text-muted);
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    padding: 3px 8px; border-radius: 4px;
+  }
+  .shortcut-cat {
+    font-size: 10px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.8px;
+    padding: 8px 12px 4px;
+  }
+
+  /* ===== Danger Zone ===== */
+  .danger-zone {
+    border: 1px solid rgba(244,135,113,0.3);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    background: rgba(244,135,113,0.04);
+  }
+  .danger-zone .section-title::before { background: var(--red); }
+  .danger-zone .section-title { color: var(--red); }
+
+  /* ===== Model configuration detail page ===== */
+  .model-config-view {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+  }
+  .model-config-panel {
+    width: 780px; max-width: 95vw; max-height: 88vh;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lg);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    animation: dialogIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* ===== Two-column layout for edit ===== */
+  .edit-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .edit-full { grid-column: 1 / -1; }
+
+  /* ===== Tags / Chips ===== */
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 10px; font-size: 11px; border-radius: 100px;
+    background: var(--hover); color: var(--text-secondary);
+  }
+  .chip-accent { background: var(--accent-soft); color: var(--accent); }
+  .chip-green { background: var(--green-soft); color: var(--green); }
+
+  /* ===== Provider selector ===== */
+  .provider-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  }
+  .provider-option {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 14px 8px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition);
+    text-align: center;
+  }
+  .provider-option:hover { border-color: var(--border-strong); }
+  .provider-option.selected {
+    border-color: var(--accent); background: var(--accent-soft);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .provider-option svg { width: 28px; height: 28px; }
+  .provider-option .provider-name { font-size: 11px; font-weight: 500; }
+
+  /* ===== Prompt editor area ===== */
+  .prompt-editor-area {
+    background: var(--input-bg); border: 1px solid var(--border);
+    border-radius: var(--radius-md); overflow: hidden;
+  }
+  .prompt-editor-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 10px; border-bottom: 1px solid var(--border);
+    background: var(--card);
+  }
+  .prompt-editor-textarea {
+    width: 100%; min-height: 120px; padding: 12px;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    line-height: 1.6; color: var(--text-primary);
+    background: transparent; border: none; resize: vertical; outline: none;
+  }
+
+  /* ===== Status badge ===== */
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .status-dot.connected { background: var(--green); box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+  .status-dot.error { background: var(--red); }
+
+  /* ===== Empty state ===== */
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    padding: 48px 24px; text-align: center;
+  }
+  .empty-state-icon {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .empty-state-title { font-size: 14px; font-weight: 600; }
+  .empty-state-desc { font-size: 12px; color: var(--text-muted); max-width: 300px; line-height: 1.5; }
+
+  /* ===== Slider ===== */
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 120px; height: 4px; border-radius: 2px;
+    background: var(--border); outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); cursor: pointer;
+    border: 2px solid var(--surface);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  }
+  .range-value { font-size: 11px; color: var(--text-muted); min-width: 32px; text-align: right; }
+
+  /* ===== Test result ===== */
+  .test-result {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; padding: 6px 10px; border-radius: var(--radius-sm);
+  }
+  .test-result.success { background: var(--green-soft); color: var(--green); }
+  .test-result.error { background: var(--red-soft); color: var(--red); }
+
+  /* Utility */
+  .flex-between { display: flex; align-items: center; justify-content: space-between; }
+  .gap-2 { gap: 8px; }
+  .gap-3 { gap: 12px; }
+  .mt-2 { margin-top: 8px; }
+  .mt-3 { margin-top: 12px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ===== SETTINGS MODAL ===== -->
+<div class="settings-overlay" id="settingsModal">
+  <div class="settings-dialog">
+    <!-- Header -->
+    <div class="settings-header">
+      <div class="settings-header-left">
+        <div class="settings-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </div>
+        <h2 class="settings-title">设置</h2>
+      </div>
+      <button class="settings-close" title="关闭 (Esc)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Tabs -->
+    <div class="settings-tabs" id="settingsTabs">
+      <button class="settings-tab active" data-tab="api">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        API 配置
+      </button>
+      <button class="settings-tab" data-tab="appearance">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        外观偏好
+      </button>
+      <button class="settings-tab" data-tab="editor">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        编辑器
+      </button>
+      <button class="settings-tab" data-tab="shortcuts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M6 16h.001M10 16h.001M14 16h.001"/></svg>
+        快捷键
+      </button>
+    </div>
+
+    <!-- Content -->
+    <div class="settings-content" id="settingsContent">
+
+      <!-- ===== TAB: API 配置 ===== -->
+      <div class="tab-panel" id="panel-api">
+        <!-- 配置列表 -->
+        <div class="section">
+          <div class="section-header">
+            <div>
+              <h3 class="section-title">API 配置组</h3>
+              <p class="section-desc mt-2">管理你的 LLM 提供商连接，支持多个配置组随时切换</p>
+            </div>
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-secondary btn-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                导入
+              </button>
+              <button class="btn btn-secondary btn-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                导出
+              </button>
+              <button class="btn btn-primary btn-sm" id="btnNewConfig">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                新建配置
+              </button>
+            </div>
+          </div>
+
+          <!-- Config Cards -->
+          <div class="card-grid" id="configCardGrid">
+            <!-- Card 1: OpenAI -->
+            <div class="config-card active" data-config="openai">
+              <div class="config-card-header">
+                <span class="config-card-dot" style="background:#6C9EFF;"></span>
+                <span class="config-card-name">OpenAI 生产环境</span>
+                <span class="config-card-badge chip-accent">使用中</span>
+                <span class="config-card-badge" style="background:var(--hover);color:var(--text-muted);">openai</span>
+              </div>
+              <div class="config-card-url">https://api.openai.com/v1</div>
+              <div class="config-card-key">sk-****...****b4f2</div>
+              <div style="margin-top:8px;display:flex;align-items:center;gap:6px;">
+                <span class="status-dot connected"></span>
+                <span style="font-size:11px;color:var(--green);">连接正常</span>
+                <span style="font-size:10px;color:var(--text-muted);margin-left:auto;">12 个模型</span>
+              </div>
+              <div class="config-card-actions">
+                <button class="btn btn-secondary btn-xs">设为活跃</button>
+                <button class="btn btn-secondary btn-xs" onclick="openModelConfig('openai')">编辑</button>
+                <button class="btn btn-secondary btn-xs">测试连接</button>
+                <button class="btn btn-ghost btn-xs" style="color:var(--red);margin-left:auto;">删除</button>
+              </div>
+            </div>
+
+            <!-- Card 2: DeepSeek -->
+            <div class="config-card" data-config="deepseek">
+              <div class="config-card-header">
+                <span class="config-card-dot" style="background:#4ADE80;"></span>
+                <span class="config-card-name">DeepSeek 开发</span>
+                <span class="config-card-badge" style="background:var(--hover);color:var(--text-muted);">deepseek</span>
+              </div>
+              <div class="config-card-url">https://api.deepseek.com/v1</div>
+              <div class="config-card-key">sk-****...****c8a1</div>
+              <div style="margin-top:8px;display:flex;align-items:center;gap:6px;">
+                <span class="status-dot connected"></span>
+                <span style="font-size:11px;color:var(--green);">连接正常</span>
+                <span style="font-size:10px;color:var(--text-muted);margin-left:auto;">3 个模型</span>
+              </div>
+              <div class="config-card-actions">
+                <button class="btn btn-secondary btn-xs">设为活跃</button>
+                <button class="btn btn-secondary btn-xs" onclick="openModelConfig('deepseek')">编辑</button>
+                <button class="btn btn-secondary btn-xs">测试连接</button>
+                <button class="btn btn-ghost btn-xs" style="color:var(--red);margin-left:auto;">删除</button>
+              </div>
+            </div>
+
+            <!-- Card 3: Ollama -->
+            <div class="config-card" data-config="ollama">
+              <div class="config-card-header">
+                <span class="config-card-dot" style="background:#FB923C;"></span>
+                <span class="config-card-name">Ollama 本地</span>
+                <span class="config-card-badge" style="background:var(--green-soft);color:var(--green);">免费</span>
+                <span class="config-card-badge" style="background:var(--hover);color:var(--text-muted);">ollama</span>
+              </div>
+              <div class="config-card-url">http://localhost:11434/v1</div>
+              <div class="config-card-key">无需密钥</div>
+              <div style="margin-top:8px;display:flex;align-items:center;gap:6px;">
+                <span class="status-dot connected"></span>
+                <span style="font-size:11px;color:var(--green);">连接正常</span>
+                <span style="font-size:10px;color:var(--text-muted);margin-left:auto;">5 个模型</span>
+              </div>
+              <div class="config-card-actions">
+                <button class="btn btn-secondary btn-xs">设为活跃</button>
+                <button class="btn btn-secondary btn-xs" onclick="openModelConfig('ollama')">编辑</button>
+                <button class="btn btn-secondary btn-xs">测试连接</button>
+                <button class="btn btn-ghost btn-xs" style="color:var(--red);margin-left:auto;">删除</button>
+              </div>
+            </div>
+
+            <!-- Empty state (hidden by default) -->
+            <div class="empty-state hidden" id="emptyConfigs" style="grid-column:1/-1;">
+              <div class="empty-state-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              </div>
+              <div class="empty-state-title">还没有 API 配置</div>
+              <div class="empty-state-desc">添加一个 LLM 提供商配置，开始使用 AI 功能。支持 OpenAI、Anthropic、DeepSeek 等主流平台。</div>
+              <button class="btn btn-primary btn-sm" id="btnEmptyNew">新建配置</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== TAB: 外观偏好 ===== -->
+      <div class="tab-panel hidden" id="panel-appearance">
+        <div class="section">
+          <h3 class="section-title">主题</h3>
+          <div class="setting-row">
+            <div class="setting-row-left">
+              <span class="setting-row-label">界面主题</span>
+              <span class="setting-row-desc">选择深色、浅色或跟随系统</span>
+            </div>
+            <div class="setting-row-right">
+              <select class="form-select" style="width:160px;">
+                <option value="dark" selected>🌙 深色模式</option>
+                <option value="light">☀️ 浅色模式</option>
+                <option value="system">💻 跟随系统</option>
+              </select>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row-left">
+              <span class="setting-row-label">强调色</span>
+              <span class="setting-row-desc">修改界面主要强调色</span>
+            </div>
+            <div class="setting-row-right">
+              <div class="color-swatches">
+                <span class="color-swatch active" style="background:#2563eb;" title="经典蓝"></span>
+                <span class="color-swatch" style="background:#7c5cbf;" title="紫罗兰"></span>
+                <span class="color-swatch" style="background:#059669;" title="翡翠绿"></span>
+                <span class="color-swatch" style="background:#e11d48;" title="玫红"></span>
+                <span class="color-swatch" style="background:#f59e0b;" title="琥珀"></span>
+                <span class="color-swatch" style="background:#0891b2;" title="青蓝"></span>
+              </div>
+              <input type="color" value="#2563eb" style="width:28px;height:28px;border-radius:50%;border:2px solid var(--border);cursor:pointer;padding:0;background:none;" title="自定义颜色">
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row-left">
+              <span class="setting-row-label">界面语言</span>
+              <span class="setting-row-desc">选择界面显示语言</span>
+            </div>
+            <div class="setting-row-right">
+              <select class="form-select" style="width:160px;">
+                <option value="zh-CN" selected>🇨🇳 简体中文</option>
+                <option value="en-US">🇺🇸 English</option>
+                <option value="system">💻 跟随系统</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">字体</h3>
+          <div class="setting-row">
+            <div class="setting-row-left">
+              <span class="setting-row-label">编辑器字号</span>
+              <span class="setting-row-desc">调整代码编辑器的字体大小</span>
+            </div>
+            <div class="setting-row-right">
+              <input type="range" min="10" max="24" value="14" oninput="this.nextElementSibling.textContent=this.value+'px'">
+              <span class="range-value">14px</span>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row-left">
+              <span class="setting-row-label">制表符大小</span>
+              <span class="setting-row-desc">Tab 键对应的空格数</span>
+            </div>
+            <div class="setting-row-right">
+              <select class="form-select" style="width:120px;">
+                <option value="2">2 空格</option>
+                <option value="4" selected>4 空格</option>
+                <option value="8">8 空格</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== TAB: 编辑器 ===== -->
+      <div class="tab-panel hidden" id="panel-editor">
+        <div class="section">
+          <h3 class="section-title">编辑器行为</h3>
+          <div class="setting-row">
+            <div class="setting-row-left">
+              <span class="setting-row-label">显示缩略图</span>
+              <span class="setting-row-desc">在编辑器右侧显示代码缩略导航图</span>
+            </div>
+            <div class="setting-row-right">
+              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row-left">
+              <span class="setting-row-label">自动保存</span>
+              <span class="setting-row-desc">切换文件时自动保存修改</span>
+            </div>
+            <div class="setting-row-right">
+              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row-left">
+              <span class="setting-row-label">显示行号</span>
+              <span class="setting-row-desc">在编辑器左侧显示行号</span>
+            </div>
+            <div class="setting-row-right">
+              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row-left">
+              <span class="setting-row-label">代码折叠</span>
+              <span class="setting-row-desc">允许折叠代码块以提高可读性</span>
+            </div>
+            <div class="setting-row-right">
+              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">文件浏览器</h3>
+          <div class="setting-row">
+            <div class="setting-row-left">
+              <span class="setting-row-label">显示隐藏文件</span>
+              <span class="setting-row-desc">在文件树中显示 . 开头的隐藏文件和文件夹</span>
+            </div>
+            <div class="setting-row-right">
+              <button class="toggle" onclick="this.classList.toggle('on')"></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3 class="section-title">LSP 服务器</h3>
+          <p class="section-desc">为不同语言配置语言服务器命令，格式：语言ID: 启动命令</p>
+          <textarea class="form-textarea" style="height:80px;font-family:'JetBrains Mono',monospace;font-size:12px;" placeholder="python: pylsp&#10;go: gopls -mode stdio&#10;rust: rust-analyzer">python: pylsp
+        go: gopls -mode stdio
+        rust: rust-analyzer</textarea>
+        </div>
+
+        <!-- Danger Zone -->
+        <div class="danger-zone">
+          <div class="section">
+            <h3 class="section-title">危险操作</h3>
+            <p class="section-desc">重置所有设置、配置和聊天记录。此操作不可撤销。</p>
+            <button class="btn btn-danger btn-sm" style="margin-top:8px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+              重置所有设置
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== TAB: 快捷键 ===== -->
+      <div class="tab-panel hidden" id="panel-shortcuts">
+        <div class="section">
+          <div class="section-header">
+            <h3 class="section-title">键盘快捷方式</h3>
+            <select class="form-select" style="width:180px;">
+              <option value="vscode" selected>VS Code 预设</option>
+              <option value="jetbrains">JetBrains 预设</option>
+              <option value="custom">自定义</option>
+            </select>
+          </div>
+
+          <div class="shortcut-group">
+            <div class="shortcut-cat">文件操作</div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">保存文件</span>
+              <span class="shortcut-keys">Ctrl + S</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">保存全部</span>
+              <span class="shortcut-keys">Ctrl + K, S</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">新建文件</span>
+              <span class="shortcut-keys">Ctrl + N</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">关闭标签页</span>
+              <span class="shortcut-keys">Ctrl + W</span>
+            </div>
+          </div>
+
+          <div class="shortcut-group">
+            <div class="shortcut-cat">编辑</div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">查找</span>
+              <span class="shortcut-keys">Ctrl + F</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">替换</span>
+              <span class="shortcut-keys">Ctrl + H</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">命令面板</span>
+              <span class="shortcut-keys">Ctrl + Shift + P</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">快速打开文件</span>
+              <span class="shortcut-keys">Ctrl + P</span>
+            </div>
+          </div>
+
+          <div class="shortcut-group">
+            <div class="shortcut-cat">视图</div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">切换侧边栏</span>
+              <span class="shortcut-keys">Ctrl + B</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">切换终端</span>
+              <span class="shortcut-keys">Ctrl + `</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">切换 AI 面板</span>
+              <span class="shortcut-keys">Ctrl + Shift + I</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">放大字号</span>
+              <span class="shortcut-keys">Ctrl + =</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">缩小字号</span>
+              <span class="shortcut-keys">Ctrl + -</span>
+            </div>
+          </div>
+
+          <div class="shortcut-group">
+            <div class="shortcut-cat">AI 助手</div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">新建对话</span>
+              <span class="shortcut-keys">Ctrl + Shift + N</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">发送选中代码到 AI</span>
+              <span class="shortcut-keys">Ctrl + Shift + Enter</span>
+            </div>
+            <div class="shortcut-row">
+              <span class="shortcut-desc">内联补全</span>
+              <span class="shortcut-keys">Tab</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODEL CONFIGURATION DETAIL PANEL ===== -->
+<div class="model-config-view hidden" id="modelConfigPanel">
+  <div class="model-config-panel">
+    <!-- Header -->
+    <div class="settings-header">
+      <div class="settings-header-left">
+        <div class="settings-icon" style="background:rgba(108,158,255,0.15);color:#6C9EFF;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+        </div>
+        <div>
+          <h2 class="settings-title" id="modelConfigTitle">配置组详情 — OpenAI 生产环境</h2>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:2px;">管理 API 连接、模型选择和系统提示词</p>
+        </div>
+      </div>
+      <button class="settings-close" onclick="closeModelConfig()" title="关闭 (Esc)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+
+    <!-- Content -->
+    <div class="settings-content">
+      <!-- Provider Selection -->
+      <div class="section">
+        <h3 class="section-title">选择提供商</h3>
+        <div class="provider-grid">
+          <div class="provider-option selected">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M22.281 8.79c-.1-.19-.3-.33-.53-.37l-5.6-.82-2.51-5.08c-.1-.19-.28-.31-.49-.31s-.39.12-.49.31l-2.51 5.08-5.6.82c-.23.04-.43.18-.53.37-.1.19-.1.42.01.6l4.05 3.95-.96 5.57c-.04.23.06.46.25.59.11.08.24.12.38.12.1 0 .2-.02.29-.07l5.01-2.63 5.01 2.63c.21.11.46.09.64-.05.19-.13.29-.36.25-.59l-.96-5.57 4.05-3.95c.16-.18.21-.41.06-.6z"/></svg>
+            <span class="provider-name">OpenAI</span>
+          </div>
+          <div class="provider-option">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.5 2.5h-11c-2.2 0-4 1.8-4 4v11c0 2.2 1.8 4 4 4h11c2.2 0 4-1.8 4-4v-11c0-2.2-1.8-4-4-4zm-5.5 14c-2.5 0-4.5-2-4.5-4.5s2-4.5 4.5-4.5 4.5 2 4.5 4.5-2 4.5-4.5 4.5zm0-7c-1.4 0-2.5 1.1-2.5 2.5s1.1 2.5 2.5 2.5 2.5-1.1 2.5-2.5-1.1-2.5-2.5-2.5z"/></svg>
+            <span class="provider-name">Anthropic</span>
+          </div>
+          <div class="provider-option">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-13c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5z"/></svg>
+            <span class="provider-name">Gemini</span>
+          </div>
+          <div class="provider-option">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l9.5 5.5v11L12 24l-9.5-5.5v-11L12 2zm0 2.3L4.5 8.8v6.4L12 19.7l7.5-4.5V8.8L12 4.3z"/></svg>
+            <span class="provider-name">DeepSeek</span>
+          </div>
+          <div class="provider-option">
+            <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+            <span class="provider-name">Groq</span>
+          </div>
+          <div class="provider-option">
+            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="2" width="20" height="20" rx="4"/></svg>
+            <span class="provider-name">Azure</span>
+          </div>
+          <div class="provider-option">
+            <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>
+            <span class="provider-name">Ollama</span>
+          </div>
+          <div class="provider-option">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l7 7-7 7-7-7 7-7z"/></svg>
+            <span class="provider-name">自定义</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Connection Settings -->
+      <div class="section">
+        <h3 class="section-title">连接设置</h3>
+        <div class="edit-layout">
+          <div class="form-group">
+            <label class="form-label">配置名称 <span class="required">*</span></label>
+            <input class="form-input" value="OpenAI 生产环境" placeholder="例如：我的 OpenAI 配置">
+          </div>
+          <div class="form-group">
+            <label class="form-label">默认模型</label>
+            <input class="form-input" value="gpt-4o" placeholder="例如：gpt-4o">
+          </div>
+          <div class="form-group edit-full">
+            <label class="form-label">API 基础 URL <span class="required">*</span></label>
+            <input class="form-input mono" value="https://api.openai.com/v1" placeholder="https://api.openai.com/v1">
+          </div>
+          <div class="form-group edit-full">
+            <label class="form-label">API 密钥 <span class="required">*</span></label>
+            <div style="display:flex;gap:6px;">
+              <input class="form-input mono" type="password" value="sk-proj-xxxxxxxxxxxx" style="flex:1;" placeholder="sk-...">
+              <button class="btn btn-secondary btn-sm" style="flex-shrink:0;">👁 显示</button>
+            </div>
+            <span style="font-size:10px;color:var(--text-muted);">支持环境变量：<code style="background:var(--hover);padding:1px 5px;border-radius:3px;font-size:10px;">$OPENAI_API_KEY</code></span>
+          </div>
+          <div class="form-group" style="grid-column:1/-1;">
+            <label class="form-label">自定义请求头</label>
+            <textarea class="form-textarea" style="height:52px;" placeholder='{"X-Custom-Header": "value"}'>{}</textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Color Label -->
+      <div class="section">
+        <h3 class="section-title">标识颜色</h3>
+        <p class="section-desc">为此配置选择一个颜色标签，方便在列表中快速识别</p>
+        <div class="color-swatches" style="margin-top:4px;">
+          <span class="color-swatch active" style="background:#6C9EFF;"></span>
+          <span class="color-swatch" style="background:#B77CFF;"></span>
+          <span class="color-swatch" style="background:#4ADE80;"></span>
+          <span class="color-swatch" style="background:#FB923C;"></span>
+          <span class="color-swatch" style="background:#F87171;"></span>
+          <span class="color-swatch" style="background:#FACC15;"></span>
+          <span class="color-swatch" style="background:#2DD4BF;"></span>
+          <span class="color-swatch" style="background:#F472B6;"></span>
+        </div>
+      </div>
+
+      <!-- System Prompt -->
+      <div class="section">
+        <div class="section-header">
+          <h3 class="section-title">系统提示词</h3>
+          <div style="display:flex;gap:6px;">
+            <select class="form-select" style="font-size:11px;padding:4px 24px 4px 8px;" onchange="if(this.value)document.getElementById('promptTextarea').value=this.options[this.selectedIndex].dataset.prompt;this.value='';">
+              <option value="">📋 插入模板...</option>
+              <option value="universal" data-prompt="你是一个专业的编程助手。当前项目使用 {{language}}，项目名称：{{projectName}}。">通用编程助手</option>
+              <option value="python" data-prompt="你是一位资深 Python 开发者。请遵守 PEP 8 规范，使用类型注解。当前文件：{{currentFile}}">Python 专家</option>
+              <option value="reviewer" data-prompt="你是一位严格的代码审查员。请从代码质量、潜在 Bug、性能和安全性等方面审查代码。">代码审查员</option>
+              <option value="frontend" data-prompt="你是前端专家，精通 React、TypeScript 和 CSS。框架：{{framework}}。">前端专家</option>
+              <option value="api" data-prompt="你是 API 设计专家。请帮助设计规范化的 RESTful API，使用正确的命名和 HTTP 方法。">API 设计专家</option>
+              <option value="doc" data-prompt="你是技术文档专家。项目：{{projectName}}，语言：{{language}}">文档专家</option>
+              <option value="bugfix" data-prompt="你是调试专家。请分析错误信息，定位根因并提供修复方案。文件：{{currentFile}}">Bug 修复专家</option>
+              <option value="sql" data-prompt="你是数据库专家。请帮助编写高效的 SQL 查询并优化性能。">数据库专家</option>
+            </select>
+            <button class="btn btn-ghost btn-xs">🔄 重置</button>
+            <button class="btn btn-ghost btn-xs">📤 导出</button>
+            <button class="btn btn-ghost btn-xs">📥 导入</button>
+          </div>
+        </div>
+        <div class="prompt-editor-area">
+          <div class="prompt-editor-toolbar">
+            <span style="font-size:10px;color:var(--text-muted);">Markdown</span>
+            <span style="font-size:10px;color:var(--text-muted);" id="promptCharCount">82 字符 · ~21 tokens</span>
+          </div>
+          <textarea class="prompt-editor-textarea" id="promptTextarea" placeholder="输入系统提示词，定义 AI 助手的行为和角色...&#10;&#10;可用变量：{{language}} {{framework}} {{projectName}} {{currentFile}} {{gitBranch}} {{date}}">你是一个专业的编程助手。当前项目使用 {{language}}，项目名称：{{projectName}}。</textarea>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
+          <span class="chip" style="cursor:pointer;" onclick="insertVar('{{language}}')">{{language}}</span>
+          <span class="chip" style="cursor:pointer;" onclick="insertVar('{{framework}}')">{{framework}}</span>
+          <span class="chip" style="cursor:pointer;" onclick="insertVar('{{projectName}}')">{{projectName}}</span>
+          <span class="chip" style="cursor:pointer;" onclick="insertVar('{{currentFile}}')">{{currentFile}}</span>
+          <span class="chip" style="cursor:pointer;" onclick="insertVar('{{gitBranch}}')">{{gitBranch}}</span>
+          <span class="chip" style="cursor:pointer;" onclick="insertVar('{{date}}')">{{date}}</span>
+          <span style="font-size:10px;color:var(--text-muted);margin-left:auto;align-self:center;">点击变量插入到提示词中</span>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:8px;border-top:1px solid var(--border);">
+        <button class="btn btn-secondary" onclick="closeModelConfig()">取消</button>
+        <button class="btn btn-secondary">🧪 测试连接</button>
+        <button class="btn btn-primary">💾 保存配置</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+  // ===== Tab Switching =====
+  document.querySelectorAll('.settings-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+      tab.classList.add('active');
+      const panelId = 'panel-' + tab.dataset.tab;
+      document.getElementById(panelId).classList.remove('hidden');
+    });
+  });
+
+  // ===== Open Model Config Panel =====
+  function openModelConfig(configName) {
+    const panel = document.getElementById('modelConfigPanel');
+    const title = document.getElementById('modelConfigTitle');
+    const configs = {
+      openai: '配置组详情 — OpenAI 生产环境',
+      deepseek: '配置组详情 — DeepSeek 开发',
+      ollama: '配置组详情 — Ollama 本地'
+    };
+    title.textContent = configs[configName] || '配置组详情';
+    panel.classList.remove('hidden');
+  }
+
+  function closeModelConfig() {
+    document.getElementById('modelConfigPanel').classList.add('hidden');
+  }
+
+  // ===== Toggle buttons =====
+  document.querySelectorAll('.toggle').forEach(toggle => {
+    toggle.addEventListener('click', function() { this.classList.toggle('on'); });
+  });
+
+  // ===== Color swatches =====
+  document.querySelectorAll('.color-swatch').forEach(swatch => {
+    swatch.addEventListener('click', function() {
+      this.parentElement.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+      this.classList.add('active');
+    });
+  });
+
+  // ===== Provider options =====
+  document.querySelectorAll('.provider-option').forEach(opt => {
+    opt.addEventListener('click', function() {
+      this.parentElement.querySelectorAll('.provider-option').forEach(o => o.classList.remove('selected'));
+      this.classList.add('selected');
+    });
+  });
+
+  // ===== Insert variable into prompt =====
+  function insertVar(variable) {
+    const textarea = document.getElementById('promptTextarea');
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    textarea.value = text.substring(0, start) + ' ' + variable + ' ' + text.substring(end);
+    textarea.focus();
+    textarea.selectionStart = textarea.selectionEnd = start + variable.length + 2;
+    updatePromptCount();
+  }
+
+  // ===== Update prompt character count =====
+  const promptTextarea = document.getElementById('promptTextarea');
+  promptTextarea.addEventListener('input', updatePromptCount);
+  function updatePromptCount() {
+    const len = promptTextarea.value.length;
+    const tokens = Math.ceil(len / 4);
+    const el = document.getElementById('promptCharCount');
+    el.textContent = len + ' 字符 · ~' + tokens + ' tokens';
+    if (len > 4000) el.style.color = 'var(--yellow)';
+    else el.style.color = 'var(--text-muted)';
+  }
+
+  // ===== Config card click =====
+  document.querySelectorAll('.config-card').forEach(card => {
+    card.addEventListener('click', function(e) {
+      if (e.target.closest('button')) return; // Don't trigger on button clicks
+      document.querySelectorAll('.config-card').forEach(c => c.classList.remove('active'));
+      this.classList.add('active');
+    });
+  });
+
+  // ===== Close on Escape =====
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      if (!document.getElementById('modelConfigPanel').classList.contains('hidden')) {
+        closeModelConfig();
+      }
+    }
+  });
+
+  // ===== Provider options click handler =====
+  document.querySelectorAll('.provider-option').forEach(opt => {
+    opt.addEventListener('click', function() {
+      document.querySelectorAll('.provider-option').forEach(o => o.classList.remove('selected'));
+      this.classList.add('selected');
+    });
+  });
+</script>
+
+</body>
+</html>

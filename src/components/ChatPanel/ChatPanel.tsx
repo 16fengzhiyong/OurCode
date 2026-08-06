@@ -237,7 +237,7 @@ export default function ChatPanel() {
                   <select
                     value={projectEditMode}
                     onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}
-                    className="text-xs rounded-md px-2 py-1 border border-nova-border bg-nova-hover/50 text-nova-text-primary outline-none cursor-pointer hover:border-nova-accent focus:border-nova-accent transition-colors"
+                    className="text-xs rounded-md px-2 py-1 border border-nova-border bg-nova-input-bg text-nova-text-primary outline-none cursor-pointer hover:border-nova-accent focus:border-nova-accent transition-colors"
                     title={t('chat.projectEditModeLabel')}
                     style={{ backgroundImage: 'none' }}
                   >

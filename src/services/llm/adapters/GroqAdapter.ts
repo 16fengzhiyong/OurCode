@@ -7,7 +7,7 @@ import { LLMAdapter } from '../types'
  */
 export class GroqAdapter implements LLMAdapter {
   async *sendRequest(req: LLMRequest, config: ApiConfigGroup, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
-    const url = `${config.baseUrl}/chat/completions`
+    const url = `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -17,16 +17,30 @@ export class GroqAdapter implements LLMAdapter {
 
     const body = {
       model: req.model,
-      messages: req.messages.map((m: { role: string; content: string }) => ({
-        role: m.role,
-        content: m.content,
-      })),
+      messages: req.messages.map((m: { role: string; content: string; toolCalls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>; toolCallId?: string }) => {
+        const msg: Record<string, any> = { role: m.role, content: m.content }
+        if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+          msg.tool_calls = m.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.function.name, arguments: tc.function.arguments },
+          }))
+        }
+        if (m.role === 'tool' && m.toolCallId) {
+          msg.tool_call_id = m.toolCallId
+        }
+        return msg
+      }),
       temperature: req.temperature,
       max_tokens: req.maxTokens || undefined,
       top_p: req.topP,
       frequency_penalty: req.frequencyPenalty,
       presence_penalty: req.presencePenalty,
       stream: req.stream,
+    }
+    // Add tools if provided
+    if (req.tools && req.tools.length > 0) {
+      ;(body as any).tools = req.tools
     }
 
     const response = await fetch(url, {
@@ -104,7 +118,7 @@ export class GroqAdapter implements LLMAdapter {
 
   async fetchModels(config: ApiConfigGroup, signal?: AbortSignal): Promise<string[]> {
     try {
-      const response = await fetch(`${config.baseUrl}/models`, {
+      const response = await fetch(`${config.baseUrl.replace(/\/+$/, '')}/models`, {
         headers: {
           Authorization: `Bearer ${config.apiKey}`,
           ...config.customHeaders,

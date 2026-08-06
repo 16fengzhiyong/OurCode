@@ -13,6 +13,7 @@ import {
   setModelLanguage,
   yieldToEventLoop,
   waitForLoad,
+  fileUri,
 } from '@/editor/modelRegistry'
 import type { FileStreamChunk } from '@shared/types'
 
@@ -798,7 +799,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (model) {
       model.setValue(content)
     } else {
-      const uri = monaco.Uri.parse(`file:///${filePath}`)
+      const uri = fileUri(filePath)
       model = monaco.editor.createModel(content, language, uri)
       registerModel(filePath, model)
     }

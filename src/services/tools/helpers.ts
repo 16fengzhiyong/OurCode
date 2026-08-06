@@ -81,11 +81,9 @@ async function walkTree(dirPath: string, prefix: string, depth: number, maxDepth
 /** Search files by name pattern */
 export async function searchFiles(rootPath: string, pattern: string): Promise<string> {
   await ensureIgnoreLoaded()
-  const globPattern = pattern.includes('*') ? pattern : `*${pattern}*`
-  const results: any[] = await window.electronAPI.searchInFiles(rootPath, globPattern, { caseSensitive: false })
+  const results: string[] = await window.electronAPI.searchFiles(rootPath, pattern)
   if (!results || results.length === 0) return 'No files found'
-  const uniquePaths = [...new Set(results.map((r: any) => r.filePath))]
-  return uniquePaths.filter((p) => !isIgnoredPath(p)).slice(0, 50).join('\n')
+  return results.filter((p) => !isIgnoredPath(p)).slice(0, 50).join('\n')
 }
 
 /** Search text content in files */

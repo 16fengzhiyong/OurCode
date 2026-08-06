@@ -96,12 +96,12 @@ export const enUS: Record<TranslationKey, string> = {
   'layout.clearDataConfirm': 'Clear all data? This cannot be undone!',
 
   // ── Activity bar ───────────────────────────────────────────────────────
-  'activityBar.explorer': 'Explorer (Ctrl+Shift+E)',
-  'activityBar.search': 'Search (Ctrl+Shift+F)',
-  'activityBar.scm': 'Source Control (Ctrl+Shift+G)',
-  'activityBar.extensions': 'Extensions (Ctrl+Shift+X)',
-  'activityBar.history': 'History',
-  'activityBar.settings': 'Settings (Ctrl+,)',
+  'activityBar.explorer': 'Project List',
+  'activityBar.search': 'Search',
+  'activityBar.scm': 'Source Control',
+  'activityBar.extensions': 'Extensions',
+  'activityBar.history': 'File Change History',
+  'activityBar.settings': 'Settings',
   'activityBar.account': 'Account',
 
   // ── Status bar ─────────────────────────────────────────────────────────

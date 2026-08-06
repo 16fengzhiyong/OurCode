@@ -28,6 +28,19 @@ export function getModel(path: string): monaco.editor.ITextModel | undefined {
   return models.get(path)
 }
 
+/**
+ * Build a `file://` URI for an absolute path. The naive `file:///${path}` form
+ * breaks for paths that already start with a slash — `/untitled/…` buffers and
+ * POSIX paths like `/home/user/a.ts` become `file:////…`, which Monaco's Uri
+ * rejects ("path cannot begin with two slash characters"), so the editor model
+ * is never created and the file can't be opened or edited. Stripping the
+ * leading slashes keeps Windows paths (`E:\proj\src\a.ts`) byte-identical
+ * while fixing the slash-prefixed forms.
+ */
+export function fileUri(path: string): monaco.Uri {
+  return monaco.Uri.parse(`file:///${path.replace(/^\/+/, '')}`)
+}
+
 /** All registered paths (used to dispose models of closed files). */
 export function getRegisteredPaths(): string[] {
   return Array.from(models.keys())

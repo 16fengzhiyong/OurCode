@@ -12,10 +12,20 @@ export class OllamaAdapter implements LLMAdapter {
 
     const body: Record<string, any> = {
       model: req.model,
-      messages: req.messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
+      messages: req.messages.map((m) => {
+        const msg: Record<string, any> = { role: m.role, content: m.content }
+        if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+          msg.tool_calls = m.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.function.name, arguments: tc.function.arguments },
+          }))
+        }
+        if (m.role === 'tool' && m.toolCallId) {
+          msg.tool_call_id = m.toolCallId
+        }
+        return msg
+      }),
       stream: req.stream,
       options: {
         temperature: req.temperature,
@@ -24,6 +34,10 @@ export class OllamaAdapter implements LLMAdapter {
         presence_penalty: req.presencePenalty,
         num_predict: req.maxTokens > 0 ? req.maxTokens : undefined,
       },
+    }
+    // Add tools if provided (Ollama uses OpenAI-compatible tool format)
+    if (req.tools && req.tools.length > 0) {
+      body.tools = req.tools
     }
 
     const response = await fetch(url, {

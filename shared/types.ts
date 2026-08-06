@@ -61,6 +61,8 @@ export interface ChatSession {
   // Plan awaiting approval (set by submit_plan)
   planContent?: string
   planStatus?: 'none' | 'pending_approval' | 'approved'
+  // Project workspace path this session belongs to (captured at creation time)
+  projectPath?: string
 }
 
 // Agent todo list item (managed via the manage_todo tool)
