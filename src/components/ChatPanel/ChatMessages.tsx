@@ -4,6 +4,7 @@ import ChatMessage from './ChatMessage'
 import ThinkingBlock from './ThinkingBlock'
 import BranchTreeModal from './BranchTreeModal'
 import { TodoPanel, PlanCard } from './AgentPanel'
+import AgentRunPanel from './AgentRunPanel'
 import WaveLogo from './WaveLogo'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -26,6 +27,7 @@ const SUGGESTED_PROMPTS: Array<{ icon: string; key: 'chat.suggestExplain' | 'cha
 export default function ChatMessages() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const activeSession = useChatStore((s) => s.getActiveSession())
+  const activeRun = useChatStore((s) => s.activeRun)
   const { isLoading, streamingContent, streamingThinking, reorderMessages, undoStack, undoDelete, switchBranch, queuedMessages, clearQueue } = useChatStore()
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
@@ -170,9 +172,16 @@ export default function ChatMessages() {
         <BranchTreeModal sessionId={activeSession.id} onClose={() => setShowBranchTree(false)} />
       )}
 
-      {/* Agent todo list + pending plan */}
-      <TodoPanel sessionId={activeSession.id} />
-      <PlanCard sessionId={activeSession.id} />
+      {/* Agent run panel (agent mode: plan + steps + trace). Falls back to the
+          standalone todo/plan cards in chat & project modes. */}
+      {activeRun?.sessionId === activeSession.id ? (
+        <AgentRunPanel sessionId={activeSession.id} />
+      ) : (
+        <>
+          <TodoPanel sessionId={activeSession.id} />
+          <PlanCard sessionId={activeSession.id} />
+        </>
+      )}
 
       {/* Queued messages while the agent is working */}
       {queuedMessages.length > 0 && (

@@ -22,6 +22,7 @@ export default function ChatInput() {
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0)
   const [queuedHint, setQueuedHint] = useState(false)
   const [autoContinue, setAutoContinue] = useState(() => localStorage.getItem(AUTO_CONTINUE_KEY) === '1')
+  const [autoRun, setAutoRun] = useState(false)
   const [listening, setListening] = useState(false)
   const recognitionRef = useRef<{ stop: () => void } | null>(null)
   const t = useI18n()
@@ -74,6 +75,10 @@ export default function ChatInput() {
 
   const { sendMessage, isLoading, stopGeneration, queueMessage } = useChatStore()
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
+  const agentMode = useChatStore((s) => {
+    const sess = s.sessions.find((x) => x.id === s.activeSessionId)
+    return sess?.agentMode || 'chat'
+  })
 
   // Auto-resize textarea
   useEffect(() => {
@@ -187,7 +192,7 @@ export default function ChatInput() {
     setInput('')
     setContextFiles([])
 
-    await sendMessage(content, contextFiles)
+    await sendMessage(content, contextFiles, { autoRun })
   }
 
   // Apply markdown formatting to selected text
@@ -413,6 +418,20 @@ export default function ChatInput() {
           {/* Footer: hints left, voice + send/stop right */}
           <div className="flex items-center justify-between px-2 pb-2 pt-1">
             <div className="flex items-center gap-1.5 text-[10px] text-nova-text-muted">
+              {agentMode === 'agent' && (
+                <label
+                  className="flex items-center gap-1 cursor-pointer select-none hover:text-nova-text-secondary transition-colors"
+                  title={t('chat.autoRunHint')}
+                >
+                  <input
+                    type="checkbox"
+                    checked={autoRun}
+                    onChange={(e) => setAutoRun(e.target.checked)}
+                    className="accent-nova-accent w-3 h-3"
+                  />
+                  {t('chat.autoRun')}
+                </label>
+              )}
               <label
                 className="flex items-center gap-1 cursor-pointer select-none hover:text-nova-text-secondary transition-colors"
                 title={t('chat.autoContinueHint')}

@@ -1,13 +1,25 @@
+import { useState } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
 
 export default function ToolApprovalDialog() {
-  const { pendingApproval, approveToolCall, rejectToolCall } = useChatStore()
+  const { pendingApproval, approveToolCall, rejectToolCall, allowToolPermanently } = useChatStore()
+  const [alwaysAllow, setAlwaysAllow] = useState(false)
   const t = useI18n()
 
   if (!pendingApproval) return null
 
   const { toolCall, preview } = pendingApproval
+
+  const handleApprove = () => {
+    if (alwaysAllow) allowToolPermanently(toolCall.name)
+    setAlwaysAllow(false)
+    approveToolCall()
+  }
+  const handleReject = () => {
+    setAlwaysAllow(false)
+    rejectToolCall()
+  }
 
   return (
     <div role="dialog" aria-modal="true" aria-label={t('chat.toolApprovalDialog')} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -51,19 +63,30 @@ export default function ToolApprovalDialog() {
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-nova-border bg-nova-bg/30">
-          <button
-            onClick={rejectToolCall}
-            className="px-4 py-1.5 text-sm text-nova-text-secondary hover:text-nova-text-primary border border-nova-border rounded-lg hover:bg-nova-hover transition-colors"
-          >
-            {t('chat.reject')}
-          </button>
-          <button
-            onClick={approveToolCall}
-            className="px-4 py-1.5 text-sm text-white bg-nova-accent hover:bg-nova-accent/80 rounded-lg transition-colors"
-          >
-            {t('chat.approve')}
-          </button>
+        <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-nova-border bg-nova-bg/30">
+          <label className="flex items-center gap-1.5 text-xs text-nova-text-muted cursor-pointer select-none hover:text-nova-text-secondary transition-colors">
+            <input
+              type="checkbox"
+              checked={alwaysAllow}
+              onChange={(e) => setAlwaysAllow(e.target.checked)}
+              className="accent-nova-accent w-3.5 h-3.5"
+            />
+            {t('agent.alwaysAllowTool')}
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleReject}
+              className="px-4 py-1.5 text-sm text-nova-text-secondary hover:text-nova-text-primary border border-nova-border rounded-lg hover:bg-nova-hover transition-colors"
+            >
+              {t('chat.reject')}
+            </button>
+            <button
+              onClick={handleApprove}
+              className="px-4 py-1.5 text-sm text-white bg-nova-accent hover:bg-nova-accent/80 rounded-lg transition-colors"
+            >
+              {t('chat.approve')}
+            </button>
+          </div>
         </div>
       </div>
     </div>

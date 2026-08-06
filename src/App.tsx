@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import MainLayout from './components/Layout/MainLayout'
 import ErrorBoundary from './components/Common/ErrorBoundary'
 import ToolApprovalDialog from './components/ChatPanel/ToolApprovalDialog'
+import BatchApprovalDialog from './components/ChatPanel/BatchApprovalDialog'
 import QuestionDialog from './components/ChatPanel/QuestionDialog'
 import OnboardingModal from './components/Onboarding/OnboardingModal'
 import RestoreBackupsModal from './components/Editor/RestoreBackupsModal'
@@ -102,6 +103,7 @@ export default function App() {
     <ErrorBoundary>
       <MainLayout />
       <ToolApprovalDialog />
+      <BatchApprovalDialog />
       <QuestionDialog />
       {ready && showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
       {ready && pendingBackups.length > 0 && (

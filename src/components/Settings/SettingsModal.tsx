@@ -6,7 +6,6 @@ import { useUIStore } from '@/stores/uiStore'
 import { useShortcutStore, ShortcutPreset } from '@/stores/shortcutStore'
 import { ApiConfigGroup } from '@/types'
 import { monaco, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
-import { useI18n } from '@/i18n/useI18n'
 
 // System-prompt templates
 const SYSTEM_PROMPT_TEMPLATES: Array<{ id: string; label: string; prompt: string }> = [
@@ -40,6 +39,13 @@ const PROVIDERS = [
   { value: 'custom', label: '自定义', icon: '⚙', color: '#a1a1aa' },
 ]
 
+const API_FORMAT_OPTIONS = [
+  { value: 'auto', label: '🤖 自动检测', desc: '根据提供商自动选择格式' },
+  { value: 'openai', label: '📦 OpenAI 兼容', desc: '/v1/chat/completions 格式' },
+  { value: 'anthropic', label: '🧠 Anthropic 格式', desc: '/v1/messages 格式 (Claude API)' },
+  { value: 'gemini', label: '🌐 Gemini 格式', desc: 'Gemini generateContent 格式' },
+]
+
 export default function SettingsModal() {
   const {
     configGroups, activeConfigGroupId, models,
@@ -52,13 +58,13 @@ export default function SettingsModal() {
   const { isSettingsOpen, closeSettings, setTheme, setThemeColor } = useUIStore()
   const themeColor = useUIStore((s) => s.themeColor)
   const shortcutStore = useShortcutStore()
-  const t = useI18n()
 
   const [activeTab, setActiveTab] = useState<'api' | 'appearance' | 'editor' | 'shortcuts'>('api')
   const [editingGroup, setEditingGroup] = useState<Partial<ApiConfigGroup> | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
   const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({})
+  const [showEditKey, setShowEditKey] = useState(false)
   const [showPromptHistory, setShowPromptHistory] = useState(false)
   const [lspServersText, setLspServersText] = useState(
     Object.entries(preferences.lspServers ?? {})
@@ -116,6 +122,10 @@ export default function SettingsModal() {
     if (isSettingsOpen) {
       loadConfigGroups()
       useShortcutStore.getState().loadShortcuts()
+      setEditingGroup(null)
+      setIsCreating(false)
+      setActiveTab('api')
+      setShowEditKey(false)
       dialogRef.current?.focus()
     }
   }, [isSettingsOpen, loadConfigGroups])
@@ -270,12 +280,36 @@ export default function SettingsModal() {
                       className="px-3 py-2 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors font-mono" />
                   </div>
 
+                  {/* API Format override — useful for custom/azure providers */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-medium text-nova-text-secondary">API 请求格式</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {API_FORMAT_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          className={`flex flex-col items-start gap-0.5 p-2.5 rounded-lg border text-left transition-all ${
+                            (editingGroup.apiFormat || 'auto') === opt.value
+                              ? 'border-nova-accent bg-nova-accent/10 shadow-[0_0_0_1px_var(--accent)]'
+                              : 'border-nova-border bg-nova-card hover:border-nova-border-strong'
+                          }`}
+                          onClick={() => setEditingGroup({ ...editingGroup, apiFormat: opt.value as any })}
+                        >
+                          <span className="text-xs font-medium text-nova-text-primary">{opt.label}</span>
+                          <span className="text-[10px] text-nova-text-muted">{opt.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div className="flex flex-col gap-1">
                     <label className="text-xs font-medium text-nova-text-secondary">API 密钥 <span className="text-red-400">*</span></label>
                     <div className="flex gap-1.5">
-                      <input type="password" value={editingGroup.apiKey || ''} onChange={(e) => setEditingGroup({ ...editingGroup, apiKey: e.target.value })}
+                      <input type={showEditKey ? 'text' : 'password'} value={editingGroup.apiKey || ''} onChange={(e) => setEditingGroup({ ...editingGroup, apiKey: e.target.value })}
                         className="flex-1 px-3 py-2 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors font-mono" />
-                      <button className="px-3 py-2 text-xs bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors shrink-0">👁 显示</button>
+                      <button onClick={() => setShowEditKey(!showEditKey)}
+                        className="px-3 py-2 text-xs bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors shrink-0">
+                        {showEditKey ? '🙈 隐藏' : '👁 显示'}
+                      </button>
                     </div>
                     <span className="text-[10px] text-nova-text-muted">支持环境变量：<code className="px-1 py-0.5 bg-nova-hover rounded text-[10px]">$OPENAI_API_KEY</code></span>
                   </div>
@@ -398,7 +432,14 @@ export default function SettingsModal() {
                   <div className="flex justify-end gap-2 pt-2 border-t border-nova-border">
                     <button onClick={() => { setEditingGroup(null); setIsCreating(false) }}
                       className="px-4 py-2 text-sm bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors">取消</button>
-                    <button onClick={() => { handleTestConnection(activeConfigGroupId || ''); }}
+                    <button onClick={() => {
+                      const groupId = editingGroup?.id || activeConfigGroupId
+                      if (groupId) {
+                        handleTestConnection(groupId)
+                      } else {
+                        alert('请先保存配置后再测试连接')
+                      }
+                    }}
                       className="px-4 py-2 text-sm bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors">🧪 测试连接</button>
                     <button onClick={handleSaveGroup}
                       className="px-4 py-2 text-sm bg-nova-accent text-white rounded-lg hover:opacity-90 transition-opacity">💾 保存配置</button>

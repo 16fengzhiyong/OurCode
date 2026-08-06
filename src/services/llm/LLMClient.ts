@@ -22,15 +22,19 @@ const adapters: Record<ProviderType, LLMAdapter> = {
   custom: openaiAdapter, // Custom uses OpenAI-compatible format
 }
 
-export function getAdapter(provider: ProviderType): LLMAdapter {
-  return adapters[provider] || adapters.openai
+export function getAdapter(provider: ProviderType, apiFormat?: string): LLMAdapter {
+  // If an explicit format override is set (and not 'auto'), use that adapter
+  const resolvedProvider = (apiFormat && apiFormat !== 'auto')
+    ? apiFormat as ProviderType
+    : provider
+  return adapters[resolvedProvider] || adapters.openai
 }
 
 export async function* sendLLMRequest(
   req: LLMRequest,
   config: ApiConfigGroup
 ): AsyncGenerator<LLMStreamChunk> {
-  const adapter = getAdapter(config.provider)
+  const adapter = getAdapter(config.provider, config.apiFormat)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
@@ -47,7 +51,7 @@ export async function* sendLLMRequest(
 }
 
 export async function fetchModels(config: ApiConfigGroup): Promise<string[]> {
-  const adapter = getAdapter(config.provider)
+  const adapter = getAdapter(config.provider, config.apiFormat)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, lookupModelMetadata } from '@/types'
-import { EXHAUSTED_MARKER, AUTO_CONTINUE_KEY } from '@shared/constants'
+import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, lookupModelMetadata } from '@/types'
+import { EXHAUSTED_MARKER, AUTO_CONTINUE_KEY, TOOL_ALLOWLIST_PREFIX } from '@shared/constants'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
 import { useMemoryStore } from './memoryStore'
@@ -167,6 +167,44 @@ const PLAN_MODE_INSTRUCTION = `
 
 const PLAN_APPROVED_PREFIX = `用户已批准以下计划，现在开始执行。请严格按计划逐步完成，并在执行过程中用 manage_todo 维护任务列表。计划内容：\n`
 
+// Agent-mode prompt: plan for non-trivial tasks, execute directly for trivial ones.
+const AGENT_MODE_INSTRUCTION = `
+
+你当前处于「Agent 模式」。你可以自主完成复杂的编码任务。
+规则：
+- 对于较复杂的任务（涉及多个文件修改、需要运行命令、结构性改动），先调研代码库，然后用 submit_plan 提交一份分步实施计划；计划被批准后严格按计划执行。
+- 对于简单、小范围的任务（如回答代码问题、单文件小改动），可以直接执行，无需提交计划。
+- 全程用 manage_todo 维护任务列表，让用户看到进度。
+- 如果信息不足或任务有歧义，可以调用 ask_user_question 向用户提问。
+- 修改文件时用 edit_file 尽量精确，不要破坏无关代码。`
+
+/** Map a tool name to its trace category (used for icon rendering) */
+function getToolKind(name: string): AgentToolKind {
+  if (['read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files'].includes(name)) return 'search'
+  if (['web_search', 'read_url'].includes(name)) return 'fetch'
+  if (['write_file', 'edit_file', 'create_directory', 'delete_file'].includes(name)) return 'edit'
+  if (name === 'run_command') return 'execute'
+  if (name === 'submit_plan') return 'switch_mode'
+  if (name === 'ask_user_question') return 'ask'
+  return 'other'
+}
+
+/** Short human-readable summary of a tool call for the trace list */
+function summarizeToolCall(tc: ToolCall): string {
+  const a = tc.arguments || {}
+  if (['read_file', 'write_file', 'delete_file', 'list_directory', 'get_directory_tree', 'create_directory', 'edit_file'].includes(tc.name)) {
+    return String(a.path || a.filePath || a.directory || '')
+  }
+  if (tc.name === 'run_command') return String(a.command || a.cmd || '')
+  if (['search_files', 'web_search'].includes(tc.name)) return String(a.query || '')
+  if (tc.name === 'search_in_files') return String(a.pattern || a.query || '')
+  if (tc.name === 'read_url') return String(a.url || '')
+  if (tc.name === 'manage_todo') return String(a.action || a.content || '')
+  if (tc.name === 'submit_plan') return String(a.title || '')
+  if (tc.name === 'ask_user_question') return String(a.question || '')
+  return tc.name
+}
+
 // Tools allowed in plan mode (read-only + agent-control)
 const PLAN_TOOLS = new Set([
   'read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files',
@@ -210,6 +248,31 @@ interface ChatState {
   pendingQuestion: UserQuestion | null
   answerQuestion: (answer: string) => void
 
+  // ── Agent run (transient) state ──────────────────────────────────────
+  /** The currently active (or most recent) agent run across sessions */
+  activeRun: { runId: string; sessionId: string } | null
+  /** Live tool-execution trace of the active run */
+  agentTrace: AgentTraceEntry[]
+  /** True when the current run's remaining tool calls are pre-approved (batch) */
+  batchApproved: boolean
+  /** Per-project "always allow this tool" allowlist (projectPath → tool names) */
+  toolAllowlist: Record<string, string[]>
+  /** Pending batch-approval dialog (agent mode: first round with write tools) */
+  batchApproval: { runId: string; tools: ToolCall[] } | null
+
+  // Agent run actions
+  startAgentRun: (sessionId: string, task: string, opts?: { resumeRunId?: string; autoRun?: boolean }) => void
+  setRunStatus: (runId: string, status: AgentRun['status'], patch?: Partial<AgentRun>) => void
+  appendTrace: (entry: AgentTraceEntry) => void
+  setTraceStatus: (toolCallId: string, status: AgentTraceEntry['status']) => void
+  finishAgentRun: (sessionId: string, runId: string, status: AgentRun['status'], extra?: { error?: string }) => void
+  approveBatchRun: () => void
+  decideBatchApproval: (decision: 'confirm' | 'all' | 'reject') => void
+  allowToolPermanently: (toolName: string) => void
+  loadToolAllowlist: (projectPath: string) => void
+  clearToolAllowlist: (projectPath: string) => void
+  deleteAgentRun: (sessionId: string, runId: string) => void
+
   // Queued messages (type while the agent is working)
   queuedMessages: string[]
   queueMessage: (content: string) => void
@@ -228,8 +291,8 @@ interface ChatState {
   setActiveSession: (sessionId: string) => void
   getActiveSession: () => ChatSession | undefined
 
-  // Agent mode (chat / plan) + plan approval
-  setAgentMode: (sessionId: string, mode: 'chat' | 'plan') => void
+  // Agent mode (chat / agent) + plan approval
+  setAgentMode: (sessionId: string, mode: 'chat' | 'agent') => void
   setProjectEditMode: (sessionId: string, mode: 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access') => void
   approvePlan: (sessionId: string) => Promise<void>
   dismissPlan: (sessionId: string) => void
@@ -246,7 +309,7 @@ interface ChatState {
   clearMessages: (sessionId: string) => void
 
   // Core functionality
-  sendMessage: (content: string, contextFiles?: string[]) => Promise<void>
+  sendMessage: (content: string, contextFiles?: string[], opts?: { autoRun?: boolean }) => Promise<void>
   regenerateFromMessage: (sessionId: string, msgId: string) => Promise<void>
   stopGeneration: () => void
 
@@ -351,6 +414,8 @@ const toolExecutor = new ToolExecutor()
 
 // Pending approval resolve
 let _approvalResolve: ((approved: boolean) => void) | null = null
+// Pending batch-approval resolve (agent mode)
+let _batchResolve: ((decision: 'confirm' | 'all' | 'reject') => void) | null = null
 // Pending ask-user-question resolve
 let _questionResolve: ((answer: string) => void) | null = null
 
@@ -366,6 +431,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   pendingQuestion: null,
   queuedMessages: [],
   checkpoints: [],
+  activeRun: null,
+  agentTrace: [],
+  batchApproved: false,
+  toolAllowlist: {},
+  batchApproval: null,
 
   approveToolCall: () => {
     const { pendingApproval } = get()
@@ -391,6 +461,161 @@ export const useChatStore = create<ChatState>((set, get) => ({
       _questionResolve = null
     }
     set({ pendingQuestion: null })
+  },
+
+  // ───────────── Agent run (transient) state ─────────────
+
+  startAgentRun: (sessionId, task, opts) => {
+    const now = Date.now()
+    let runId = opts?.resumeRunId
+    set((s) => ({
+      sessions: s.sessions.map((sess) => {
+        if (sess.id !== sessionId) return sess
+        const existing = sess.agentRuns || []
+        // Resume an existing run (plan approval / continue): keep its record
+        if (runId && existing.find((r) => r.id === runId)) {
+          return {
+            ...sess,
+            agentRuns: existing.map((r) =>
+              r.id === runId ? { ...r, status: opts?.autoRun ? 'approved_running' : 'running' } : r
+            ),
+            updatedAt: now,
+          }
+        }
+        const run: AgentRun = {
+          id: uuidv4(),
+          task,
+          status: 'running',
+          startedAt: now,
+          toolCallCount: 0,
+          fileChangeCount: 0,
+          stepCount: 0,
+        }
+        runId = run.id
+        return { ...sess, agentRuns: [run, ...existing].slice(0, 20), updatedAt: now }
+      }),
+    }))
+    if (runId) {
+      set({ activeRun: { runId, sessionId }, agentTrace: [], batchApproved: !!opts?.autoRun })
+    }
+  },
+
+  setRunStatus: (runId, status, patch) => {
+    const active = get().activeRun
+    if (!active || active.runId !== runId) return
+    const { sessionId } = active
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === sessionId && sess.agentRuns
+          ? {
+              ...sess,
+              agentRuns: sess.agentRuns.map((r) => (r.id === runId ? { ...r, ...patch, status } : r)),
+              updatedAt: Date.now(),
+            }
+          : sess
+      ),
+    }))
+  },
+
+  appendTrace: (entry) => {
+    set((s) => ({ agentTrace: [...s.agentTrace, entry].slice(-200) }))
+  },
+
+  setTraceStatus: (toolCallId, status) => {
+    set((s) => ({
+      agentTrace: s.agentTrace.map((t) => (t.toolCallId === toolCallId ? { ...t, status } : t)),
+    }))
+  },
+
+  finishAgentRun: (sessionId, runId, status, extra) => {
+    const trace = get().agentTrace
+    const session = get().sessions.find((s) => s.id === sessionId)
+    const stepCount = session?.todos?.length || 0
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === sessionId && sess.agentRuns
+          ? {
+              ...sess,
+              agentRuns: sess.agentRuns.map((r) =>
+                r.id === runId
+                  ? {
+                      ...r,
+                      status,
+                      finishedAt: Date.now(),
+                      toolCallCount: trace.length,
+                      fileChangeCount: trace.filter((t) => t.kind === 'edit').length,
+                      stepCount,
+                      lastError: extra?.error || r.lastError,
+                    }
+                  : r
+              ),
+              updatedAt: Date.now(),
+            }
+          : sess
+      ),
+    }))
+    set({ batchApproved: false })
+    get().saveSession(sessionId)
+  },
+
+  approveBatchRun: () => set({ batchApproved: true, batchApproval: null }),
+
+  decideBatchApproval: (decision) => {
+    if (_batchResolve) {
+      _batchResolve(decision)
+      _batchResolve = null
+    }
+    set({ batchApproval: null })
+  },
+
+  allowToolPermanently: (toolName) => {
+    const active = get().activeRun
+    const session = active
+      ? get().sessions.find((s) => s.id === active.sessionId)
+      : get().sessions.find((s) => s.id === get().activeSessionId)
+    const rootPath = session?.projectPath || getWorkspaceRoot()
+    if (!rootPath) return
+    const key = TOOL_ALLOWLIST_PREFIX + rootPath
+    let list: string[] = []
+    try { list = JSON.parse(localStorage.getItem(key) || '[]') } catch { /* ignore */ }
+    const next = Array.from(new Set([...list, toolName]))
+    localStorage.setItem(key, JSON.stringify(next))
+    set((s) => ({ toolAllowlist: { ...s.toolAllowlist, [rootPath]: next } }))
+  },
+
+  loadToolAllowlist: (projectPath) => {
+    if (!projectPath) return
+    try {
+      const arr = JSON.parse(localStorage.getItem(TOOL_ALLOWLIST_PREFIX + projectPath) || '[]')
+      set((s) => ({
+        toolAllowlist: { ...s.toolAllowlist, [projectPath]: Array.isArray(arr) ? arr : [] },
+      }))
+    } catch { /* ignore */ }
+  },
+
+  clearToolAllowlist: (projectPath) => {
+    localStorage.removeItem(TOOL_ALLOWLIST_PREFIX + projectPath)
+    set((s) => {
+      const next = { ...s.toolAllowlist }
+      delete next[projectPath]
+      return { toolAllowlist: next }
+    })
+  },
+
+  deleteAgentRun: (sessionId, runId) => {
+    set((s) => {
+      const clearActive = s.activeRun?.runId === runId
+      return {
+        sessions: s.sessions.map((sess) =>
+          sess.id === sessionId && sess.agentRuns
+            ? { ...sess, agentRuns: sess.agentRuns.filter((r) => r.id !== runId), updatedAt: Date.now() }
+            : sess
+        ),
+        activeRun: clearActive ? null : s.activeRun,
+        agentTrace: clearActive ? [] : s.agentTrace,
+      }
+    })
+    get().saveSession(sessionId)
   },
 
   queueMessage: (content) => {
@@ -523,9 +748,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().saveSession(sessionId)
 
     const planText = formatPlanText(session.planContent)
+    const isAgent = session.agentMode === 'agent'
+    const activeRun = get().activeRun
     await runAgentLoop(sessionId, {
-      agentModeOverride: 'chat',
+      // Agent-mode sessions keep executing in agent mode (with batch approval);
+      // the read-only planning phase is lifted via planApproved.
+      agentModeOverride: isAgent ? 'agent' : 'chat',
       extraSystemText: PLAN_APPROVED_PREFIX + planText,
+      resumeRunId: activeRun?.sessionId === sessionId ? activeRun.runId : undefined,
+      autoRun: isAgent,
+      planApproved: isAgent,
     })
   },
 
@@ -550,9 +782,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   continueGeneration: async () => {
-    const { activeSessionId, isLoading } = get()
+    const { activeSessionId, isLoading, activeRun } = get()
     if (!activeSessionId || isLoading) return
-    await runAgentLoop(activeSessionId)
+    const resumeRunId = activeRun?.sessionId === activeSessionId ? activeRun.runId : undefined
+    await runAgentLoop(activeSessionId, { resumeRunId })
   },
 
   addMessage: (sessionId, msg) => {
@@ -700,7 +933,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().saveSession(sessionId)
   },
 
-  sendMessage: async (content, contextFiles = []) => {
+  sendMessage: async (content, contextFiles = [], opts?: { autoRun?: boolean }) => {
     const { activeSessionId } = get()
     if (!activeSessionId) return
 
@@ -718,7 +951,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().renameSession(activeSessionId, title)
     }
 
-    await runAgentLoop(activeSessionId)
+    await runAgentLoop(activeSessionId, { autoRun: opts?.autoRun })
   },
 
   regenerateFromMessage: async (sessionId, msgId) => {
@@ -768,7 +1001,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       _questionResolve('（生成已停止，用户取消了提问）')
       _questionResolve = null
     }
-    set({ pendingQuestion: null })
+    // Same for a pending batch-approval dialog — reject the batch so the loop unwinds.
+    if (_batchResolve) {
+      _batchResolve('reject')
+      _batchResolve = null
+    }
+    set({ pendingQuestion: null, batchApproval: null })
   },
 
   // Branch: create a new branch from a specific message
@@ -1013,6 +1251,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       queuedMessages: [],
       checkpoints: [],
       undoStack: [],
+      activeRun: null,
+      agentTrace: [],
+      batchApproved: false,
+      toolAllowlist: {},
+      batchApproval: null,
     })
   },
 }))
@@ -1023,12 +1266,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
  * Core agent loop: streams the LLM response, executes tool calls with approval,
  * handles plan-mode / todos / questions / checkpoints, and saves the session.
  *
- * `opts.agentModeOverride` lets a plan approval resume in execute mode even
- * though the session is still flagged as plan mode.
+ * `opts.agentModeOverride` lets a plan approval resume the same run in the
+ * execution phase of agent mode (read-only planning → approved execution).
  */
 async function runAgentLoop(
   sessionId: string,
-  opts?: { agentModeOverride?: 'chat' | 'plan'; extraSystemText?: string },
+  opts?: { agentModeOverride?: 'chat' | 'agent'; extraSystemText?: string; autoRun?: boolean; resumeRunId?: string; planApproved?: boolean },
 ): Promise<void> {
   const chatStore = useChatStore.getState()
   const session = chatStore.sessions.find((s) => s.id === sessionId)
@@ -1037,7 +1280,7 @@ async function runAgentLoop(
   const configGroup = useConfigStore.getState().configGroups.find((g) => g.id === session.configGroupId)
   if (!configGroup) return
 
-  const agentMode = opts?.agentModeOverride || (session.agentMode === 'plan' ? 'plan' : 'chat')
+  const agentMode = opts?.agentModeOverride || (session.agentMode === 'agent' ? 'agent' : 'chat')
 
   // Refresh dynamic tools (MCP servers) before building the tool list
   await toolExecutor.refreshMcpTools()
@@ -1047,8 +1290,15 @@ async function runAgentLoop(
   const userContent = lastUserMessage?.content || ''
   const baseSystemPrompt = configGroup.systemPrompt || 'You are a helpful AI coding assistant.'
   let systemPrompt = await buildSystemPrompt(baseSystemPrompt, userContent, lastUserMessage?.contextFiles || [])
-  if (agentMode === 'plan' && (session.projectEditMode || 'plan') === 'plan') {
-    systemPrompt += PLAN_MODE_INSTRUCTION
+  // Agent mode is the single planning+execution mode. With the default
+  // projectEditMode 'plan' the planning phase is read-only (enforced via
+  // PLAN_TOOLS below) — the model must submit a plan before any mutation.
+  // After the plan is approved (opts.planApproved), the read-only instruction
+  // and tool gating are lifted and the agent executes the plan. Other edit
+  // modes let the model plan or act directly.
+  if (agentMode === 'agent') {
+    const planningPhase = (session.projectEditMode || 'plan') === 'plan' && !opts?.planApproved
+    systemPrompt += planningPhase ? PLAN_MODE_INSTRUCTION : AGENT_MODE_INSTRUCTION
   }
   if (opts?.extraSystemText) {
     systemPrompt += '\n\n' + opts.extraSystemText
@@ -1069,13 +1319,42 @@ async function runAgentLoop(
   // exceeds the model's budget (keeps the current user turn + a notice).
   messages = trimHistoryForContext(messages, session.model || configGroup.defaultModel)
 
-  // Plan mode exposes only read-only + agent-control tools when projectEditMode='plan'
-  // (the default). Other project edit modes expose all tools but vary approval behavior.
+  // Agent mode with the default 'plan' edit mode exposes only read-only +
+  // agent-control tools until a plan is approved (the planning phase is
+  // read-only by design). Other edit modes expose all tools but vary approval.
   const projectEditMode = session.projectEditMode || 'plan'
-  const usePlanTools = agentMode === 'plan' && projectEditMode === 'plan'
+  const usePlanTools = agentMode === 'agent' && projectEditMode === 'plan' && !opts?.planApproved
   const toolDefinitions = usePlanTools
     ? toolExecutor.getToolDefinitions((name) => PLAN_TOOLS.has(name))
     : toolExecutor.getToolDefinitions()
+
+  // Agent mode: start (or resume) the run record + live trace. Also load the
+  // persisted per-project "always allow" list for the approval checks below.
+  const projectPath = session.projectPath || getWorkspaceRoot()
+  let runId: string | undefined
+  if (agentMode === 'agent') {
+    const st = useChatStore.getState()
+    st.loadToolAllowlist(projectPath)
+    st.startAgentRun(sessionId, lastUserMessage?.content || 'Agent 任务', {
+      resumeRunId: opts?.resumeRunId,
+      autoRun: !!opts?.autoRun,
+    })
+    runId = useChatStore.getState().activeRun?.runId
+  }
+
+  // Whether a tool needs manual approval in this run. Order of exemptions:
+  // project edit mode → per-run batch approval → persisted allowlist.
+  const FILE_EDIT_TOOLS = new Set(['write_file', 'edit_file'])
+  const needsApproval = (name: string): boolean => {
+    let needs = toolExecutor.requiresApproval(name)
+    if (agentMode === 'agent') {
+      if (projectEditMode === 'full_access') needs = false
+      else if (projectEditMode === 'auto_edit' && FILE_EDIT_TOOLS.has(name)) needs = false
+    }
+    if (needs && useChatStore.getState().batchApproved) needs = false
+    if (needs && (useChatStore.getState().toolAllowlist[projectPath] || []).includes(name)) needs = false
+    return needs
+  }
 
   const set = useChatStore.setState.bind(useChatStore)
   set({ isLoading: true, streamingContent: '', streamingThinking: '' })
@@ -1168,9 +1447,49 @@ async function runAgentLoop(
 
       let planSubmitted = false
 
+      // Agent mode: offer one batch-approval dialog per round (Windsurf/Cursor
+      // style) instead of interrupting on every write tool. Choosing "全部批准"
+      // sets batchApproved for the rest of this run; "全部拒绝" marks this
+      // round's tools as rejected; "逐个确认" falls through to per-tool dialogs.
+      let batchRejectedIds = new Set<string>()
+      if (agentMode === 'agent' && !useChatStore.getState().batchApproved) {
+        const batchTools = parsedToolCalls.filter((tc) => needsApproval(tc.name))
+        if (batchTools.length > 0) {
+          const decision = await new Promise<'confirm' | 'all' | 'reject'>((resolve) => {
+            if (_batchResolve) { _batchResolve('reject'); _batchResolve = null }
+            _batchResolve = resolve
+            useChatStore.setState({ batchApproval: { runId: runId || '', tools: batchTools } })
+            // Auto-reject if the user never responds (60s), so the agent loop
+            // doesn't hang forever on a dangling batch dialog
+            setTimeout(() => {
+              if (_batchResolve === resolve) {
+                _batchResolve = null
+                resolve('reject')
+              }
+            }, 60000)
+          })
+          useChatStore.setState({ batchApproval: null })
+          if (decision === 'all') {
+            useChatStore.getState().approveBatchRun()
+          } else if (decision === 'reject') {
+            batchRejectedIds = new Set(batchTools.map((t) => t.id))
+          }
+        }
+      }
+
       // Execute each tool call
       for (const tc of parsedToolCalls) {
         if (abortController.signal.aborted) break
+
+        // Live execution trace entry (AgentRunPanel)
+        useChatStore.getState().appendTrace({
+          id: uuidv4(),
+          toolCallId: tc.id,
+          name: tc.name,
+          kind: getToolKind(tc.name),
+          status: 'running',
+          summary: summarizeToolCall(tc),
+        })
 
         // ── manage_todo: update the visible todo list ──
         if (tc.name === 'manage_todo') {
@@ -1185,6 +1504,7 @@ async function runAgentLoop(
           const result = `任务列表已更新 (${todos.length} 项)`
           chatStore.addMessage(sessionId, { role: 'tool', content: result, toolResults: [{ toolCallId: tc.id, name: tc.name, result }], toolCallId: tc.id })
           messages.push({ role: 'tool', content: result, toolCallId: tc.id })
+          useChatStore.getState().setTraceStatus(tc.id, 'success')
           continue
         }
 
@@ -1201,6 +1521,10 @@ async function runAgentLoop(
                 : sess
             ),
           }))
+          if (runId) {
+            useChatStore.getState().setRunStatus(runId, 'waiting_plan', { plan: JSON.stringify(plan) })
+            useChatStore.getState().setTraceStatus(tc.id, 'success')
+          }
           const result = '计划已提交，等待用户批准。'
           chatStore.addMessage(sessionId, { role: 'tool', content: result, toolResults: [{ toolCallId: tc.id, name: tc.name, result }], toolCallId: tc.id })
           messages.push({ role: 'tool', content: result, toolCallId: tc.id })
@@ -1224,6 +1548,21 @@ async function runAgentLoop(
           const result = `用户回答: ${answer}`
           chatStore.addMessage(sessionId, { role: 'tool', content: result, toolResults: [{ toolCallId: tc.id, name: tc.name, result }], toolCallId: tc.id })
           messages.push({ role: 'tool', content: result, toolCallId: tc.id })
+          useChatStore.getState().setTraceStatus(tc.id, 'success')
+          continue
+        }
+
+        // ── Batch-rejected tools (user declined the whole round) ──
+        if (batchRejectedIds.has(tc.id)) {
+          const result: ToolResult = {
+            toolCallId: tc.id,
+            name: tc.name,
+            result: '用户拒绝了此操作',
+            isError: true,
+          }
+          chatStore.addMessage(sessionId, { role: 'tool', content: result.result, toolResults: [result], toolCallId: tc.id })
+          messages.push({ role: 'tool', content: result.result, toolCallId: tc.id })
+          useChatStore.getState().setTraceStatus(tc.id, 'rejected')
           continue
         }
 
@@ -1232,19 +1571,9 @@ async function runAgentLoop(
           await captureCheckpoint(sessionId, tc, assistantMsgId)
         }
 
-        // Check if tool requires approval — project edit mode can override
-        const editMode = session.projectEditMode || 'plan'
-        const FILE_EDIT_TOOLS = new Set(['write_file', 'edit_file'])
-        let needsApproval = toolExecutor.requiresApproval(tc.name)
-        if (agentMode === 'plan') {
-          if (editMode === 'full_access') {
-            needsApproval = false
-          } else if (editMode === 'auto_edit' && FILE_EDIT_TOOLS.has(tc.name)) {
-            needsApproval = false
-          }
-          // confirm_before_change and plan: use default approval behavior
-        }
-        if (needsApproval) {
+        // Approval (per-tool) — project edit mode / batch / allowlist exemptions
+        // are all folded into the needsApproval() helper defined above.
+        if (needsApproval(tc.name)) {
           const preview = toolExecutor.getPreview(tc)
           useChatStore.setState({ pendingApproval: { toolCall: tc, preview } })
 
@@ -1267,6 +1596,7 @@ async function runAgentLoop(
           })
 
           if (!approved) {
+            useChatStore.getState().setTraceStatus(tc.id, 'rejected')
             const result: ToolResult = {
               toolCallId: tc.id,
               name: tc.name,
@@ -1291,6 +1621,8 @@ async function runAgentLoop(
 
         // Execute the tool
         const result = await toolExecutor.execute(tc)
+
+        useChatStore.getState().setTraceStatus(tc.id, result.isError ? 'error' : 'success')
 
         chatStore.addMessage(sessionId, {
           role: 'tool',
@@ -1359,10 +1691,23 @@ async function runAgentLoop(
         content: chatError.message,
         error: chatError,
       })
+      if (runId) {
+        useChatStore.getState().setRunStatus(runId, 'error', { lastError: chatError.message })
+      }
     }
   } finally {
-    set({ isLoading: false, streamingContent: '', streamingThinking: '', abortController: null, pendingApproval: null })
+    // Finalize the agent run record (status / counts) for the tasks panel
+    if (runId) {
+      const finalStatus: AgentRun['status'] = abortController.signal.aborted
+        ? 'stopped'
+        : planWasSubmitted(sessionId)
+          ? 'waiting_plan'
+          : 'done'
+      useChatStore.getState().finishAgentRun(sessionId, runId, finalStatus)
+    }
+    set({ isLoading: false, streamingContent: '', streamingThinking: '', abortController: null, pendingApproval: null, batchApproved: false, batchApproval: null })
     _approvalResolve = null
+    _batchResolve = null
     _questionResolve = null
     chatStore.saveSession(sessionId)
 

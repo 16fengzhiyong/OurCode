@@ -2,7 +2,6 @@ import { useState, useMemo, lazy, Suspense } from 'react'
 import { useConfigStore } from '@/stores/configStore'
 import { useChatStore } from '@/stores/chatStore'
 import { lookupModelMetadata } from '@/types'
-import { useI18n } from '@/i18n/useI18n'
 
 const ModelCompareView = lazy(() => import('./ModelCompareView'))
 
@@ -24,7 +23,7 @@ const PROVIDER_COLORS: Record<string, string> = {
 }
 
 export default function ModelSelector() {
-  const [showParams, setShowParams] = useState(false)
+  const [showAdvancedParams, setShowAdvancedParams] = useState(false)
   const [freeOnly, setFreeOnly] = useState(false)
   const [showFavorites, setShowFavorites] = useState(false)
   const [showCompare, setShowCompare] = useState(false)
@@ -32,7 +31,6 @@ export default function ModelSelector() {
   const [providerFilter, setProviderFilter] = useState<string>('')
   const [contextFilter, setContextFilter] = useState<string>('')
   const [showModelList, setShowModelList] = useState(false)
-  const t = useI18n()
   const {
     models, isLoadingModels, modelsError, modelParams,
     fetchModels, setModelParams, getActiveConfigGroup, toggleFavorite,
@@ -122,13 +120,50 @@ export default function ModelSelector() {
           </button>
         )}
 
-        <button onClick={() => setShowParams(!showParams)}
-          className={`p-1.5 rounded-lg transition-colors ${showParams ? 'bg-nova-accent/15 text-nova-accent' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`} title="参数设置">
+        <button onClick={() => setShowAdvancedParams(!showAdvancedParams)}
+          className={`p-1.5 rounded-lg transition-colors ${showAdvancedParams ? 'bg-nova-accent/15 text-nova-accent' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`} title="高级参数">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
       </div>
+
+      {/* Inline compact params — always visible */}
+      <div className="flex items-center gap-2 px-2 py-1.5 bg-nova-card/50 rounded-lg border border-nova-border/50 text-[10px]">
+        <span className="text-nova-text-muted shrink-0">参数:</span>
+        <div className="flex items-center gap-1.5 flex-1 flex-wrap">
+          <InlineParam label="温度" value={modelParams.temperature} min={0} max={2} step={0.1} onChange={(v) => handleParamChange('temperature', v)} />
+          <span className="text-nova-border">|</span>
+          <InlineParam label="Max Tokens" value={modelParams.maxTokens} min={0} max={128000} step={1000} onChange={(v) => handleParamChange('maxTokens', v)} zeroLabel="无限制" />
+          <span className="text-nova-border">|</span>
+          <InlineParam label="Top P" value={modelParams.topP} min={0} max={1} step={0.05} onChange={(v) => handleParamChange('topP', v)} />
+        </div>
+      </div>
+
+      {/* Advanced params panel */}
+      {showAdvancedParams && (
+        <div className="p-3 bg-nova-card rounded-xl border border-nova-border grid grid-cols-2 gap-3.5">
+          {[
+            { key: 'temperature', label: 'Temperature', min: 0, max: 2, step: 0.1 },
+            { key: 'maxTokens', label: 'Max Tokens', min: 0, max: 128000, step: 1000 },
+            { key: 'topP', label: 'Top P', min: 0, max: 1, step: 0.05 },
+            { key: 'frequencyPenalty', label: 'Frequency Penalty', min: -2, max: 2, step: 0.1 },
+            { key: 'presencePenalty', label: 'Presence Penalty', min: -2, max: 2, step: 0.1 },
+          ].map(({ key, label, min, max, step }) => (
+            <div key={key} className="flex flex-col gap-1.5">
+              <div className="flex justify-between text-[11px]">
+                <span className="font-medium text-nova-text-secondary">{label}</span>
+                <span className="text-nova-text-muted font-mono">
+                  {(modelParams as any)[key] === 0 && key === 'maxTokens' ? '无限制' : (modelParams as any)[key]}
+                </span>
+              </div>
+              <input type="range" min={min} max={max} step={step} value={(modelParams as any)[key]}
+                onChange={(e) => handleParamChange(key, parseFloat(e.target.value))}
+                className="w-full accent-nova-accent" />
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Error */}
       {modelsError && (
@@ -292,31 +327,27 @@ export default function ModelSelector() {
           <ModelCompareView onClose={() => setShowCompare(false)} />
         </Suspense>
       )}
+    </div>
+  )
+}
 
-      {/* Parameters panel */}
-      {showParams && (
-        <div className="p-3 bg-nova-card rounded-xl border border-nova-border grid grid-cols-2 gap-3.5">
-          {[
-            { key: 'temperature', label: 'Temperature', min: 0, max: 2, step: 0.1 },
-            { key: 'maxTokens', label: 'Max Tokens', min: 0, max: 128000, step: 1000 },
-            { key: 'topP', label: 'Top P', min: 0, max: 1, step: 0.05 },
-            { key: 'frequencyPenalty', label: 'Frequency Penalty', min: -2, max: 2, step: 0.1 },
-            { key: 'presencePenalty', label: 'Presence Penalty', min: -2, max: 2, step: 0.1 },
-          ].map(({ key, label, min, max, step }) => (
-            <div key={key} className="flex flex-col gap-1.5">
-              <div className="flex justify-between text-[11px]">
-                <span className="font-medium text-nova-text-secondary">{label}</span>
-                <span className="text-nova-text-muted font-mono">
-                  {(modelParams as any)[key] === 0 && key === 'maxTokens' ? '无限制' : (modelParams as any)[key]}
-                </span>
-              </div>
-              <input type="range" min={min} max={max} step={step} value={(modelParams as any)[key]}
-                onChange={(e) => handleParamChange(key, parseFloat(e.target.value))}
-                className="w-full accent-nova-accent" />
-            </div>
-          ))}
-        </div>
-      )}
+/** Compact inline parameter with label + value + micro-slider */
+function InlineParam({ label, value, min, max, step, onChange, zeroLabel }: {
+  label: string; value: number; min: number; max: number; step: number;
+  onChange: (v: number) => void; zeroLabel?: string;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-nova-text-muted">{label}</span>
+      <input
+        type="range"
+        min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-12 h-1 accent-nova-accent cursor-pointer"
+      />
+      <span className="text-nova-text-secondary font-mono min-w-[28px] text-right">
+        {value === 0 && zeroLabel ? zeroLabel : value}
+      </span>
     </div>
   )
 }

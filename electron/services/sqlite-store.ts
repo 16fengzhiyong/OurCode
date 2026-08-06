@@ -3,7 +3,7 @@ import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
 import { v4 as uuidv4 } from 'uuid'
 import { CryptoService } from './crypto'
-import { ApiConfigGroup, ChatSession, ChatMessage, ChatBranch, UserPreferences, Memory, Checkpoint, TodoItem, Workflow } from '../../shared/types'
+import { ApiConfigGroup, ChatSession, ChatMessage, ChatBranch, UserPreferences, Memory, Checkpoint, TodoItem, Workflow, AgentRun } from '../../shared/types'
 import { DEFAULT_PREFERENCES } from '../../shared/constants'
 
 /** Parse a JSON column safely ('' / null / invalid → fallback) */
@@ -108,6 +108,14 @@ export class SQLiteStore {
     }
     if (!sessColumns.some((c: any) => c.name === 'plan_status')) {
       this.db.exec("ALTER TABLE chat_sessions ADD COLUMN plan_status TEXT DEFAULT 'none'")
+    }
+    // Add agent_runs column to chat_sessions if missing (persisted agent task records)
+    if (!sessColumns.some((c: any) => c.name === 'agent_runs')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN agent_runs TEXT DEFAULT '[]'")
+    }
+    // Add project_path column to chat_sessions if missing (session ↔ workspace association)
+    if (!sessColumns.some((c: any) => c.name === 'project_path')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN project_path TEXT DEFAULT ''")
     }
   }
 
@@ -337,10 +345,15 @@ export class SQLiteStore {
         branches: branches.length > 0 ? branches : undefined,
         pinnedAt: session.pinned_at || undefined,
         archivedAt: session.archived_at || undefined,
-        agentMode: (session.agent_mode || 'chat') as 'chat' | 'plan',
+        // Legacy 'plan' mode was merged into 'agent' — map old sessions on load
+        agentMode: (session.agent_mode === 'plan' ? 'agent' : session.agent_mode || 'chat') as 'chat' | 'agent',
         todos: parseJsonField<TodoItem[]>(session.todos, []),
         planContent: session.plan_content || undefined,
         planStatus: (session.plan_status || 'none') as 'none' | 'pending_approval' | 'approved',
+        projectPath: session.project_path || undefined,
+        agentRuns: parseJsonField<AgentRun[]>(session.agent_runs, []).length
+          ? parseJsonField<AgentRun[]>(session.agent_runs, [])
+          : undefined,
       }
     })
   }
@@ -356,7 +369,7 @@ export class SQLiteStore {
         UPDATE chat_sessions
         SET title = ?, config_group_id = ?, model = ?, model_params = ?, updated_at = ?,
             active_branch_id = ?, branches = ?, pinned_at = ?, archived_at = ?,
-            agent_mode = ?, todos = ?, plan_content = ?, plan_status = ?
+            agent_mode = ?, todos = ?, plan_content = ?, plan_status = ?, agent_runs = ?, project_path = ?
         WHERE id = ?
       `).run(
         session.title,
@@ -372,6 +385,8 @@ export class SQLiteStore {
         JSON.stringify((session as any).todos || []),
         (session as any).planContent || '',
         (session as any).planStatus || 'none',
+        JSON.stringify((session as any).agentRuns || []),
+        (session as any).projectPath || '',
         id
       )
 
@@ -380,8 +395,8 @@ export class SQLiteStore {
     } else {
       this.db.prepare(`
         INSERT INTO chat_sessions (id, title, config_group_id, model, model_params, created_at, updated_at,
-          active_branch_id, branches, pinned_at, archived_at, agent_mode, todos, plan_content, plan_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          active_branch_id, branches, pinned_at, archived_at, agent_mode, todos, plan_content, plan_status, agent_runs, project_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         session.title,
@@ -397,7 +412,9 @@ export class SQLiteStore {
         (session as any).agentMode || 'chat',
         JSON.stringify((session as any).todos || []),
         (session as any).planContent || '',
-        (session as any).planStatus || 'none'
+        (session as any).planStatus || 'none',
+        JSON.stringify((session as any).agentRuns || []),
+        (session as any).projectPath || ''
       )
     }
 

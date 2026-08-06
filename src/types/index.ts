@@ -101,7 +101,7 @@ export interface ElectronAPI {
 
   // Memories
   memoryList: () => Promise<import('@shared/types').Memory[]>
-  memoryAdd: (content: string, scope?: string) => Promise<import('@shared/types').Memory>
+  memoryAdd: (content: string, scope?: string, projectPath?: string) => Promise<import('@shared/types').Memory>
   memoryDelete: (id: string) => Promise<void>
 
   // Workflows

@@ -31,7 +31,7 @@ export default function ChatPanel() {
   const setProjectEditMode = useChatStore((s) => s.setProjectEditMode)
   const { activeConfigGroupId, models } = useConfigStore()
   const activeConfigGroup = useConfigStore((s) => s.configGroups.find((g) => g.id === s.activeConfigGroupId))
-  const { openSettings } = useUIStore()
+  const { openSettings, rootPath } = useUIStore()
   const t = useI18n()
   const isChatSessionListOpen = useUIStore((s) => s.isChatSessionListOpen)
   const setChatSessionListOpen = useUIStore((s) => s.setChatSessionListOpen)
@@ -61,7 +61,7 @@ export default function ChatPanel() {
       )}
 
       {/* Memory manager */}
-      {showMemories && <MemoryModal onClose={() => setShowMemories(false)} />}
+      {showMemories && <MemoryModal onClose={() => setShowMemories(false)} currentProjectPath={rootPath} />}
 
       {/* Arena (parallel model comparison) */}
       {showArena && <ArenaModal onClose={() => setShowArena(false)} />}
@@ -215,7 +215,7 @@ export default function ChatPanel() {
             <>
               <ChatMessages />
 
-              {/* Mode bar — chat / project */}
+              {/* Mode bar — chat / agent (planning is a read-only phase of agent mode) */}
               <div className="shrink-0 px-3 py-1.5 border-t border-nova-border flex items-center justify-between gap-1.5" style={{ background: 'var(--surface)' }}>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -226,14 +226,14 @@ export default function ChatPanel() {
                     {t('chat.modeChat')}
                   </button>
                   <button
-                    onClick={() => setAgentMode(activeSession.id, 'plan')}
-                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${agentMode === 'plan' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
-                    title={t('chat.modeProjectHint')}
+                    onClick={() => setAgentMode(activeSession.id, 'agent')}
+                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${agentMode === 'agent' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
+                    title={t('chat.modeAgentHint')}
                   >
-                    {t('chat.modeProject')}
+                    {t('chat.modeAgent')}
                   </button>
                 </div>
-                {agentMode === 'plan' && (
+                {agentMode === 'agent' && (
                   <select
                     value={projectEditMode}
                     onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}

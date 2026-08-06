@@ -9,6 +9,8 @@ export interface ApiConfigGroup {
   systemPrompt: string
   defaultModel: string
   provider: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'deepseek' | 'groq' | 'azure' | 'custom'
+  /** Override the API format regardless of provider. 'auto' uses the provider's native format. */
+  apiFormat?: 'auto' | 'openai' | 'anthropic' | 'gemini'
   customHeaders: Record<string, string>
   color?: string // Color label for the config group
   sortOrder?: number // smaller = higher priority
@@ -48,9 +50,14 @@ export interface ChatSession {
   branches?: ChatBranch[] // all branches except the main one
   pinnedAt?: number
   archivedAt?: number
-  // Agent mode (Windsurf-style): 'chat' answers freely, 'plan' produces a plan first
-  agentMode?: 'chat' | 'plan'
-  // Project edit mode: controls tool-approval behavior when agentMode='plan'
+  // Agent mode: 'chat' answers freely (with tool calls), 'agent' is the merged
+  // planning + execution mode — the planning phase is read-only (enforced via
+  // PLAN_TOOLS when projectEditMode='plan'), then executes after plan approval
+  // or directly for trivial tasks under other edit modes.
+  agentMode?: 'chat' | 'agent'
+  // Lightweight records of past agent runs (shown in the Agent tasks panel)
+  agentRuns?: AgentRun[]
+  // Project edit mode: controls tool-approval behavior in agent mode
   // 'confirm_before_change' — ask before every file-modifying tool
   // 'auto_edit' — auto-approve file edits (write/edit files)
   // 'plan' — read-only → submit plan → approve → execute
@@ -71,6 +78,34 @@ export interface TodoItem {
   content: string
   status: 'pending' | 'in_progress' | 'completed' | 'failed'
   order: number
+}
+
+// Tool-call category used for rendering the agent's execution trace
+// (think/search/edit/execute/... get distinct icons, Windsurf-style)
+export type AgentToolKind = 'think' | 'search' | 'edit' | 'execute' | 'fetch' | 'switch_mode' | 'ask' | 'other'
+
+// One executed tool call inside an agent run (transient, shown in AgentRunPanel)
+export interface AgentTraceEntry {
+  id: string
+  toolCallId: string
+  name: string
+  kind: AgentToolKind
+  status: 'running' | 'success' | 'error' | 'rejected'
+  summary: string
+}
+
+// Lightweight persisted record of an agent run (shown in the Agent tasks panel)
+export interface AgentRun {
+  id: string
+  task: string
+  status: 'running' | 'creating_plan' | 'waiting_plan' | 'approved_running' | 'done' | 'stopped' | 'error' | 'rejected'
+  plan?: string // JSON plan (same shape as session.planContent) when submitted
+  startedAt: number
+  finishedAt?: number
+  toolCallCount: number
+  fileChangeCount: number
+  stepCount: number
+  lastError?: string
 }
 
 // One file's content snapshot inside a checkpoint
@@ -96,6 +131,7 @@ export interface Memory {
   id: string
   content: string
   scope: 'global' | 'project'
+  projectPath?: string // the project path this memory belongs to (only for scope='project')
   createdAt: number
   updatedAt: number
 }

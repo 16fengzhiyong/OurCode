@@ -23,7 +23,7 @@ interface UIState {
   // Sidebar
   isSidebarVisible: boolean
   sidebarWidth: number
-  activeSidebarTab: 'files' | 'git' | 'changes' | 'extensions'
+  activeSidebarTab: 'files' | 'git' | 'changes' | 'agent' | 'extensions'
   rootPath: string | null
   recentProjects: string[]
 
@@ -70,7 +70,7 @@ interface UIState {
   // Actions
   toggleSidebar: () => void
   setSidebarWidth: (width: number) => void
-  setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'extensions') => void
+  setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'agent' | 'extensions') => void
   setRootPath: (path: string | null) => void
   removeRecentProject: (path: string) => void
 
@@ -123,9 +123,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   rootPath: null,
   recentProjects: (() => { try { return JSON.parse(localStorage.getItem('recentProjects') || '[]') } catch { return [] } })(),
 
-  // Chat Panel
+  // Chat Panel — wider default since the AI panel is the primary interface
   isChatVisible: true,
-  chatWidth: 400,
+  chatWidth: Math.max(480, typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.38) : 520),
   chatPosition: 'right',
   isChatSessionListOpen: false,
 

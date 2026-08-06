@@ -223,3 +223,133 @@ describe('chatStore trimHistoryForContext', () => {
     expect(trimHistoryForContext(messages, 'unknown-model-xyz')).toHaveLength(2)
   })
 })
+
+describe('chatStore agent run state', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    useChatStore.setState({
+      ...initialState,
+      sessions: [],
+      activeSessionId: null,
+      undoStack: [],
+      queuedMessages: [],
+      activeRun: null,
+      agentTrace: [],
+      batchApproved: false,
+      toolAllowlist: {},
+      batchApproval: null,
+    })
+  })
+
+  it('setAgentMode persists the agent mode on the session', () => {
+    makeSession()
+    useChatStore.getState().setAgentMode('s1', 'agent')
+    expect(useChatStore.getState().sessions[0].agentMode).toBe('agent')
+    expect(useChatStore.getState().sessions[0].projectEditMode).toBeUndefined()
+  })
+
+  it('startAgentRun creates a run record, sets activeRun and resets the trace', () => {
+    makeSession()
+    useChatStore.getState().startAgentRun('s1', '重构 auth 模块', { autoRun: true })
+    const st = useChatStore.getState()
+    expect(st.activeRun?.sessionId).toBe('s1')
+    expect(st.batchApproved).toBe(true)
+    const session = st.sessions.find((s) => s.id === 's1')!
+    expect(session.agentRuns).toHaveLength(1)
+    expect(session.agentRuns![0].task).toBe('重构 auth 模块')
+    expect(session.agentRuns![0].status).toBe('running')
+
+    // A new user turn starts a fresh run
+    useChatStore.getState().startAgentRun('s1', '新任务')
+    const st2 = useChatStore.getState()
+    expect(st2.sessions.find((s) => s.id === 's1')!.agentRuns).toHaveLength(2)
+    expect(st2.activeRun?.runId).not.toBe(st.activeRun?.runId)
+    expect(st2.batchApproved).toBe(false)
+  })
+
+  it('startAgentRun with resumeRunId reuses the existing run record', () => {
+    makeSession()
+    useChatStore.getState().startAgentRun('s1', '任务')
+    const runId = useChatStore.getState().activeRun!.runId
+    // Plan approval resumes the same run (batch auto-run on)
+    useChatStore.getState().startAgentRun('s1', '任务', { resumeRunId: runId, autoRun: true })
+    const st = useChatStore.getState()
+    expect(st.sessions.find((s) => s.id === 's1')!.agentRuns).toHaveLength(1)
+    expect(st.activeRun?.runId).toBe(runId)
+    expect(st.batchApproved).toBe(true)
+    expect(st.sessions.find((s) => s.id === 's1')!.agentRuns![0].status).toBe('approved_running')
+  })
+
+  it('finishAgentRun records counts/status and caps agentRuns at 20', () => {
+    makeSession()
+    // Fill past the cap
+    for (let i = 0; i < 22; i++) {
+      useChatStore.getState().startAgentRun('s1', `任务 ${i}`)
+    }
+    const st = useChatStore.getState()
+    expect(st.sessions.find((s) => s.id === 's1')!.agentRuns).toHaveLength(20)
+    const runId = st.activeRun!.runId
+
+    useChatStore.getState().setRunStatus(runId, 'approved_running')
+    useChatStore.getState().appendTrace({ id: 't1', toolCallId: 'c1', name: 'read_file', kind: 'search', status: 'success', summary: 'auth.ts' })
+    useChatStore.getState().appendTrace({ id: 't2', toolCallId: 'c2', name: 'edit_file', kind: 'edit', status: 'success', summary: 'auth.ts' })
+    useChatStore.getState().finishAgentRun('s1', runId, 'done')
+
+    // Re-read state — zustand's set() produces a new sessions array
+    const st2 = useChatStore.getState()
+    const run = st2.sessions.find((s) => s.id === 's1')!.agentRuns!.find((r) => r.id === runId)!
+    expect(run.status).toBe('done')
+    expect(run.finishedAt).toBeGreaterThan(0)
+    expect(run.toolCallCount).toBe(2)
+    expect(run.fileChangeCount).toBe(1) // only the edit kind
+    expect(st2.batchApproved).toBe(false)
+  })
+
+  it('decideBatchApproval clears the dialog and approveBatchRun sets the flag', () => {
+    makeSession()
+    useChatStore.setState({ batchApproval: { runId: 'r1', tools: [{ id: 'c1', name: 'write_file', arguments: { path: '/tmp/a.ts' } }] } })
+    // The loop resolves the dialog, then (for "all") flips the run to batch-approved
+    useChatStore.getState().decideBatchApproval('all')
+    expect(useChatStore.getState().batchApproval).toBeNull()
+    expect(useChatStore.getState().batchApproved).toBe(false)
+    useChatStore.getState().approveBatchRun()
+    expect(useChatStore.getState().batchApproved).toBe(true)
+  })
+
+  it('allowToolPermanently persists to localStorage and clearToolAllowlist removes it', () => {
+    // vitest.setup stubs localStorage as a no-op; swap in an in-memory map so
+    // the persistence contract is actually exercised.
+    const mem = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => { mem.set(k, v) },
+      removeItem: (k: string) => { mem.delete(k) },
+      clear: () => mem.clear(),
+      key: () => null,
+      length: 0,
+    })
+
+    makeSession()
+    // Give the session a project path so the allowlist has a scope
+    useChatStore.setState((st) => ({
+      sessions: st.sessions.map((s) => (s.id === 's1' ? { ...s, projectPath: 'C:/proj' } : s)),
+    }))
+    useChatStore.getState().allowToolPermanently('run_command')
+    expect(useChatStore.getState().toolAllowlist['C:/proj']).toEqual(['run_command'])
+    expect(JSON.parse(mem.get('ourcode-tool-allowlist:C:/proj') || '[]')).toEqual(['run_command'])
+    useChatStore.getState().clearToolAllowlist('C:/proj')
+    expect(useChatStore.getState().toolAllowlist['C:/proj']).toBeUndefined()
+    expect(mem.get('ourcode-tool-allowlist:C:/proj')).toBeUndefined()
+  })
+
+  it('deleteAgentRun removes the record and clears activeRun when active', () => {
+    makeSession()
+    useChatStore.getState().startAgentRun('s1', '任务')
+    const runId = useChatStore.getState().activeRun!.runId
+    useChatStore.getState().deleteAgentRun('s1', runId)
+    const st = useChatStore.getState()
+    expect(st.sessions.find((s) => s.id === 's1')!.agentRuns).toHaveLength(0)
+    expect(st.activeRun).toBeNull()
+  })
+})
