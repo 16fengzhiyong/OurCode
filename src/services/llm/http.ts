@@ -53,7 +53,7 @@ export function friendlyNetworkError(message: string): string {
   return message
 }
 
-const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_TIMEOUT_MS = 120_000
 
 let idCounter = 0
 function nextRequestId(): string {

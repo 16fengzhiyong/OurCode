@@ -8,7 +8,7 @@ import { OllamaAdapter } from './adapters/OllamaAdapter'
 import { DeepSeekAdapter } from './adapters/DeepSeekAdapter'
 import { GroqAdapter } from './adapters/GroqAdapter'
 
-const REQUEST_TIMEOUT_MS = 30_000
+const REQUEST_TIMEOUT_MS = 120_000
 
 const openaiAdapter = new OpenAIAdapter()
 
