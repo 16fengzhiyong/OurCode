@@ -83,7 +83,13 @@ jobs:
         run: npx electron-builder install-app-deps
       - name: Build (electron-vite)
         run: npm run build
-      - name: Package Windows installer
+      - name: Package Windows installer (unsigned)
+        if: ${{ secrets.WIN_CSC_LINK == '' }}
+        run: npm run dist:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Package Windows installer (signed)
+        if: ${{ secrets.WIN_CSC_LINK != '' }}
         run: npm run dist:win
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -114,7 +120,13 @@ jobs:
         run: npx electron-builder install-app-deps
       - name: Build (electron-vite)
         run: npm run build
-      - name: Package macOS app (arm64)
+      - name: Package macOS app (arm64, unsigned)
+        if: ${{ secrets.MAC_CSC_LINK == '' }}
+        run: npm run dist:mac -- --arm64
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Package macOS app (arm64, signed)
+        if: ${{ secrets.MAC_CSC_LINK != '' }}
         run: npm run dist:mac -- --arm64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -151,7 +163,13 @@ jobs:
         run: npx electron-builder install-app-deps
       - name: Build (electron-vite)
         run: npm run build
-      - name: Package macOS app (x64)
+      - name: Package macOS app (x64, unsigned)
+        if: ${{ secrets.MAC_CSC_LINK == '' }}
+        run: npm run dist:mac -- --x64
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Package macOS app (x64, signed)
+        if: ${{ secrets.MAC_CSC_LINK != '' }}
         run: npm run dist:mac -- --x64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
