@@ -18,27 +18,6 @@ interface ChatMessageProps {
   onToggleSelect?: (id: string) => void
 }
 
-/** Extract the last fenced code block from a message (for "应用到编辑器") */
-function extractLastCodeBlock(content: string): string | null {
-  const matches = [...content.matchAll(/```[\w-]*\n?([\s\S]*?)```/g)]
-  if (matches.length === 0) return null
-  return matches[matches.length - 1][1]
-}
-
-/** Apply the last code block to the current editor selection */
-function applyToEditor(code: string): boolean {
-  try {
-    const editor = (window as any).__monacoEditor
-    if (!editor?.getSelection || !editor?.getModel) return false
-    const selection = editor.getSelection()
-    if (!selection) return false
-    editor.executeEdits('ai-apply', [{ range: selection, text: code }])
-    return true
-  } catch {
-    return false
-  }
-}
-
 /** Ghost icon/label button (hover action toolbar) */
 function GhostButton({
   onClick,
@@ -69,7 +48,6 @@ function GhostButton({
 export default function ChatMessage({ message, sessionId, isSelectMode, isSelected, onToggleSelect }: ChatMessageProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
-  const [applied, setApplied] = useState(false)
   const [remembered, setRemembered] = useState(false)
   const t = useI18n()
 
@@ -121,11 +99,6 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
     navigator.clipboard.writeText(message.content)
   }
 
-  const handleApplyToEditor = () => {
-    const code = extractLastCodeBlock(message.content)
-    if (code && applyToEditor(code)) setApplied(true)
-  }
-
   const handleRemember = () => {
     const snippet = message.content.trim().slice(0, 500)
     if (snippet) {
@@ -139,7 +112,6 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   const isAssistant = message.role === 'assistant'
   const isTool = message.role === 'tool'
   const isExhausted = isAssistant && message.content.startsWith(EXHAUSTED_MARKER)
-  const codeBlock = isAssistant ? extractLastCodeBlock(message.content) : null
 
   // Process summary (thinking + tool calls) → rendered via AgentTimeline
   const hasProcess = (isAssistant && !!message.thinking) || (isAssistant && !!message.toolCalls?.length)
@@ -282,11 +254,6 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
                 {isExhausted && (
                   <GhostButton onClick={() => continueGeneration()} title={t('chat.continueRun')} accent>
                     ▶ {t('chat.continueRun')}
-                  </GhostButton>
-                )}
-                {isAssistant && codeBlock && (
-                  <GhostButton onClick={handleApplyToEditor} title={t('chat.applyToEditorHint')} accent>
-                    {applied ? t('chat.applied') : t('chat.applyToEditor')}
                   </GhostButton>
                 )}
                 {isAssistant && msgCheckpoints.length > 0 && (
