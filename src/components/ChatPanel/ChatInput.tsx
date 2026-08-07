@@ -360,7 +360,7 @@ export default function ChatInput() {
                 key={cmd.id}
                 className={`px-3 py-2 cursor-pointer text-sm flex items-center gap-2 ${
                   index === selectedSlashIndex
-                    ? 'bg-nova-accent/15 text-white'
+                    ? 'bg-nova-accent/15 text-nova-text-primary'
                     : 'text-nova-text-secondary hover:bg-nova-hover'
                 }`}
                 onClick={() => insertSlashCommand(cmd)}
@@ -384,7 +384,7 @@ export default function ChatInput() {
                 key={file.path}
                 className={`px-3 py-2 cursor-pointer text-sm flex items-center gap-2 ${
                   index === selectedFileIndex
-                    ? 'bg-nova-accent/15 text-white'
+                    ? 'bg-nova-accent/15 text-nova-text-primary'
                     : 'text-nova-text-secondary hover:bg-nova-hover'
                 }`}
                 onClick={() => insertFileReference(file.path)}

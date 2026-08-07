@@ -225,7 +225,7 @@ export default function FileTreeNode({
       >
         {/* Expand/Collapse icon */}
         {entry.isDirectory ? (
-          <span className="w-4 mr-1 text-text-dim text-xs">
+          <span className="w-4 mr-1 text-text-muted text-xs">
             {isExpanded ? '▼' : '▶'}
           </span>
         ) : (

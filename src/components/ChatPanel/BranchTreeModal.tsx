@@ -91,7 +91,7 @@ export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalP
                       onClick={() => { switchBranch(sessionId, b.id); onClose() }}
                       className={`w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs transition-colors ${
                         activeId === b.id
-                          ? 'bg-nova-accent/20 border-nova-accent/50 text-white'
+                          ? 'bg-nova-accent/20 border-nova-accent/50 text-nova-text-primary'
                           : 'bg-nova-bg border-nova-border text-nova-text-secondary hover:bg-nova-hover hover:text-white'
                       }`}
                     >

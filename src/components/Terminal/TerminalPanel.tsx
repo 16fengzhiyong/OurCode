@@ -17,6 +17,54 @@ interface TerminalTab {
   splitRatio: number
 }
 
+/** xterm.js ANSI palettes — follow the app's light/dark theme instead of a
+ *  hardcoded dark block (which glared against the light editor surface). */
+const TERM_THEME_DARK = {
+  background: '#18181b',
+  foreground: '#D4D4D8',
+  cursor: '#D4D4D8',
+  selectionBackground: '#3B82F680',
+  black: '#18181b',
+  red: '#F48771',
+  green: '#73C991',
+  yellow: '#E5BA7D',
+  blue: '#4F8FDD',
+  magenta: '#C184C6',
+  cyan: '#48C9C4',
+  white: '#BBBEBF',
+  brightBlack: '#838485',
+  brightRed: '#F48771',
+  brightGreen: '#73C991',
+  brightYellow: '#E5BA7D',
+  brightBlue: '#3B82F6',
+  brightMagenta: '#C184C6',
+  brightCyan: '#48C9C4',
+  brightWhite: '#EDEDED',
+}
+
+const TERM_THEME_LIGHT = {
+  background: '#ffffff',
+  foreground: '#24292f',
+  cursor: '#24292f',
+  selectionBackground: '#2563eb40',
+  black: '#24292f',
+  red: '#c42b1c',
+  green: '#1a7f37',
+  yellow: '#9a6700',
+  blue: '#005cc5',
+  magenta: '#8250df',
+  cyan: '#1b7c83',
+  white: '#6e7781',
+  brightBlack: '#57606a',
+  brightRed: '#cf222e',
+  brightGreen: '#1a7f37',
+  brightYellow: '#9a6700',
+  brightBlue: '#0969da',
+  brightMagenta: '#8250df',
+  brightCyan: '#1b7c83',
+  brightWhite: '#24292f',
+}
+
 interface TerminalPanelProps {
   rootPath?: string | null
 }
@@ -222,6 +270,24 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     }
   }, [isTerminalVisible, tabs.length, createTab])
 
+  // Re-theme live terminals when the app switches light/dark (the theme is
+  // applied as a .dark class on <html>, so watch the class attribute).
+  useEffect(() => {
+    const applyTheme = () => {
+      const isDark = document.documentElement.classList.contains('dark')
+      const palette = isDark ? TERM_THEME_DARK : TERM_THEME_LIGHT
+      terminalsRef.current.forEach(({ term }) => {
+        try { term.options.theme = palette } catch { /* terminal disposed */ }
+      })
+    }
+    applyTheme()
+    const observer = new MutationObserver((mutations) => {
+      if (mutations.some((m) => m.attributeName === 'class')) applyTheme()
+    })
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
+
   // Initialize terminal for a tab
   const initTerminal = useCallback((tabId: string, container: HTMLDivElement) => {
     if (terminalsRef.current.has(tabId)) return
@@ -229,28 +295,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     const term = new Terminal({
       fontSize: 13,
       fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
-      theme: {
-        background: '#18181b',
-        foreground: '#D4D4D8',
-        cursor: '#D4D4D8',
-        selectionBackground: '#3B82F680',
-        black: '#18181b',
-        red: '#F48771',
-        green: '#73C991',
-        yellow: '#E5BA7D',
-        blue: '#4F8FDD',
-        magenta: '#C184C6',
-        cyan: '#48C9C4',
-        white: '#BBBEBF',
-        brightBlack: '#838485',
-        brightRed: '#F48771',
-        brightGreen: '#73C991',
-        brightYellow: '#E5BA7D',
-        brightBlue: '#3B82F6',
-        brightMagenta: '#C184C6',
-        brightCyan: '#48C9C4',
-        brightWhite: '#EDEDED',
-      },
+      theme: document.documentElement.classList.contains('dark') ? TERM_THEME_DARK : TERM_THEME_LIGHT,
       cursorBlink: true,
       scrollback: 5000,
     })

@@ -145,19 +145,19 @@ export default function ActivityBar() {
               style={{
                 width: 38,
                 height: 38,
-                color: isActive ? '#EDEDED' : '#71717A',
-                background: isActive ? 'rgba(37, 99, 235, 0.12)' : 'transparent',
+                color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                background: isActive ? 'var(--bg-selected)' : 'transparent',
                 margin: '1px 0',
               }}
               onMouseEnter={(e) => {
                 if (!isActive) {
-                  e.currentTarget.style.color = '#E4E4E7'
-                  e.currentTarget.style.background = '#2E2E33'
+                  e.currentTarget.style.color = 'var(--text-secondary)'
+                  e.currentTarget.style.background = 'var(--hover)'
                 }
               }}
               onMouseLeave={(e) => {
                 if (!isActive) {
-                  e.currentTarget.style.color = '#71717A'
+                  e.currentTarget.style.color = 'var(--text-muted)'
                   e.currentTarget.style.background = 'transparent'
                 }
               }}
@@ -192,7 +192,7 @@ export default function ActivityBar() {
             style={{
               width: 38,
               height: 38,
-              color: '#71717A',
+              color: 'var(--text-muted)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -204,11 +204,11 @@ export default function ActivityBar() {
               cursor: 'pointer',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.color = '#E4E4E7'
-              e.currentTarget.style.background = '#2E2E33'
+              e.currentTarget.style.color = 'var(--text-secondary)'
+              e.currentTarget.style.background = 'var(--hover)'
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.color = '#71717A'
+              e.currentTarget.style.color = 'var(--text-muted)'
               e.currentTarget.style.background = 'transparent'
             }}
           >

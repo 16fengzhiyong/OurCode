@@ -198,7 +198,7 @@ export default function ProjectListPanel() {
                 className={`flex items-center gap-2.5 px-3 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-all border ${
                   isCurrent
                     ? 'bg-nova-accent/10 border-nova-accent/40'
-                    : 'border-transparent hover:bg-white/[0.03] hover:border-nova-border'
+                    : 'border-transparent hover:bg-nova-hover hover:border-nova-border'
                 }`}
                 onClick={() => handleEnterProject(project.path)}
               >
@@ -233,7 +233,7 @@ export default function ProjectListPanel() {
                   {visibleSessions.map((session) => (
                     <div
                       key={session.id}
-                      className="flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded cursor-pointer hover:bg-white/[0.03] transition-colors text-[11px]"
+                      className="flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded cursor-pointer hover:bg-nova-hover transition-colors text-[11px]"
                       onClick={(e) => {
                         e.stopPropagation()
                         handleSessionClick(session.id)

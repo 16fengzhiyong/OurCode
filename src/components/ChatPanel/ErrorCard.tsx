@@ -38,7 +38,7 @@ export default function ErrorCard({ error, onRetry }: ErrorCardProps) {
       </div>
 
       {/* Friendly explanation */}
-      <p className="text-[#a1a1aa] leading-relaxed text-xs">{error.message}</p>
+      <p className="text-nova-text-muted leading-relaxed text-xs">{error.message}</p>
 
       {/* Action button: fix the key config / retry (blue primary, per design) */}
       {(isAuth || onRetry) && (

@@ -106,7 +106,7 @@ export default function AgentTimeline({ toolCalls, toolResults, thinking }: Agen
           <span>🤖 {t('chat.agentExecutionFlow')}</span>
           <span
             className="text-[11px] px-1.5 py-px rounded-full"
-            style={{ background: '#333', color: '#999' }}
+            style={{ background: 'var(--hl-bg)', color: 'var(--hl-text)' }}
           >
             {t('chat.totalSteps', { count: stepCount })}
           </span>
@@ -123,7 +123,7 @@ export default function AgentTimeline({ toolCalls, toolResults, thinking }: Agen
             <span>🤖 {t('chat.agentExecutionFlow')}</span>
             <span
               className="text-[11px] px-1.5 py-px rounded-full"
-              style={{ background: '#333', color: '#999' }}
+              style={{ background: 'var(--hl-bg)', color: 'var(--hl-text)' }}
             >
               {t('chat.totalSteps', { count: stepCount })}
             </span>
@@ -150,7 +150,7 @@ export default function AgentTimeline({ toolCalls, toolResults, thinking }: Agen
                 <div key={tc.id}>
                   {/* Step row */}
                   <div
-                    className={`timeline-row ${idx < calls.length - 1 ? 'border-l-2 border-[#333] ml-[10px] pl-2.5 mb-0.5' : 'border-l-2 border-transparent ml-[10px] pl-2.5'}`}
+                    className={`timeline-row ${idx < calls.length - 1 ? 'border-l-2 border-[var(--border-strong)] ml-[10px] pl-2.5 mb-0.5' : 'border-l-2 border-transparent ml-[10px] pl-2.5'}`}
                   >
                     <span className="step-icon">{icon}</span>
                     <div className="flex items-center gap-1.5 flex-wrap min-w-0">
@@ -186,7 +186,7 @@ export default function AgentTimeline({ toolCalls, toolResults, thinking }: Agen
                   {/* ── Sub-agent nested block ── */}
                   {isSubAgent && (
                     <div className="sub-agent-block">
-                      <div className="text-[12px] text-nova-text-muted bg-[#2b2b2b] inline-block px-2 py-0.5 rounded mb-1">
+                      <div className="text-[12px] text-[var(--hl-text)] bg-[var(--hl-bg)] inline-block px-2 py-0.5 rounded mb-1">
                         🔄 {t('chat.subAgentRunning')}
                       </div>
                       {result && (

@@ -68,16 +68,16 @@
   --hl-text: #e0e0e0;
 }
 
-/* Light theme — zinc-100 palette + blue accent */
+/* Light theme — softened zinc palette (less glare than pure white) + blue accent */
 :root:not(.dark) {
-  --bg: #fafafa;
-  --surface: #ffffff;
-  --sidebar: #ffffff;
+  --bg: #f4f4f5;
+  --surface: #fafafa;
+  --sidebar: #fafafa;
   --card: #ffffff;
-  --editor-bg: #ffffff;
+  --editor-bg: #fafafa;
   --border: #e4e4e7;
   --border-strong: #d4d4d8;
-  --hover: #f4f4f5;
+  --hover: #ececef;
   --input-bg: #ffffff;
   --text-primary: #18181b;
   --text-secondary: #27272a;
@@ -87,17 +87,17 @@
   --accent: var(--primary-color, #2563eb);
   --accent-purple: var(--primary-color, #2563eb);
   --primary-color: #2563eb;
-  --ai-bg: #ffffff;
-  --ai-surface: #fafafa;
+  --ai-bg: #fafafa;
+  --ai-surface: #f4f4f5;
   --ai-border: #e4e4e7;
   --ai-accent: #2563eb;
   --ai-glow: #2563eb;
-  --bg-activity: #ffffff;
-  --bg-tabs: #ffffff;
-  --bg-tab-active: #fafafa;
-  --bg-statusbar: #ffffff;
+  --bg-activity: #fafafa;
+  --bg-tabs: #fafafa;
+  --bg-tab-active: #f4f4f5;
+  --bg-statusbar: #fafafa;
   --bg-selected: rgba(37, 99, 235, 0.12);
-  --text-active: #ffffff;
+  --text-active: #18181b;
   --selection: #2563eb;
   --link: #2563eb;
   --green: #16a34a;
@@ -453,6 +453,95 @@ body.app-dragging .drag-region * {
   background: var(--surface);
 }
 
+/* Light theme — GitHub "github" (light) syntax colors for highlight.js.
+   MarkdownRenderer imports the dark theme globally, so in light mode the
+   pale syntax colors vanish on the white code-block surface. Scoped overrides
+   restore readable (GitHub light) colors without touching dark mode. */
+:root:not(.dark) .hljs {
+  color: #24292e;
+}
+:root:not(.dark) .hljs-doctag,
+:root:not(.dark) .hljs-keyword,
+:root:not(.dark) .hljs-meta .hljs-keyword,
+:root:not(.dark) .hljs-template-tag,
+:root:not(.dark) .hljs-template-variable,
+:root:not(.dark) .hljs-type,
+:root:not(.dark) .hljs-variable.language_ {
+  color: #d73a49;
+}
+:root:not(.dark) .hljs-title,
+:root:not(.dark) .hljs-title.class_,
+:root:not(.dark) .hljs-title.class_.inherited__,
+:root:not(.dark) .hljs-title.function_ {
+  color: #6f42c1;
+}
+:root:not(.dark) .hljs-attr,
+:root:not(.dark) .hljs-attribute,
+:root:not(.dark) .hljs-literal,
+:root:not(.dark) .hljs-meta,
+:root:not(.dark) .hljs-number,
+:root:not(.dark) .hljs-operator,
+:root:not(.dark) .hljs-selector-attr,
+:root:not(.dark) .hljs-selector-class,
+:root:not(.dark) .hljs-selector-id,
+:root:not(.dark) .hljs-variable {
+  color: #005cc5;
+}
+:root:not(.dark) .hljs-meta .hljs-string,
+:root:not(.dark) .hljs-regexp,
+:root:not(.dark) .hljs-string {
+  color: #032f62;
+}
+:root:not(.dark) .hljs-built_in,
+:root:not(.dark) .hljs-symbol {
+  color: #e36209;
+}
+:root:not(.dark) .hljs-code,
+:root:not(.dark) .hljs-comment,
+:root:not(.dark) .hljs-formula {
+  color: #6a737d;
+}
+:root:not(.dark) .hljs-name,
+:root:not(.dark) .hljs-quote,
+:root:not(.dark) .hljs-selector-tag,
+:root:not(.dark) .hljs-selector-pseudo {
+  color: #22863a;
+}
+:root:not(.dark) .hljs-subst {
+  color: #24292e;
+}
+:root:not(.dark) .hljs-section {
+  color: #005cc5;
+  font-weight: 700;
+}
+:root:not(.dark) .hljs-bullet {
+  color: #735c0f;
+}
+:root:not(.dark) .hljs-emphasis {
+  color: #24292e;
+  font-style: italic;
+}
+:root:not(.dark) .hljs-strong {
+  color: #24292e;
+  font-weight: 700;
+}
+:root:not(.dark) .hljs-addition {
+  color: #22863a;
+  background-color: #f0fff4;
+}
+:root:not(.dark) .hljs-deletion {
+  color: #b31d28;
+  background-color: #ffeef0;
+}
+
+/* Light theme — hover whitening (a dark-theme hover emphasis: file-tree rows,
+   menus, close buttons, dropdown selections) turns the text white, which is
+   invisible on the light hover surface. Flip it to the strongest text token. */
+:root:not(.dark) .hover\:text-white:hover,
+:root:not(.dark) .group:hover .group-hover\:text-white {
+  color: var(--text-primary) !important;
+}
+
 /* Search result highlight (find-match blue) */
 .searchHighlight {
   background-color: rgba(59, 130, 246, 0.35);
@@ -601,15 +690,15 @@ body.app-dragging .drag-region * {
 
 /* ── Agent Timeline ─────────────────────────────────────────────────────── */
 
-/* Tool call chip — dark monospace badge */
+/* Tool call chip — monospace badge (theme-aware via --hl-* tokens) */
 .tool-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: #2a2a2a;
+  background: var(--hl-bg);
   padding: 1px 6px;
   border-radius: 3px;
-  color: #d4d4d4;
+  color: var(--hl-text);
   font-size: 12px;
   font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
   cursor: pointer;
@@ -617,33 +706,36 @@ body.app-dragging .drag-region * {
   line-height: 1.5;
 }
 .tool-chip:hover {
-  background: #3a3a3a;
+  background: var(--hl-bg-hover);
 }
 .tool-chip .param {
   color: #ce9178;
 }
+:root:not(.dark) .tool-chip .param {
+  color: #b25e2a;
+}
 .tool-chip.active {
-  background: rgba(59, 130, 246, 0.2);
-  color: #60a5fa;
+  background: var(--bg-selected);
+  color: var(--ai-accent);
 }
 
-/* Thinking / text output block — blue left border */
+/* Thinking / text output block — accent left border */
 .step-text-output {
-  color: #c8c8c8;
+  color: var(--text-secondary);
   padding: 5px 10px 5px 28px;
   margin: 2px 0 6px 0;
-  background: #232323;
+  background: var(--hl-bg);
   border-radius: 4px;
   font-size: 13px;
   line-height: 1.5;
-  border-left: 2px solid #0078d4;
+  border-left: 2px solid var(--ai-accent);
 }
 
 /* Sub-agent indented block */
 .sub-agent-block {
   margin-left: 28px;
   padding-left: 14px;
-  border-left: 2px solid #444;
+  border-left: 2px solid var(--border-strong);
   margin-top: 2px;
   margin-bottom: 4px;
 }

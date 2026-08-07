@@ -326,7 +326,7 @@ export default function TitleBar() {
               aria-expanded={activeMenu === menu.label}
               className={`h-12 px-2.5 text-xs transition-colors ${
                 activeMenu === menu.label
-                  ? 'bg-nova-hover text-white'
+                  ? 'bg-nova-hover text-[var(--text-primary)]'
                   : 'text-nova-text-secondary hover:text-nova-text-primary hover:bg-nova-hover/50'
               }`}
               onClick={() => handleMenuClick(menu.label)}
@@ -348,7 +348,7 @@ export default function TitleBar() {
                         item.disabled
                           ? 'text-nova-text-muted cursor-default'
                           : index === menuItemIndex
-                            ? 'bg-nova-accent/15 text-white'
+                            ? 'bg-nova-accent/15 text-nova-text-primary'
                             : 'text-nova-text-secondary hover:bg-nova-accent/15 hover:text-white'
                       }`}
                       onClick={() => handleItemClick(item)}
