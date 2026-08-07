@@ -306,6 +306,7 @@ interface ChatState {
 
   // Message operations
   addMessage: (sessionId: string, msg: Partial<ChatMessage>) => void
+  appendToolResult: (sessionId: string, assistantMsgId: string, result: ToolResult) => void
   editMessage: (sessionId: string, msgId: string, content: string) => void
   deleteMessage: (sessionId: string, msgId: string) => void
   deleteMessages: (sessionId: string, msgIds: string[]) => void
@@ -815,6 +816,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
       sessions: s.sessions.map((sess) =>
         sess.id === sessionId
           ? { ...sess, messages: [...sess.messages, newMessage], updatedAt: Date.now() }
+          : sess
+      ),
+    }))
+  },
+
+  /** Append a tool result to the preceding assistant message (inline display). */
+  appendToolResult: (sessionId, assistantMsgId, result) => {
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === sessionId
+          ? {
+              ...sess,
+              messages: sess.messages.map((msg) =>
+                msg.id === assistantMsgId
+                  ? {
+                      ...msg,
+                      toolResults: [...(msg.toolResults || []), result],
+                    }
+                  : msg
+              ),
+              updatedAt: Date.now(),
+            }
           : sess
       ),
     }))
@@ -1594,12 +1617,8 @@ async function runAgentLoop(
 
       const finalizeToolResult = (tc: ToolCall, result: ToolResult): void => {
         useChatStore.getState().setTraceStatus(tc.id, result.isError ? 'error' : 'success')
-        chatStore.addMessage(sessionId, {
-          role: 'tool',
-          content: result.result,
-          toolResults: [result],
-          toolCallId: tc.id,
-        })
+        // Append result inline to the assistant message (no separate tool message)
+        chatStore.appendToolResult(sessionId, assistantMsgId, result)
         messages.push({
           role: 'tool',
           content: result.result,
@@ -1636,7 +1655,7 @@ async function runAgentLoop(
             }))
           chatStore.setTodos(sessionId, todos)
           const result = `任务列表已更新 (${todos.length} 项)`
-          chatStore.addMessage(sessionId, { role: 'tool', content: result, toolResults: [{ toolCallId: tc.id, name: tc.name, result }], toolCallId: tc.id })
+          chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
           messages.push({ role: 'tool', content: result, toolCallId: tc.id })
           useChatStore.getState().setTraceStatus(tc.id, 'success')
           continue
@@ -1660,7 +1679,7 @@ async function runAgentLoop(
             useChatStore.getState().setTraceStatus(tc.id, 'success')
           }
           const result = '计划已提交，等待用户批准。'
-          chatStore.addMessage(sessionId, { role: 'tool', content: result, toolResults: [{ toolCallId: tc.id, name: tc.name, result }], toolCallId: tc.id })
+          chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
           messages.push({ role: 'tool', content: result, toolCallId: tc.id })
           planSubmitted = true
           break
@@ -1680,7 +1699,7 @@ async function runAgentLoop(
             })
           })
           const result = `用户回答: ${answer}`
-          chatStore.addMessage(sessionId, { role: 'tool', content: result, toolResults: [{ toolCallId: tc.id, name: tc.name, result }], toolCallId: tc.id })
+          chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
           messages.push({ role: 'tool', content: result, toolCallId: tc.id })
           useChatStore.getState().setTraceStatus(tc.id, 'success')
           continue
@@ -1694,7 +1713,7 @@ async function runAgentLoop(
             result: '用户拒绝了此操作',
             isError: true,
           }
-          chatStore.addMessage(sessionId, { role: 'tool', content: result.result, toolResults: [result], toolCallId: tc.id })
+          chatStore.appendToolResult(sessionId, assistantMsgId, result)
           messages.push({ role: 'tool', content: result.result, toolCallId: tc.id })
           useChatStore.getState().setTraceStatus(tc.id, 'rejected')
           continue
@@ -1737,12 +1756,7 @@ async function runAgentLoop(
               result: '用户拒绝了此操作',
               isError: true,
             }
-            chatStore.addMessage(sessionId, {
-              role: 'tool',
-              content: result.result,
-              toolResults: [result],
-              toolCallId: tc.id,
-            })
+            chatStore.appendToolResult(sessionId, assistantMsgId, result)
             messages.push({
               role: 'tool',
               content: result.result,
