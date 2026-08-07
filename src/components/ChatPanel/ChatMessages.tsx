@@ -125,7 +125,10 @@ export default function ChatMessages() {
     }
   }, [undoStack.length])
 
-  // ── Message merging (must be before early return — hook ordering rule) ──
+  // ── Message merging ──
+  // Merge all consecutive assistant messages between user messages into
+  // a single display entry. Combines tool calls, results, and thinking from
+  // intermediate messages; uses the last message's content as the final answer.
   const messages = useMemo(() => activeSession?.messages || [], [activeSession?.messages])
   const displayMessages = useMemo(() => {
     const result: typeof messages = []
@@ -134,32 +137,36 @@ export default function ChatMessages() {
       const msg = messages[i]
       if (msg.role === 'tool') { i++; continue }
 
-      if (msg.role === 'assistant' && msg.toolCalls?.length && !msg.content.trim()) {
-        const mergedToolCalls = [...msg.toolCalls]
+      if (msg.role === 'assistant') {
+        const mergedToolCalls = [...(msg.toolCalls || [])]
         const mergedToolResults = [...(msg.toolResults || [])]
         let mergedThinking = msg.thinking || ''
+        let lastContent = msg.content
+        let last = msg
         let j = i + 1
-        let found = false
         while (j < messages.length) {
           const next = messages[j]
           if (next.role === 'tool') { j++; continue }
-          if (next.role === 'assistant' && next.toolCalls?.length && !next.content.trim()) {
-            mergedToolCalls.push(...next.toolCalls)
-            mergedToolResults.push(...(next.toolResults || []))
+          if (next.role === 'assistant') {
+            // Merge this assistant into the group
+            if (next.toolCalls) mergedToolCalls.push(...next.toolCalls)
+            if (next.toolResults) mergedToolResults.push(...next.toolResults)
             if (next.thinking) mergedThinking += (mergedThinking ? '\n\n' : '') + next.thinking
+            lastContent = next.content
+            last = next
             j++
-          } else if (next.role === 'assistant') {
-            result.push({ ...next, toolCalls: mergedToolCalls, toolResults: mergedToolResults, thinking: mergedThinking || next.thinking || undefined })
-            i = j + 1; found = true; break
           } else {
-            result.push({ ...msg, toolCalls: mergedToolCalls, toolResults: mergedToolResults, thinking: mergedThinking || undefined })
-            i = j; found = true; break
+            break // next user message — stop merging
           }
         }
-        if (!found) {
-          result.push({ ...msg, toolCalls: mergedToolCalls, toolResults: mergedToolResults, thinking: mergedThinking || undefined })
-          i = j
-        }
+        result.push({
+          ...last,
+          content: lastContent,
+          toolCalls: mergedToolCalls.length > 0 ? mergedToolCalls : undefined,
+          toolResults: mergedToolResults.length > 0 ? mergedToolResults : undefined,
+          thinking: mergedThinking || undefined,
+        })
+        i = j
       } else {
         result.push(msg); i++
       }
