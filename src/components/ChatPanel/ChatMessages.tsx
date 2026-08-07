@@ -28,7 +28,7 @@ const SUGGESTED_PROMPTS: Array<{ icon: string; key: 'chat.suggestExplain' | 'cha
 export default function ChatMessages() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const activeSession = useChatStore((s) => s.getActiveSession())
-  const { isLoading, streamingContent, streamingThinking, reorderMessages, undoStack, undoDelete, switchBranch, queuedMessages, clearQueue } = useChatStore()
+  const { isLoading, streamingContent, streamingThinking, runningSessionId, reorderMessages, undoStack, undoDelete, switchBranch, queuedMessages, clearQueue } = useChatStore()
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [showUndoToast, setShowUndoToast] = useState(false)
@@ -361,7 +361,7 @@ export default function ChatMessages() {
           })}
 
 
-      {isLoading && (
+      {isLoading && activeSession?.id === runningSessionId && (
         <div className="flex gap-2.5 animate-fade-in">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ background: 'var(--grad-brand)' }}>
             <WaveLogo size={14} />

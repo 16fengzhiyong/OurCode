@@ -13,6 +13,7 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
   const {
     sessions,
     activeSessionId,
+    runningSessionId,
     setActiveSession,
     createSession,
     deleteSession,
@@ -270,6 +271,12 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className={`text-xs truncate flex items-center gap-1 ${isActive ? 'text-nova-accent font-medium' : 'text-nova-text-primary'}`}>
+                      {/* Status indicator: spinning for running, red dot for error */}
+                      {runningSessionId === session.id ? (
+                        <span className="w-2.5 h-2.5 border-2 border-nova-accent/40 border-t-nova-accent rounded-full animate-spin shrink-0" />
+                      ) : session.agentRuns?.some((r) => r.status === 'error') ? (
+                        <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+                      ) : null}
                       {session.pinnedAt && (
                         <svg className="w-3 h-3 shrink-0 text-nova-accent" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />

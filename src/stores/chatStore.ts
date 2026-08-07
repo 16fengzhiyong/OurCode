@@ -242,6 +242,10 @@ function reindexMessages(messages: ChatMessage[]): ChatMessage[] {
 interface ChatState {
   sessions: ChatSession[]
   activeSessionId: string | null
+  /** Which session is currently generating (agent loop active). Used by the
+   *  sidebar for status icons and by ChatMessages to prevent cross-session
+   *  streaming when the user switches sessions mid-generation. */
+  runningSessionId: string | null
   isLoading: boolean
   streamingContent: string
   streamingThinking: string
@@ -433,6 +437,7 @@ let _questionResolve: ((answer: string) => void) | null = null
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
+  runningSessionId: null,
   isLoading: false,
   streamingContent: '',
   streamingThinking: '',
@@ -724,6 +729,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setActiveSession: (sessionId) => {
+    // Sync the provider group so the model selector reflects this session's
+    // actual provider (each session remembers its own configGroupId).
+    const session = get().sessions.find((s) => s.id === sessionId)
+    if (session?.configGroupId) {
+      useConfigStore.getState().setActiveConfigGroup(session.configGroupId)
+    }
     localStorage.setItem(LAST_SESSION_KEY, sessionId)
     set({ activeSessionId: sessionId })
     get().loadCheckpoints(sessionId)
@@ -1472,7 +1483,7 @@ async function runAgentLoop(
   }
 
   const set = useChatStore.setState.bind(useChatStore)
-  set({ isLoading: true, streamingContent: '', streamingThinking: '' })
+  set({ isLoading: true, streamingContent: '', streamingThinking: '', runningSessionId: sessionId })
 
   const abortController = new AbortController()
   set({ abortController })
@@ -1885,7 +1896,12 @@ async function runAgentLoop(
           : 'done'
       useChatStore.getState().finishAgentRun(sessionId, runId, finalStatus)
     }
-    set({ isLoading: false, streamingContent: '', streamingThinking: '', abortController: null, pendingApproval: null, batchApproved: false, batchApproval: null })
+	    set({ isLoading: false, streamingContent: '', streamingThinking: '', abortController: null, pendingApproval: null, batchApproved: false, batchApproval: null })
+	    // Only clear runningSessionId if we're still the active runner —
+	    // another session may have started generating before this finally ran.
+	    if (useChatStore.getState().runningSessionId === sessionId) {
+	      set({ runningSessionId: null })
+	    }
     _approvalResolve = null
     _batchResolve = null
     _questionResolve = null
