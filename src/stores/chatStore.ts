@@ -1392,13 +1392,13 @@ async function runAgentLoop(
 
   const agentMode = opts?.agentModeOverride || (session.agentMode === 'agent' ? 'agent' : 'chat')
 
-  // Agent mode operates on the workspace, so a project folder must be open.
-  // If a session was left in agent mode and the project got closed, fall back
-  // to plain chat instead of running tool calls against an empty workspace.
+  // Agent mode operates on the workspace, so a *currently selected* project
+  // must be open. A session's historical projectPath does NOT count — without a
+  // project selected the session must stay plain chat (never run tool calls
+  // against a stale workspace path).
   if (agentMode === 'agent') {
     const hasProject = Boolean(
-      session.projectPath
-      || document.getElementById('file-tree-root')?.getAttribute('data-root-path')
+      document.getElementById('file-tree-root')?.getAttribute('data-root-path')
       || useUIStore.getState().rootPath
     )
     if (!hasProject) {

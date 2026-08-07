@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, type WebContents, type IpcMainInvokeEvent } from 'electron'
-import { join, resolve, dirname, sep } from 'path'
+import { join, resolve, dirname, sep, relative, isAbsolute } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import { exec, execFile } from 'child_process'
@@ -1017,12 +1017,18 @@ function registerIpcHandlers(): void {
   ipcMain.handle('mcp:saveConfig', async (_event, rootPath: string, config: { mcpServers: Record<string, any> }, file?: string | null) => {
     try {
       if (!rootPath) throw new Error('未打开项目，无法保存 MCP 配置')
-      // Only write inside the workspace — never follow an arbitrary path.
-      const resolved = file && file.startsWith(rootPath) ? file : join(rootPath, 'mcp_config.json')
+      // Only write inside the workspace — resolve the target and verify it
+      // doesn't escape the project root (blocks ../ traversal and arbitrary paths).
+      const target = file ? resolve(rootPath, file) : join(rootPath, 'mcp_config.json')
+      const rootResolved = resolve(rootPath)
+      const rel = relative(rootResolved, target)
+      if (rel.startsWith('..') || isAbsolute(rel)) {
+        throw new Error('MCP 配置文件路径无效')
+      }
       mkdirSync(rootPath, { recursive: true })
-      writeFileSync(resolved, JSON.stringify({ mcpServers: config?.mcpServers || {} }, null, 2), 'utf-8')
+      writeFileSync(target, JSON.stringify({ mcpServers: config?.mcpServers || {} }, null, 2), 'utf-8')
       await mcp.loadConfig(rootPath)
-      return { ok: true, file: resolved }
+      return { ok: true, file: target }
     } catch (error: any) {
       return { ok: false, error: error.message }
     }

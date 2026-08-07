@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
+import { useUIStore } from '@/stores/uiStore'
 import { filterSlashCommands, buildSlashPrompt, getEditorSlashContext, getAllSlashCommands, SLASH_COMMANDS, SlashCommand } from '@/services/commands/slashCommands'
 import { takePendingVibeReplace } from '@/services/vibeReplace'
 import { AUTO_CONTINUE_KEY } from '@shared/constants'
@@ -77,9 +78,17 @@ export default function ChatInput() {
 
   const { sendMessage, isLoading, stopGeneration, queueMessage } = useChatStore()
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
+  const rootPath = useUIStore((s) => s.rootPath)
   const agentMode = useChatStore((s) => {
     const sess = s.sessions.find((x) => x.id === s.activeSessionId)
-    return sess?.agentMode || 'chat'
+    const mode = sess?.agentMode || 'chat'
+    // Without a selected project only chat is allowed — don't surface the
+    // agent-mode UI (autoRun toggle) for a stale agent session either.
+    if (mode !== 'agent') return mode
+    const hasProject = Boolean(
+      rootPath || document.getElementById('file-tree-root')?.getAttribute('data-root-path')
+    )
+    return hasProject ? 'agent' : 'chat'
   })
 
   // Auto-resize textarea

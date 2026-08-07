@@ -47,6 +47,9 @@ export default function ChatPanel() {
   const hasProject = Boolean(
     rootPath || document.getElementById('file-tree-root')?.getAttribute('data-root-path')
   )
+  // Without a selected project only chat is allowed — never display agent as
+  // active (or let the user switch to it) when there is no workspace open.
+  const effectiveAgentMode = agentMode === 'agent' && hasProject ? 'agent' : 'chat'
 
   const handleSwitchToAgent = () => {
     if (!hasProject) {
@@ -239,20 +242,21 @@ export default function ChatPanel() {
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => setAgentMode(activeSession.id, 'chat')}
-                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${agentMode === 'chat' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
+                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${effectiveAgentMode === 'chat' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
                     title={t('chat.chatModeHint')}
                   >
                     {t('chat.modeChat')}
                   </button>
                   <button
                     onClick={handleSwitchToAgent}
-                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${agentMode === 'agent' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
+                    disabled={!hasProject}
+                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${effectiveAgentMode === 'agent' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'} ${!hasProject ? 'opacity-50 cursor-not-allowed' : ''}`}
                     title={hasProject ? t('chat.modeAgentHint') : t('chat.agentNeedsProject')}
                   >
                     {t('chat.modeAgent')}
                   </button>
                 </div>
-                {agentMode === 'agent' && (
+                {effectiveAgentMode === 'agent' && (
                   <select
                     value={projectEditMode}
                     onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}
