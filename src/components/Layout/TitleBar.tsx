@@ -368,11 +368,12 @@ export default function TitleBar() {
         ))}
       </div>
 
-      {/* Command center (centered pill) */}
-      <div className="flex-1 flex justify-center min-w-0 px-4 no-drag">
+      {/* Command center (centered pill) — the surrounding title-bar area is a
+          window drag handle; only the pill itself stays clickable (no-drag). */}
+      <div className="flex-1 flex justify-center min-w-0 px-4">
         <button
           onClick={() => (rootPath ? useUIStore.getState().toggleSidebar() : openCommandPalette())}
-          className="hidden md:flex items-center gap-2 px-3 h-7 rounded-lg text-xs transition-colors min-w-0 max-w-[420px]"
+          className="hidden md:flex items-center gap-2 px-3 h-7 rounded-lg text-xs transition-colors min-w-0 max-w-[420px] no-drag"
           style={{
             background: 'color-mix(in srgb, var(--card, #27272a) 60%, transparent)',
             border: '1px solid var(--border)',
