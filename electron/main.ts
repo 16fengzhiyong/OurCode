@@ -1186,7 +1186,9 @@ if (!app.requestSingleInstanceLock()) {
 // App lifecycle
 app.whenReady().then(() => {
   // Initialize services
-  const userDataPath = app.getPath('userData')
+  // OURCODE_USER_DATA lets tests / multi-instance runs point the app at a
+  // throwaway data dir instead of the real userData.
+  const userDataPath = process.env.OURCODE_USER_DATA || app.getPath('userData')
   // The renderer's skill/agent scanners discover global dirs in userData via
   // fs:listDir / fs:stat, so register them alongside user-opened workspaces.
   // Create them so first-run (and the fs:listDir bridge) doesn't hit ENOENT.
