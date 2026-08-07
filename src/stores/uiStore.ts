@@ -95,6 +95,7 @@ interface UIState {
   setChatPosition: (position: 'right' | 'bottom') => void
   setChatSessionListOpen: (open: boolean) => void
   toggleEditorVisible: () => void
+  setEditorVisible: (visible: boolean) => void
 
   toggleTerminal: () => void
   setTerminalHeight: (height: number) => void
@@ -231,7 +232,12 @@ export const useUIStore = create<UIState>((set, get) => ({
     })
   },
 
-  toggleChat: () => set((s) => ({ isChatVisible: !s.isChatVisible })),
+  toggleChat: () => set((s) => {
+    // Don't allow hiding the last visible main-area panel — that would leave a
+    // blank middle area with no obvious way back (same guard as closePanel).
+    if (s.isChatVisible && !s.isEditorVisible) return s
+    return { isChatVisible: !s.isChatVisible }
+  }),
   setChatWidth: (width) => {
     localStorage.setItem('chatWidth', String(Math.round(width)))
     set({ chatWidth: width })
@@ -239,9 +245,16 @@ export const useUIStore = create<UIState>((set, get) => ({
   setChatPosition: (position) => set({ chatPosition: position }),
   setChatSessionListOpen: (open) => set({ isChatSessionListOpen: open }),
   toggleEditorVisible: () => set((s) => {
+    // Don't allow hiding the last visible main-area panel (blank screen)
+    if (s.isEditorVisible && !s.isChatVisible) return s
     const next = !s.isEditorVisible
     localStorage.setItem('isEditorVisible', String(next))
     return { isEditorVisible: next }
+  }),
+  setEditorVisible: (visible) => set((s) => {
+    if (s.isEditorVisible === visible) return s
+    localStorage.setItem('isEditorVisible', String(visible))
+    return { isEditorVisible: visible }
   }),
 
   toggleTerminal: () => set((s) => ({ isTerminalVisible: !s.isTerminalVisible })),

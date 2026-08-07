@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { monaco, ensureLanguageService } from '@/editor/monacoSetup'
 import { useRecentFilesStore } from '@/stores/recentFilesStore'
+import { useUIStore } from '@/stores/uiStore'
 import { OpenFile, UserPreferences, DEFAULT_PREFERENCES, LANGUAGE_MAP } from '@/types'
 import {
   getFileContent,
@@ -464,6 +465,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const state = get()
     const targetPanelId = panelId || state.activePanelId
 
+    // Opening a file implies the user wants to see the editor — bring it back
+    // if it was closed (the ✕ button hides it to focus on the chat panel).
+    if (!useUIStore.getState().isEditorVisible) {
+      useUIStore.getState().setEditorVisible(true)
+    }
+
     // Track the most recently opened file (Ctrl+R list)
     useRecentFilesStore.getState().addRecentFile(path)
 
@@ -573,6 +580,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   /** Create an untitled buffer in the active panel and return its pseudo path */
   newFile: () => {
     const path = `/untitled/untitled-${Date.now()}.txt`
+    // Creating a file also implies the user wants the editor visible
+    if (!useUIStore.getState().isEditorVisible) {
+      useUIStore.getState().setEditorVisible(true)
+    }
     const newFile: OpenFile = {
       path,
       content: '',

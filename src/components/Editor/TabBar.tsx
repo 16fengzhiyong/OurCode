@@ -156,7 +156,7 @@ export default function TabBar({ panelId }: TabBarProps) {
                 border-r border-nova-border-light
                 group relative select-none
                 ${isActive
-                  ? 'bg-nova-tab-active text-white border-b-2 border-b-accent-blue'
+                  ? 'bg-nova-tab-active text-[var(--text-primary)] border-b-2 border-b-accent-blue'
                   : 'bg-nova-sidebar text-nova-text-secondary hover:bg-nova-hover'
                 }
                 ${dropIndex === index ? 'border-l-2 border-l-accent-blue' : ''}
@@ -249,13 +249,12 @@ export default function TabBar({ panelId }: TabBarProps) {
           )}
           <button
             onClick={toggleEditorVisible}
-            className="p-1.5 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover rounded transition-colors"
+            className="p-1.5 text-nova-text-muted hover:text-red-400 hover:bg-nova-hover rounded transition-colors"
             title={t('editor.hideEditor')}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-              <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
-              <line x1="3" y1="3" x2="21" y2="21" />
+              <line x1="5" y1="5" x2="19" y2="19" />
+              <line x1="19" y1="5" x2="5" y2="19" />
             </svg>
           </button>
         </div>

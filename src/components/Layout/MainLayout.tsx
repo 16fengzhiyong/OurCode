@@ -24,7 +24,6 @@ import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useShortcutStore, matchesShortcut } from '@/stores/shortcutStore'
 import { executeCommand } from '@/services/commands/commandRegistry'
-import { useI18n } from '@/i18n/useI18n'
 
 const COMPACT_BREAKPOINT = 1024
 const NARROW_BREAKPOINT = 768
@@ -33,14 +32,13 @@ export default function MainLayout() {
   const {
     isSidebarVisible, sidebarWidth, chatWidth, isChatVisible, isTerminalVisible,
     terminalHeight, isCommandPaletteOpen, isQuickOpenOpen, contextMenu,
-    rootPath, isEditorVisible, toggleEditorVisible,
+    rootPath, isEditorVisible,
   } = useUIStore()
 
   const { panelOrder, splitDirection, splitRatios } = useEditorStore()
   const isProblemsOpen = useProblemsStore((s) => s.isOpen)
   const isRecentFilesOpen = useRecentFilesStore((s) => s.isOpen)
   const isDebugOpen = useDebugStore((s) => s.isOpen)
-  const t = useI18n()
 
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1400)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -223,7 +221,7 @@ export default function MainLayout() {
         )}
         <div className="flex-1 h-full min-h-0 flex flex-col overflow-hidden">
           <div className={`flex-1 h-full min-h-0 flex ${isNarrow ? 'flex-col' : ''} overflow-hidden`}>
-            {isEditorVisible ? (
+            {isEditorVisible && (
               <>
                 <div className={`flex-1 h-full min-w-0 min-h-0 overflow-hidden flex ${splitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}>
                   {panelOrder.map((pid, index) => (
@@ -272,25 +270,6 @@ export default function MainLayout() {
                   />
                 )}
               </>
-            ) : (
-              /* Editor hidden — slim strip to bring it back (horizontal in narrow mode) */
-              <div
-                className={`shrink-0 flex items-center justify-center gap-1 border-nova-border ${
-                  isNarrow ? 'w-full h-9 flex-row border-b' : 'w-9 h-full flex-col border-r'
-                }`}
-                style={{ background: 'var(--surface)' }}
-              >
-                <button
-                  onClick={toggleEditorVisible}
-                  title={t('editor.showEditor')}
-                  className="w-7 h-7 flex items-center justify-center rounded-md text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                </button>
-              </div>
             )}
             {isChatVisible && (
               <div
