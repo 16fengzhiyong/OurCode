@@ -117,6 +117,11 @@ export class SQLiteStore {
     if (!sessColumns.some((c: any) => c.name === 'project_path')) {
       this.db.exec("ALTER TABLE chat_sessions ADD COLUMN project_path TEXT DEFAULT ''")
     }
+    // Add project_path column to memories if missing (project-scoped memories)
+    const memColumns = this.db.prepare("PRAGMA table_info(memories)").all() as any[]
+    if (!memColumns.some((c: any) => c.name === 'project_path')) {
+      this.db.exec("ALTER TABLE memories ADD COLUMN project_path TEXT DEFAULT ''")
+    }
   }
 
   private initTables(): void {
@@ -531,17 +536,18 @@ export class SQLiteStore {
       id: row.id,
       content: this.maybeDecrypt(row.content),
       scope: (row.scope || 'global') as Memory['scope'],
+      projectPath: row.project_path || undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }))
   }
 
-  addMemory(content: string, scope: Memory['scope']): Memory {
+  addMemory(content: string, scope: Memory['scope'], projectPath?: string): Memory {
     const id = uuidv4()
     const now = Date.now()
-    this.db.prepare('INSERT INTO memories (id, content, scope, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-      .run(id, this.maybeEncrypt(content), scope || 'global', now, now)
-    return { id, content, scope: scope || 'global', createdAt: now, updatedAt: now }
+    this.db.prepare('INSERT INTO memories (id, content, scope, project_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, this.maybeEncrypt(content), scope || 'global', projectPath || '', now, now)
+    return { id, content, scope: scope || 'global', projectPath, createdAt: now, updatedAt: now }
   }
 
   deleteMemory(id: string): void {

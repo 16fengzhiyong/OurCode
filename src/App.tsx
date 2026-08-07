@@ -59,6 +59,8 @@ export default function App() {
       ))
       // Restore the persisted theme (initTheme used to hardcode 'dark' on startup)
       initTheme(useEditorStore.getState().preferences.theme)
+      // Re-select the last opened project (if it still exists on disk)
+      await useUIStore.getState().restoreLastProject()
       loadCommands()
       // Load persistent user memories (injected into the agent prompt)
       loadMemories()

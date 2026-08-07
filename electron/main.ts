@@ -893,10 +893,10 @@ function registerIpcHandlers(): void {
     return store.getMemories()
   })
 
-  ipcMain.handle('memory:add', async (_event, content: string, scope: string) => {
+  ipcMain.handle('memory:add', async (_event, content: string, scope: string, projectPath?: string) => {
     const trimmed = (content || '').trim()
     if (!trimmed) throw new Error('记忆内容不能为空')
-    return store.addMemory(trimmed, scope === 'project' ? 'project' : 'global')
+    return store.addMemory(trimmed, scope === 'project' ? 'project' : 'global', projectPath || undefined)
   })
 
   ipcMain.handle('memory:delete', async (_event, id: string) => {

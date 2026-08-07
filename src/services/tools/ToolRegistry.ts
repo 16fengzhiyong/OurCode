@@ -245,6 +245,37 @@ export function createToolRegistry(): Tool[] {
       execute: async () => 'Awaiting user answer',
     },
     {
+      name: 'remember',
+      description:
+        'Save an important piece of information to long-term memory. Use it when the user states a ' +
+        'preference, makes a decision, or shares something worth remembering for future conversations. ' +
+        'Content should be concise and self-contained. Enabled via Settings → 允许 AI 自动记忆.',
+      parameters: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: 'The concise information to remember (1-2 sentences)' },
+          scope: {
+            type: 'string',
+            enum: ['global', 'project'],
+            description: 'Memory scope: "project" (only this workspace) or "global" (all workspaces). Defaults to project when a workspace is open.',
+          },
+        },
+        required: ['content'],
+      },
+      execute: async (args, context) => {
+        const { useMemoryStore } = await import('@/stores/memoryStore')
+        const scope = args.scope === 'global' ? 'global' : 'project'
+        const projectPath = context?.projectPath || undefined
+        const content = String(args.content || '').trim()
+        if (!content) return 'Error: 记忆内容不能为空'
+        if (scope === 'project' && !projectPath) {
+          return '无法保存项目记忆：当前没有打开项目。请改用全局记忆（scope: "global"）。'
+        }
+        await useMemoryStore.getState().addMemory(content, scope, scope === 'project' ? projectPath : undefined)
+        return `已保存到${scope === 'global' ? '全局' : '项目'}长期记忆。`
+      },
+    },
+    {
       name: 'run_subagent',
       description:
         'Spawn a nested sub-agent to complete a bounded, self-contained sub-task (e.g. code review, ' +

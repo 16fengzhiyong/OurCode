@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useEditorStore } from '@/stores/editorStore'
+import { useUIStore } from '@/stores/uiStore'
 import { getFileIconHTML } from '@/utils/fileIcons'
 import ConfirmDialog from '@/components/Common/ConfirmDialog'
 import { useI18n } from '@/i18n/useI18n'
@@ -26,6 +27,7 @@ export default function TabBar({ panelId }: TabBarProps) {
   const saveFile = useEditorStore((s) => s.saveFile)
   const splitPanel = useEditorStore((s) => s.splitPanel)
   const closePanel = useEditorStore((s) => s.closePanel)
+  const toggleEditorVisible = useUIStore((s) => s.toggleEditorVisible)
 
   const panel = panels[panelId]
   const tabOrder = panel?.tabOrder ?? []
@@ -245,6 +247,17 @@ export default function TabBar({ panelId }: TabBarProps) {
               </svg>
             </button>
           )}
+          <button
+            onClick={toggleEditorVisible}
+            className="p-1.5 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover rounded transition-colors"
+            title={t('editor.hideEditor')}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+              <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+              <line x1="3" y1="3" x2="21" y2="21" />
+            </svg>
+          </button>
         </div>
       </div>
 

@@ -334,7 +334,6 @@ export default function SettingsModal() {
                     <span style={{ width: 3, height: 14, background: 'var(--accent)', borderRadius: 2 }} />
                     API 配置
                   </h3>
-                  <p className="text-xs text-nova-text-muted mt-1.5">选择提供商或已保存配置，在右侧编辑</p>
                 </div>
 
                 <button onClick={() => startNewForProvider('openai')}
@@ -343,37 +342,13 @@ export default function SettingsModal() {
                   新建配置
                 </button>
 
-                {/* Provider picker (vertical) */}
-                <div className="flex flex-col gap-0.5">
-                  <div className="text-[10px] font-semibold text-nova-text-muted uppercase tracking-wider px-2 py-1">选择提供商</div>
-                  {PROVIDER_REGISTRY.map((p) => {
-                    const selected = isCreating && editingGroup?.provider === p.value
-                    return (
-                      <button key={p.value} onClick={() => startNewForProvider(p.value)}
-                        className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg border transition-all text-left ${
-                          selected
-                            ? 'border-nova-accent bg-nova-accent/10 shadow-[0_0_0_1px_var(--accent)]'
-                            : 'border-transparent hover:bg-nova-hover hover:border-nova-border'
-                        }`}>
-                        <div className="w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: `${p.color}20`, color: p.color }}>
-                          {p.icon}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-medium text-nova-text-primary leading-tight">{p.label}</div>
-                          <div className="text-[10px] text-nova-text-muted truncate leading-tight">{p.description}</div>
-                        </div>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                {/* Saved configs */}
+                {/* Saved configs — on top, they are the primary quick pick */}
                 <div className="flex flex-col gap-0.5">
                   <div className="text-[10px] font-semibold text-nova-text-muted uppercase tracking-wider px-2 py-1">
                     已保存配置（{configGroups.length}）
                   </div>
                   {configGroups.length === 0 ? (
-                    <div className="text-[11px] text-nova-text-muted px-2 py-2 leading-relaxed">还没有配置，从上方选择一个提供商开始创建</div>
+                    <div className="text-[11px] text-nova-text-muted px-2 py-2 leading-relaxed">还没有配置，从下方选择一个提供商开始创建</div>
                   ) : (
                     configGroups.map((group) => {
                       const active = group.id === activeConfigGroupId
@@ -397,6 +372,30 @@ export default function SettingsModal() {
                       )
                     })
                   )}
+                </div>
+
+                {/* Provider picker (vertical) */}
+                <div className="flex flex-col gap-0.5">
+                  <div className="text-[10px] font-semibold text-nova-text-muted uppercase tracking-wider px-2 py-1">选择提供商</div>
+                  {PROVIDER_REGISTRY.map((p) => {
+                    const selected = isCreating && editingGroup?.provider === p.value
+                    return (
+                      <button key={p.value} onClick={() => startNewForProvider(p.value)}
+                        className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg border transition-all text-left ${
+                          selected
+                            ? 'border-nova-accent bg-nova-accent/10 shadow-[0_0_0_1px_var(--accent)]'
+                            : 'border-transparent hover:bg-nova-hover hover:border-nova-border'
+                        }`}>
+                        <div className="w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: `${p.color}20`, color: p.color }}>
+                          {p.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-nova-text-primary leading-tight">{p.label}</div>
+                          <div className="text-[10px] text-nova-text-muted truncate leading-tight">{p.description}</div>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
 
                 {/* Import / export */}
@@ -759,6 +758,17 @@ export default function SettingsModal() {
                 } />
                 <SettingRow label="对话历史编辑" desc="开启后支持编辑消息、拖动排序和批量删除" right={
                   <ToggleButton on={preferences.chatHistoryEditMode} onClick={() => savePreferences({ chatHistoryEditMode: !preferences.chatHistoryEditMode })} />
+                } />
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <h3 className="flex items-center gap-2 text-[13px] font-semibold text-nova-text-primary uppercase tracking-wider">
+                  <span style={{ width: 3, height: 14, background: 'var(--accent)', borderRadius: 2 }} />
+                  AI 助手
+                </h3>
+
+                <SettingRow label="允许 AI 自动记忆" desc="开启后 AI 可在对话中自动把重要信息保存到长期记忆" right={
+                  <ToggleButton on={preferences.aiAutoMemory} onClick={() => savePreferences({ aiAutoMemory: !preferences.aiAutoMemory })} />
                 } />
               </div>
 

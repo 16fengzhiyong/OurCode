@@ -8,6 +8,8 @@
  */
 import { create } from 'zustand'
 import { Memory } from '@/types'
+import { sendLLMRequest } from '@/services/llm/LLMClient'
+import { useConfigStore } from './configStore'
 
 interface MemoryState {
   memories: Memory[]
@@ -19,7 +21,18 @@ interface MemoryState {
   getMemoriesByProject: (projectPath: string) => Memory[]
   getGlobalMemories: () => Memory[]
   getProjectPaths: () => string[]
+  /** Ask the LLM to condense a conversation snippet into long-term memory
+   *  (project-scoped). Throws on failure so the UI can surface the error. */
+  condenseAndAddMemory: (conversation: string, projectPath: string) => Promise<string>
 }
+
+/** System prompt for the memory-condensation helper request */
+const CONDENSE_SYSTEM_PROMPT = [
+  '你是一个记忆浓缩助手。用户从对话中点选了「记住」，希望把这段对话沉淀为长期记忆。',
+  '请把对话内容浓缩成 1~3 条精炼、具体、可长期复用的记忆（每条一行，用 - 开头）。',
+  '重点提炼：用户的偏好、技术决策、项目约定、已确认的经验教训等。',
+  '不要客套，不要重复对话中的废话，只输出记忆条目本身。',
+].join('\n')
 
 export const useMemoryStore = create<MemoryState>((set, get) => ({
   memories: [],
@@ -69,5 +82,46 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       if (m.scope === 'project' && m.projectPath) paths.add(m.projectPath)
     })
     return Array.from(paths).sort()
+  },
+
+  condenseAndAddMemory: async (conversation, projectPath) => {
+    const group = useConfigStore.getState().getActiveConfigGroup()
+    if (!group) {
+      throw new Error('尚未配置 API，无法浓缩记忆。请先在设置中添加 API 配置。')
+    }
+    const model = group.defaultModel || ''
+    if (!model) {
+      throw new Error('当前配置未设置默认模型，无法浓缩记忆。')
+    }
+
+    // Non-streaming condensation request (bounded output)
+    let condensed = ''
+    for await (const chunk of sendLLMRequest(
+      {
+        model,
+        messages: [
+          { role: 'system', content: CONDENSE_SYSTEM_PROMPT },
+          { role: 'user', content: conversation },
+        ],
+        stream: false,
+        temperature: 0,
+        maxTokens: 800,
+        topP: 1,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+      },
+      group,
+      60_000,
+    )) {
+      if (chunk.content) condensed += chunk.content
+      if (chunk.done) break
+    }
+
+    const trimmed = condensed.trim()
+    if (!trimmed) {
+      throw new Error('AI 未返回有效记忆内容，请重试')
+    }
+    await get().addMemory(trimmed, 'project', projectPath)
+    return trimmed
   },
 }))

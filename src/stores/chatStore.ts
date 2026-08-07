@@ -5,6 +5,7 @@ import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
 import { useMemoryStore } from './memoryStore'
 import { useUIStore } from './uiStore'
+import { getLastModelForGroup } from './configStore'
 import { getFileContent } from '@/editor/modelRegistry'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { parseLLMError } from '@/services/llm/errors'
@@ -24,6 +25,9 @@ import { captureCheckpoint as captureCheckpointService } from '@/services/checkp
 // Cached git branch (refreshed via refreshGitBranch)
 let _cachedGitBranch = ''
 let _gitBranchFetchedAt = 0
+
+/** localStorage key for the last active chat session (restored on next launch) */
+const LAST_SESSION_KEY = 'lastActiveSessionId'
 
 export async function refreshGitBranch(): Promise<void> {
   const rootPath = getWorkspaceRoot()
@@ -653,8 +657,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       const sessions = await window.electronAPI.getSessions()
       set({ sessions })
+      // Restore the last active session across restarts (only on the first load)
       if (sessions.length > 0 && !get().activeSessionId) {
-        set({ activeSessionId: sessions[0].id })
+        const lastId = localStorage.getItem(LAST_SESSION_KEY)
+        const restored = sessions.find((s) => s.id === lastId)
+        set({ activeSessionId: restored ? restored.id : sessions[0].id })
       }
     } catch (error) {
       console.error('加载会话失败:', error)
@@ -668,7 +675,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       id,
       title: '新对话',
       configGroupId,
-      model: '',
+      // Seed with the model the user last picked for this config group, so the
+      // choice (e.g. Longcat) carries over to new chats instead of resetting.
+      model: getLastModelForGroup(configGroupId),
       modelParams: DEFAULT_MODEL_PARAMS,
       messages: [],
       createdAt: Date.now(),
@@ -683,6 +692,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       sessions: [session, ...s.sessions],
       activeSessionId: id,
     }))
+    localStorage.setItem(LAST_SESSION_KEY, id)
 
     window.electronAPI.saveSession(session)
 
@@ -714,6 +724,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setActiveSession: (sessionId) => {
+    localStorage.setItem(LAST_SESSION_KEY, sessionId)
     set({ activeSessionId: sessionId })
     get().loadCheckpoints(sessionId)
   },
@@ -1285,6 +1296,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       clearInterval(_gitBranchInterval)
       _gitBranchInterval = null
     }
+    localStorage.removeItem(LAST_SESSION_KEY)
     set({
       sessions: [],
       activeSessionId: null,
@@ -1421,9 +1433,13 @@ async function runAgentLoop(
   // read-only by design). Other edit modes expose all tools but vary approval.
   const projectEditMode = session.projectEditMode || 'plan'
   const usePlanTools = agentMode === 'agent' && projectEditMode === 'plan' && !opts?.planApproved
-  const toolDefinitions = usePlanTools
+  let toolDefinitions = usePlanTools
     ? toolExecutor.getToolDefinitions((name) => PLAN_TOOLS.has(name))
     : toolExecutor.getToolDefinitions()
+  // The auto-memory tool is opt-in — hide it when the user disabled it in Settings
+  if (!useEditorStore.getState().preferences.aiAutoMemory) {
+    toolDefinitions = toolDefinitions.filter((d) => d.function.name !== 'remember')
+  }
 
   // Agent mode: start (or resume) the run record + live trace. Also load the
   // persisted per-project "always allow" list for the approval checks below.

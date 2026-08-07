@@ -131,8 +131,12 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
   let lastError = ''
   let hitTokenBudget = false
 
-  // Only the subagent's allowlisted tools reach its LLM (monotonic decay)
-  const toolDefinitions = executor.getToolDefinitions((name) => guard.toolAllowed(name))
+  // Only the subagent's allowlisted tools reach its LLM (monotonic decay);
+  // the auto-memory tool additionally respects the user's settings toggle.
+  let toolDefinitions = executor.getToolDefinitions((name) => guard.toolAllowed(name))
+  if (!useEditorStore.getState().preferences.aiAutoMemory) {
+    toolDefinitions = toolDefinitions.filter((d) => d.function.name !== 'remember')
+  }
 
   try {
     while (iterationsLeft-- > 0) {

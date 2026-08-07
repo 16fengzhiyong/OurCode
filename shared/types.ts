@@ -264,6 +264,9 @@ export interface UserPreferences {
    *  reorder, and batch-delete. Off by default so history can't be mangled
    *  by an accidental drag. */
   chatHistoryEditMode: boolean
+  /** When enabled the agent may call the remember tool to auto-save important
+   *  information into long-term memory (managed in Settings). */
+  aiAutoMemory: boolean
   /** LSP servers by Monaco language id, e.g. { python: "pylsp", go: "gopls -mode stdio" } */
   lspServers?: Record<string, string>
 }

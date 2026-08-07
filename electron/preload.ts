@@ -174,7 +174,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Memories
   memoryList: () => ipcRenderer.invoke('memory:list'),
-  memoryAdd: (content: string, scope?: string) => ipcRenderer.invoke('memory:add', content, scope),
+  memoryAdd: (content: string, scope?: string, projectPath?: string) =>
+    ipcRenderer.invoke('memory:add', content, scope, projectPath),
   memoryDelete: (id: string) => ipcRenderer.invoke('memory:delete', id),
 
   // Workflows

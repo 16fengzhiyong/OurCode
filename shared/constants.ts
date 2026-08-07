@@ -120,6 +120,7 @@ export const DEFAULT_PREFERENCES = {
   language: 'system' as const,
   encryptChatData: false,
   chatHistoryEditMode: false,
+  aiAutoMemory: true,
 }
 
 // Free model keywords

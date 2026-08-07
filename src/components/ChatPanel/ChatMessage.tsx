@@ -3,6 +3,7 @@ import { ChatMessage as ChatMessageType } from '@/types'
 import { useChatStore } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useMemoryStore } from '@/stores/memoryStore'
+import { useUIStore } from '@/stores/uiStore'
 import { EXHAUSTED_MARKER } from '@shared/constants'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
 import AgentTimeline from './AgentTimeline'
@@ -49,13 +50,14 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
   const [remembered, setRemembered] = useState(false)
+  const [isRemembering, setIsRemembering] = useState(false)
   const t = useI18n()
 
   // Inline editing and batch selection only apply in history-edit mode.
   const editEnabled = useEditorStore((s) => s.preferences.chatHistoryEditMode)
 
   const { editMessage, regenerateFromMessage, createBranchFromMessage, continueGeneration, checkpoints, revertCheckpoint } = useChatStore()
-  const addMemory = useMemoryStore((s) => s.addMemory)
+  const condenseAndAddMemory = useMemoryStore((s) => s.condenseAndAddMemory)
 
   // ── Agent status for assistant header ──
   const activeRun = useChatStore((s) => s.activeRun)
@@ -99,12 +101,38 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
     navigator.clipboard.writeText(message.content)
   }
 
-  const handleRemember = () => {
-    const snippet = message.content.trim().slice(0, 500)
-    if (snippet) {
-      addMemory(`${t('chat.memoryPrefix')}${snippet}`)
+  const handleRemember = async () => {
+    // Memories are project-scoped — a project must be open to remember.
+    const projectPath = useUIStore.getState().rootPath || session?.projectPath
+    if (!projectPath) {
+      useUIStore.getState().showNotification(t('chat.rememberNoProject'), 'warning')
+      return
+    }
+    if (isRemembering) return
+
+    // Build a compact conversation context (last ~10 messages up to this one),
+    // so the AI can condense the *context* rather than pasting the raw reply.
+    const allMessages = session?.messages || []
+    const selfIndex = allMessages.findIndex((m) => m.id === message.id)
+    const contextMessages = (selfIndex === -1 ? allMessages : allMessages.slice(0, selfIndex + 1)).slice(-10)
+    let conversation = contextMessages
+      .map((m) => `${m.role === 'user' ? '用户' : m.role === 'assistant' ? 'AI' : '工具'}: ${m.content}`)
+      .join('\n\n')
+    if (conversation.length > 6000) conversation = conversation.slice(-6000)
+
+    setIsRemembering(true)
+    try {
+      await condenseAndAddMemory(conversation, projectPath)
       setRemembered(true)
+      useUIStore.getState().showNotification(t('chat.rememberedProject'), 'success')
       setTimeout(() => setRemembered(false), 2000)
+    } catch (error) {
+      useUIStore.getState().showNotification(
+        `${t('chat.rememberError')}: ${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      )
+    } finally {
+      setIsRemembering(false)
     }
   }
 
@@ -281,7 +309,12 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
                 )}
                 {isAssistant && !isExhausted && (
                   <GhostButton onClick={handleRemember} title={t('chat.rememberHint')}>
-                    {remembered ? t('chat.remembered') : t('chat.remember')}
+                    {isRemembering ? (
+                      <>
+                        <span className="w-3 h-3 border-2 border-nova-accent/30 border-t-nova-accent rounded-full animate-spin inline-block align-[-2px]" />
+                        {t('chat.remembering')}
+                      </>
+                    ) : remembered ? t('chat.remembered') : t('chat.remember')}
                   </GhostButton>
                 )}
                 <GhostButton

@@ -1,5 +1,5 @@
 import { useState, useMemo, lazy, Suspense } from 'react'
-import { useConfigStore } from '@/stores/configStore'
+import { useConfigStore, setLastModelForGroup } from '@/stores/configStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { lookupModelMetadata } from '@/types'
@@ -65,6 +65,8 @@ export default function ModelSelector() {
   }
 
   const handleModelChange = (modelId: string) => {
+    // Remember this choice so new sessions for this group start with it
+    if (activeConfigGroupId) setLastModelForGroup(activeConfigGroupId, modelId)
     if (activeSessionId) {
       // Rebinding the session to the active group keeps its API key/base URL
       // in sync with the provider the model was picked from. Without this the

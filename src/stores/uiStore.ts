@@ -2,6 +2,9 @@ import { create } from 'zustand'
 
 const DEFAULT_THEME_COLOR = '#2563eb'
 
+/** localStorage key for the last-selected project (re-opened on next launch) */
+const LAST_PROJECT_KEY = 'lastProjectState'
+
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16)
   const g = parseInt(hex.slice(3, 5), 16)
@@ -35,6 +38,9 @@ interface UIState {
    *  the activity-bar "history" icon can open it across components */
   isChatSessionListOpen: boolean
 
+  // Editor area (middle pane) — can be hidden so the chat panel fills the width
+  isEditorVisible: boolean
+
   // Terminal
   isTerminalVisible: boolean
   terminalHeight: number
@@ -66,6 +72,8 @@ interface UIState {
   activeProjectPath: string | null
   enterProject: (path: string) => void
   backToProjectList: () => void
+  /** Re-select the last opened project after a restart (persisted via localStorage) */
+  restoreLastProject: () => Promise<void>
 
   // Context Menu
   contextMenu: { x: number; y: number; items: ContextMenuItem[] } | null
@@ -86,6 +94,7 @@ interface UIState {
   setChatWidth: (width: number) => void
   setChatPosition: (position: 'right' | 'bottom') => void
   setChatSessionListOpen: (open: boolean) => void
+  toggleEditorVisible: () => void
 
   toggleTerminal: () => void
   setTerminalHeight: (height: number) => void
@@ -128,7 +137,7 @@ export interface ContextMenuItem {
 export interface AppNotification {
   id: number
   message: string
-  type: 'info' | 'warning' | 'error'
+  type: 'info' | 'warning' | 'error' | 'success'
 }
 
 /** Monotonic id source for notifications (never reused within a session). */
@@ -146,9 +155,20 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   // Chat Panel — wider default since the AI panel is the primary interface
   isChatVisible: true,
-  chatWidth: Math.max(480, typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.38) : 520),
+  chatWidth: (() => {
+    try {
+      const saved = Number(localStorage.getItem('chatWidth'))
+      if (saved && saved >= 250) return saved
+    } catch { /* ignore */ }
+    return Math.max(480, typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.38) : 520)
+  })(),
   chatPosition: 'right',
   isChatSessionListOpen: false,
+
+  // Editor area — closable so the chat panel can take the whole width
+  isEditorVisible: (() => {
+    try { return localStorage.getItem('isEditorVisible') !== 'false' } catch { return true }
+  })(),
 
   // Terminal
   isTerminalVisible: false,
@@ -212,9 +232,17 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
 
   toggleChat: () => set((s) => ({ isChatVisible: !s.isChatVisible })),
-  setChatWidth: (width) => set({ chatWidth: width }),
+  setChatWidth: (width) => {
+    localStorage.setItem('chatWidth', String(Math.round(width)))
+    set({ chatWidth: width })
+  },
   setChatPosition: (position) => set({ chatPosition: position }),
   setChatSessionListOpen: (open) => set({ isChatSessionListOpen: open }),
+  toggleEditorVisible: () => set((s) => {
+    const next = !s.isEditorVisible
+    localStorage.setItem('isEditorVisible', String(next))
+    return { isEditorVisible: next }
+  }),
 
   toggleTerminal: () => set((s) => ({ isTerminalVisible: !s.isTerminalVisible })),
   setTerminalHeight: (height) => set({ terminalHeight: height }),
@@ -256,8 +284,33 @@ export const useUIStore = create<UIState>((set, get) => ({
     applyThemeColor(color)
   },
 
-  enterProject: (path) => set({ projectListView: 'tree', activeProjectPath: path, rootPath: path }),
-  backToProjectList: () => set({ projectListView: 'list', activeProjectPath: null }),
+  enterProject: (path) => {
+    set({ projectListView: 'tree', activeProjectPath: path, rootPath: path })
+    localStorage.setItem(LAST_PROJECT_KEY, JSON.stringify({ path, view: 'tree' }))
+  },
+  backToProjectList: () => {
+    set({ projectListView: 'list', activeProjectPath: null })
+    // Going back to the list is an explicit deselection — don't re-open the
+    // project on the next launch.
+    localStorage.setItem(LAST_PROJECT_KEY, JSON.stringify({ path: null, view: 'list' }))
+  },
+  restoreLastProject: async () => {
+    let saved: { path?: string; view?: 'list' | 'tree' } | null = null
+    try { saved = JSON.parse(localStorage.getItem(LAST_PROJECT_KEY) || 'null') } catch { /* ignore */ }
+    const path = saved?.path
+    if (!path) return
+    // Only restore projects that were actually opened before (in recentProjects)
+    const recent = get().recentProjects
+    if (!recent.includes(path)) return
+    // Verify the folder still exists on disk; otherwise fall back to the list
+    try {
+      const stat = await window.electronAPI.stat(path)
+      if (!stat || !stat.isDirectory) return
+    } catch {
+      return
+    }
+    set({ projectListView: 'tree', activeProjectPath: path, rootPath: path })
+  },
 
   showContextMenu: (x, y, items) => set({ contextMenu: { x, y, items } }),
   hideContextMenu: () => set({ contextMenu: null }),

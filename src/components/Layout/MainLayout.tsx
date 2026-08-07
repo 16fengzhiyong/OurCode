@@ -24,6 +24,7 @@ import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useShortcutStore, matchesShortcut } from '@/stores/shortcutStore'
 import { executeCommand } from '@/services/commands/commandRegistry'
+import { useI18n } from '@/i18n/useI18n'
 
 const COMPACT_BREAKPOINT = 1024
 const NARROW_BREAKPOINT = 768
@@ -32,13 +33,14 @@ export default function MainLayout() {
   const {
     isSidebarVisible, sidebarWidth, chatWidth, isChatVisible, isTerminalVisible,
     terminalHeight, isCommandPaletteOpen, isQuickOpenOpen, contextMenu,
-    rootPath,
+    rootPath, isEditorVisible, toggleEditorVisible,
   } = useUIStore()
 
   const { panelOrder, splitDirection, splitRatios } = useEditorStore()
   const isProblemsOpen = useProblemsStore((s) => s.isOpen)
   const isRecentFilesOpen = useRecentFilesStore((s) => s.isOpen)
   const isDebugOpen = useDebugStore((s) => s.isOpen)
+  const t = useI18n()
 
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1400)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -187,7 +189,9 @@ export default function MainLayout() {
         const newWidth = Math.max(150, Math.min(500, startWidth + delta))
         useUIStore.getState().setSidebarWidth(newWidth)
       } else {
-        const newWidth = Math.max(250, Math.min(700, startWidth - delta))
+        // Chat panel — allow much wider than before (up to ~75% of the window)
+        const maxChatWidth = Math.max(560, Math.min(1100, Math.round(window.innerWidth * 0.75)))
+        const newWidth = Math.max(250, Math.min(maxChatWidth, startWidth - delta))
         useUIStore.getState().setChatWidth(newWidth)
       }
     }
@@ -219,54 +223,80 @@ export default function MainLayout() {
         )}
         <div className="flex-1 h-full min-h-0 flex flex-col overflow-hidden">
           <div className={`flex-1 h-full min-h-0 flex ${isNarrow ? 'flex-col' : ''} overflow-hidden`}>
-            <div className={`flex-1 h-full min-w-0 min-h-0 overflow-hidden flex ${splitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}>
-              {panelOrder.map((pid, index) => (
-                <div key={pid} className="flex-1 h-full min-w-0 min-h-0 overflow-hidden flex flex-col" style={panelOrder.length > 1 && splitRatios[index - 1] ? { flex: `0 0 ${splitRatios[index - 1] * 100}%` } : undefined}>
-                  <TabBar panelId={pid} />
-                  <div className="flex-1 h-full min-h-0 flex flex-col"><EditorContainer panelId={pid} /></div>
-                  {index < panelOrder.length - 1 && (
-                    <div
-                      className={`${splitDirection === 'horizontal' ? 'w-1 cursor-col-resize hover:bg-nova-accent/30' : 'h-1 cursor-row-resize hover:bg-nova-accent/30'} bg-nova-border shrink-0`}
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        const startPos = splitDirection === 'horizontal' ? e.clientX : e.clientY
-                        const container = (e.target as HTMLElement).parentElement
-                        if (!container) return
-                        const startSize = splitDirection === 'horizontal' ? container.offsetWidth : container.offsetHeight
-                        const handleMove = (ev: MouseEvent) => {
-                          const currentPos = splitDirection === 'horizontal' ? ev.clientX : ev.clientY
-                          const delta = currentPos - startPos
-                          const newSize = Math.max(200, startSize + delta)
-                          const parent = container.parentElement
-                          if (!parent) return
-                          const parentSize = splitDirection === 'horizontal' ? parent.offsetWidth : parent.offsetHeight
-                          const ratio = newSize / parentSize
-                          useEditorStore.getState().resizeSplit(index, Math.max(0.15, Math.min(0.85, ratio)))
-                        }
-                        const handleUp = () => {
-                          document.removeEventListener('mousemove', handleMove)
-                          document.removeEventListener('mouseup', handleUp)
-                          document.body.style.cursor = ''
-                          document.body.style.userSelect = ''
-                        }
-                        document.body.style.cursor = splitDirection === 'horizontal' ? 'col-resize' : 'row-resize'
-                        document.body.style.userSelect = 'none'
-                        document.addEventListener('mousemove', handleMove)
-                        document.addEventListener('mouseup', handleUp)
-                      }}
-                    />
-                  )}
+            {isEditorVisible ? (
+              <>
+                <div className={`flex-1 h-full min-w-0 min-h-0 overflow-hidden flex ${splitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}>
+                  {panelOrder.map((pid, index) => (
+                    <div key={pid} className="flex-1 h-full min-w-0 min-h-0 overflow-hidden flex flex-col" style={panelOrder.length > 1 && splitRatios[index - 1] ? { flex: `0 0 ${splitRatios[index - 1] * 100}%` } : undefined}>
+                      <TabBar panelId={pid} />
+                      <div className="flex-1 h-full min-h-0 flex flex-col"><EditorContainer panelId={pid} /></div>
+                      {index < panelOrder.length - 1 && (
+                        <div
+                          className={`${splitDirection === 'horizontal' ? 'w-1 cursor-col-resize hover:bg-nova-accent/30' : 'h-1 cursor-row-resize hover:bg-nova-accent/30'} bg-nova-border shrink-0`}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            const startPos = splitDirection === 'horizontal' ? e.clientX : e.clientY
+                            const container = (e.target as HTMLElement).parentElement
+                            if (!container) return
+                            const startSize = splitDirection === 'horizontal' ? container.offsetWidth : container.offsetHeight
+                            const handleMove = (ev: MouseEvent) => {
+                              const currentPos = splitDirection === 'horizontal' ? ev.clientX : ev.clientY
+                              const delta = currentPos - startPos
+                              const newSize = Math.max(200, startSize + delta)
+                              const parent = container.parentElement
+                              if (!parent) return
+                              const parentSize = splitDirection === 'horizontal' ? parent.offsetWidth : parent.offsetHeight
+                              const ratio = newSize / parentSize
+                              useEditorStore.getState().resizeSplit(index, Math.max(0.15, Math.min(0.85, ratio)))
+                            }
+                            const handleUp = () => {
+                              document.removeEventListener('mousemove', handleMove)
+                              document.removeEventListener('mouseup', handleUp)
+                              document.body.style.cursor = ''
+                              document.body.style.userSelect = ''
+                            }
+                            document.body.style.cursor = splitDirection === 'horizontal' ? 'col-resize' : 'row-resize'
+                            document.body.style.userSelect = 'none'
+                            document.addEventListener('mousemove', handleMove)
+                            document.addEventListener('mouseup', handleUp)
+                          }}
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            {isChatVisible && !isNarrow && (
+                {isChatVisible && !isNarrow && (
+                  <div
+                    className="resizer"
+                    onMouseDown={(e) => handlePanelResize('chat', e)}
+                  />
+                )}
+              </>
+            ) : (
+              /* Editor hidden — slim strip to bring it back (horizontal in narrow mode) */
               <div
-                className="resizer"
-                onMouseDown={(e) => handlePanelResize('chat', e)}
-              />
+                className={`shrink-0 flex items-center justify-center gap-1 border-nova-border ${
+                  isNarrow ? 'w-full h-9 flex-row border-b' : 'w-9 h-full flex-col border-r'
+                }`}
+                style={{ background: 'var(--surface)' }}
+              >
+                <button
+                  onClick={toggleEditorVisible}
+                  title={t('editor.showEditor')}
+                  className="w-7 h-7 flex items-center justify-center rounded-md text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                </button>
+              </div>
             )}
             {isChatVisible && (
-              <div style={{ width: isNarrow ? '100%' : isCompact ? '320px' : chatWidth + 'px' }} className={`h-full ${isNarrow ? 'border-t' : 'border-l'} border-nova-border shrink-0 overflow-hidden`}><ChatPanel /></div>
+              <div
+                style={isNarrow || !isEditorVisible ? undefined : { width: Math.min(chatWidth, Math.max(360, windowWidth - 100)) + 'px' }}
+                className={`h-full ${isNarrow ? 'border-t' : 'border-l'} border-nova-border ${isEditorVisible && !isNarrow ? 'shrink-0' : 'flex-1 min-w-0'} overflow-hidden`}
+              ><ChatPanel /></div>
             )}
           </div>
           {isProblemsOpen && (

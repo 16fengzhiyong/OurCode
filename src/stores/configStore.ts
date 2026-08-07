@@ -35,6 +35,29 @@ export interface ConnectionTestResult {
 /** Connection tests are probes — 15s per call is enough, no need for the full 30s. */
 const TEST_TIMEOUT_MS = 15_000
 
+/** localStorage keys for cross-restart state restoration */
+const LAST_GROUP_KEY = 'lastActiveConfigGroupId'
+const LAST_MODEL_KEY = 'lastModelByGroup'
+
+/** Last model selected for a config group (restored when creating a new session). */
+export function getLastModelForGroup(groupId: string): string {
+  try {
+    const map = JSON.parse(localStorage.getItem(LAST_MODEL_KEY) || '{}')
+    return map[groupId] || ''
+  } catch {
+    return ''
+  }
+}
+
+export function setLastModelForGroup(groupId: string, modelId: string): void {
+  if (!groupId) return
+  try {
+    const map = JSON.parse(localStorage.getItem(LAST_MODEL_KEY) || '{}')
+    map[groupId] = modelId
+    localStorage.setItem(LAST_MODEL_KEY, JSON.stringify(map))
+  } catch { /* ignore */ }
+}
+
 function enrichModel(id: string, provider: string): ModelInfo {
   const favorites = useConfigStore.getState().favoriteModelIds
   const custom = useConfigStore.getState().customModels.find((c) => c.id === id)
@@ -142,8 +165,12 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         }))
       )
       set({ configGroups: resolvedGroups })
+      // Restore the previously active config group across restarts (only on the
+      // first load — a group already selected by the user in this session wins).
       if (resolvedGroups.length > 0 && !get().activeConfigGroupId) {
-        set({ activeConfigGroupId: resolvedGroups[0].id })
+        const lastGroupId = localStorage.getItem(LAST_GROUP_KEY)
+        const restored = resolvedGroups.find((g) => g.id === lastGroupId)
+        set({ activeConfigGroupId: restored ? restored.id : resolvedGroups[0].id })
       }
     } catch (error) {
       console.error('加载配置组失败:', error instanceof Error ? error.message : 'Unknown error')
@@ -169,6 +196,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     }
 
     const saved = await window.electronAPI.saveConfigGroup(group)
+    localStorage.setItem(LAST_GROUP_KEY, saved.id)
     set((s) => ({
       configGroups: [saved, ...s.configGroups],
       activeConfigGroupId: saved.id,
@@ -205,6 +233,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   },
 
   setActiveConfigGroup: (id) => {
+    localStorage.setItem(LAST_GROUP_KEY, id)
     set({ activeConfigGroupId: id, models: [] })
     get().fetchModels(id)
   },
@@ -367,6 +396,8 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     localStorage.removeItem('favoriteModelIds')
     localStorage.removeItem('promptHistory')
     localStorage.removeItem('customModels')
+    localStorage.removeItem(LAST_GROUP_KEY)
+    localStorage.removeItem(LAST_MODEL_KEY)
     set({
       configGroups: [],
       activeConfigGroupId: null,

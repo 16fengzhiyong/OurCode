@@ -8,6 +8,7 @@ const TYPE_COLORS: Record<AppNotification['type'], string> = {
   info: 'var(--info)',
   warning: 'var(--yellow)',
   error: 'var(--red)',
+  success: 'var(--green)',
 }
 
 /** One toast: owns its auto-dismiss timer so it is cleared on manual close. */
