@@ -29,7 +29,7 @@ jobs:
 
   e2e:
     name: Build · E2E (Electron)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
       # GitHub CI containers can't enable Chromium's user-namespace sandbox
@@ -46,7 +46,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
             libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
-            libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 \
+            libxrandr2 libgbm1 libasound2t64 libpango-1.0-0 libcairo2 \
             libgtk-3-0 libx11-xcb1 xvfb
       - name: Install dependencies
         run: npm ci
@@ -65,6 +65,11 @@ jobs:
   # CSC_IDENTITY_AUTO_DISCOVERY=false lets the build succeed without a
   # signing certificate (CI runners have no keychain identity). When the
   # CSC_LINK secrets are set, electron-builder still signs with those certs.
+  #
+  # --publish never: artifacts are collected via upload-artifact. Without a
+  # GH_TOKEN (electron-builder does not read GITHUB_TOKEN) the default
+  # publish policy would try to create a GitHub Publisher and fail the
+  # build. Add GH_TOKEN + drop the flag when release publishing is wanted.
 
   release-windows:
     name: Package Windows (NSIS + Portable)
@@ -91,7 +96,7 @@ jobs:
             echo "CSC_KEY_PASSWORD=${{ secrets.WIN_CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
           fi
       - name: Package Windows installer
-        run: npm run dist:win
+        run: npm run dist:win -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Upload Windows artifacts
@@ -130,7 +135,7 @@ jobs:
             echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
           fi
       - name: Package macOS app (arm64)
-        run: npm run dist:mac -- --arm64
+        run: npm run dist:mac -- --arm64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Upload macOS arm64 artifacts
@@ -172,7 +177,7 @@ jobs:
             echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
           fi
       - name: Package macOS app (x64)
-        run: npm run dist:mac -- --x64
+        run: npm run dist:mac -- --x64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Upload macOS x64 artifacts

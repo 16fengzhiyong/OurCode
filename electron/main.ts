@@ -862,7 +862,7 @@ function registerIpcHandlers(): void {
 
       const reader = res.body.getReader()
       try {
-        while (true) {
+        for (;;) {
           const { done, value } = await reader.read()
           if (done) break
           if (event.sender.isDestroyed()) break
