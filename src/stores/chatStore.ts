@@ -687,7 +687,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      agentMode: 'chat',
+      // Inside a project the new chat defaults to agent mode (project-aware);
+      // outside any project it stays plain chat.
+      agentMode: rootPath ? 'agent' : 'chat',
       todos: [],
       planStatus: 'none',
       projectPath: rootPath || undefined,
@@ -734,6 +736,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const session = get().sessions.find((s) => s.id === sessionId)
     if (session?.configGroupId) {
       useConfigStore.getState().setActiveConfigGroup(session.configGroupId)
+    }
+    // Selecting a conversation also switches the current project to the one
+    // the conversation belongs to (sessions captured their project at creation).
+    if (session?.projectPath && session.projectPath !== useUIStore.getState().rootPath) {
+      useUIStore.getState().enterProject(session.projectPath)
     }
     localStorage.setItem(LAST_SESSION_KEY, sessionId)
     set({ activeSessionId: sessionId })
@@ -1896,12 +1903,12 @@ async function runAgentLoop(
           : 'done'
       useChatStore.getState().finishAgentRun(sessionId, runId, finalStatus)
     }
-	    set({ isLoading: false, streamingContent: '', streamingThinking: '', abortController: null, pendingApproval: null, batchApproved: false, batchApproval: null })
-	    // Only clear runningSessionId if we're still the active runner —
-	    // another session may have started generating before this finally ran.
-	    if (useChatStore.getState().runningSessionId === sessionId) {
-	      set({ runningSessionId: null })
-	    }
+    set({ isLoading: false, streamingContent: '', streamingThinking: '', abortController: null, pendingApproval: null, batchApproved: false, batchApproval: null })
+    // Only clear runningSessionId if we're still the active runner —
+    // another session may have started generating before this finally ran.
+    if (useChatStore.getState().runningSessionId === sessionId) {
+      set({ runningSessionId: null })
+    }
     _approvalResolve = null
     _batchResolve = null
     _questionResolve = null

@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, type WebContents, type IpcMainInvokeEvent } from 'electron'
 import { join, resolve, dirname, sep } from 'path'
-import { existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import { exec, execFile } from 'child_process'
 import * as pty from 'node-pty'
@@ -981,6 +981,48 @@ function registerIpcHandlers(): void {
     try {
       await mcp.loadConfig(rootPath)
       return { ok: true }
+    } catch (error: any) {
+      return { ok: false, error: error.message }
+    }
+  })
+
+  // Read the workspace's MCP server config for the Settings UI
+  ipcMain.handle('mcp:getConfig', (_event, rootPath: string) => {
+    try {
+      if (!rootPath) return { ok: true, config: { mcpServers: {} }, file: null }
+      const candidates = [join(rootPath, 'mcp_config.json'), join(rootPath, '.mcp.json')]
+      let raw = ''
+      let file: string | null = null
+      for (const candidate of candidates) {
+        if (existsSync(candidate)) {
+          raw = readFileSync(candidate, 'utf-8')
+          file = candidate
+          break
+        }
+      }
+      if (!raw) return { ok: true, config: { mcpServers: {} }, file: join(rootPath, 'mcp_config.json') }
+      const parsed = JSON.parse(raw)
+      return {
+        ok: true,
+        config: { mcpServers: parsed.mcpServers || parsed.servers || {} },
+        file,
+      }
+    } catch (error: any) {
+      return { ok: false, error: error.message }
+    }
+  })
+
+  // Persist the MCP server config (back to the file it was loaded from,
+  // defaulting to <root>/mcp_config.json) and reload
+  ipcMain.handle('mcp:saveConfig', async (_event, rootPath: string, config: { mcpServers: Record<string, any> }, file?: string | null) => {
+    try {
+      if (!rootPath) throw new Error('未打开项目，无法保存 MCP 配置')
+      // Only write inside the workspace — never follow an arbitrary path.
+      const resolved = file && file.startsWith(rootPath) ? file : join(rootPath, 'mcp_config.json')
+      mkdirSync(rootPath, { recursive: true })
+      writeFileSync(resolved, JSON.stringify({ mcpServers: config?.mcpServers || {} }, null, 2), 'utf-8')
+      await mcp.loadConfig(rootPath)
+      return { ok: true, file: resolved }
     } catch (error: any) {
       return { ok: false, error: error.message }
     }

@@ -9,6 +9,7 @@ import MarkdownRenderer from '../Common/MarkdownRenderer'
 import AgentTimeline from './AgentTimeline'
 import WaveLogo from './WaveLogo'
 import ErrorCard from './ErrorCard'
+import MemoryPreviewModal from './MemoryPreviewModal'
 import { useI18n } from '@/i18n/useI18n'
 
 interface ChatMessageProps {
@@ -51,13 +52,14 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   const [editContent, setEditContent] = useState(message.content)
   const [remembered, setRemembered] = useState(false)
   const [isRemembering, setIsRemembering] = useState(false)
+  const [previewMemory, setPreviewMemory] = useState<{ content: string; projectPath: string } | null>(null)
   const t = useI18n()
 
   // Inline editing and batch selection only apply in history-edit mode.
   const editEnabled = useEditorStore((s) => s.preferences.chatHistoryEditMode)
 
   const { editMessage, regenerateFromMessage, createBranchFromMessage, continueGeneration, checkpoints, revertCheckpoint } = useChatStore()
-  const condenseAndAddMemory = useMemoryStore((s) => s.condenseAndAddMemory)
+  const condenseMemory = useMemoryStore((s) => s.condenseMemory)
 
   // ── Agent status for assistant header ──
   const activeRun = useChatStore((s) => s.activeRun)
@@ -122,10 +124,9 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
 
     setIsRemembering(true)
     try {
-      await condenseAndAddMemory(conversation, projectPath, session?.model)
-      setRemembered(true)
-      useUIStore.getState().showNotification(t('chat.rememberedProject'), 'success')
-      setTimeout(() => setRemembered(false), 2000)
+      // Condense first, then let the user review/edit before writing to memory.
+      const condensed = await condenseMemory(conversation, projectPath, session?.model)
+      setPreviewMemory({ content: condensed, projectPath })
     } catch (error) {
       useUIStore.getState().showNotification(
         `${t('chat.rememberError')}: ${error instanceof Error ? error.message : String(error)}`,
@@ -134,6 +135,16 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
     } finally {
       setIsRemembering(false)
     }
+  }
+
+  const handlePreviewSaved = (scope: 'project' | 'global') => {
+    setPreviewMemory(null)
+    setRemembered(true)
+    useUIStore.getState().showNotification(
+      scope === 'project' ? t('chat.rememberedProject') : t('chat.rememberedGlobal'),
+      'success',
+    )
+    setTimeout(() => setRemembered(false), 2000)
   }
 
   const isUser = message.role === 'user'
@@ -161,6 +172,16 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
 
   return (
     <div className={`group animate-fade-in ${isUser ? 'flex justify-end' : 'flex gap-2.5'}`}>
+      {/* Memory review/edit preview — shown after the AI condenses the chat */}
+      {previewMemory && (
+        <MemoryPreviewModal
+          content={previewMemory.content}
+          projectPath={previewMemory.projectPath}
+          onCancel={() => setPreviewMemory(null)}
+          onSaved={handlePreviewSaved}
+        />
+      )}
+
       {/* Batch select checkbox — only in history-edit mode */}
       {isSelectMode && editEnabled && (
         <label className="flex items-start pt-2 cursor-pointer shrink-0">

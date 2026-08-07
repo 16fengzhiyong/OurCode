@@ -6,6 +6,7 @@ import Sidebar from '../Sidebar/Sidebar'
 import EditorContainer from '../Editor/EditorContainer'
 import TabBar from '../Editor/TabBar'
 import ChatPanel from '../ChatPanel/ChatPanel'
+import MemoryModal from '../ChatPanel/MemoryModal'
 import TerminalPanel from '../Terminal/TerminalPanel'
 import SettingsModal from '../Settings/SettingsModal'
 import CommandPalette from '../CommandPalette/CommandPalette'
@@ -39,6 +40,8 @@ export default function MainLayout() {
   const isProblemsOpen = useProblemsStore((s) => s.isOpen)
   const isRecentFilesOpen = useRecentFilesStore((s) => s.isOpen)
   const isDebugOpen = useDebugStore((s) => s.isOpen)
+  const isMemoryManagerOpen = useUIStore((s) => s.isMemoryManagerOpen)
+  const closeMemoryManager = useUIStore((s) => s.closeMemoryManager)
 
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1400)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -297,6 +300,7 @@ export default function MainLayout() {
       {contextMenu && <ContextMenu />}
       <PluginMarketplace />
       <SkillRegistryModal />
+      {isMemoryManagerOpen && <MemoryModal onClose={closeMemoryManager} currentProjectPath={rootPath} />}
       <NotificationToasts />
     </div>
   )

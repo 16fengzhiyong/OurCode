@@ -7,6 +7,7 @@ import MarkdownRenderer from '../Common/MarkdownRenderer'
 import BranchTreeModal from './BranchTreeModal'
 import { TodoPanel, PlanCard } from './AgentPanel'
 import WaveLogo from './WaveLogo'
+import projectLogo from '@/assets/ourcode-logo.png'
 import { useI18n } from '@/i18n/useI18n'
 
 // Common model context windows (in tokens)
@@ -15,15 +16,6 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'claude-3-opus': 200000, 'claude-3-sonnet': 200000, 'claude-3-haiku': 200000,
   'deepseek-chat': 64000, 'deepseek-coder': 64000, 'gemini-1.5-pro': 2000000, 'gemini-1.5-flash': 1000000,
 }
-
-// Suggested prompts shown on the welcome view. The display text
-// is localized via its key; the prompt content stays as-is (it goes to the LLM).
-const SUGGESTED_PROMPTS: Array<{ icon: string; key: 'chat.suggestExplain' | 'chat.suggestTest' | 'chat.suggestOverview' | 'chat.suggestRefactor'; prompt: string }> = [
-  { icon: '✨', key: 'chat.suggestExplain', prompt: '请解释当前文件的功能和关键实现' },
-  { icon: '🧪', key: 'chat.suggestTest', prompt: '请为当前文件生成单元测试' },
-  { icon: '🔍', key: 'chat.suggestOverview', prompt: '请分析当前项目的结构并给出概览' },
-  { icon: '♻️', key: 'chat.suggestRefactor', prompt: '请帮我重构当前代码，提高可读性和可维护性' },
-]
 
 export default function ChatMessages() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -299,31 +291,14 @@ export default function ChatMessages() {
           {/* Welcome card (design: centered icon + title + description) */}
           <div className="flex-1 flex flex-col items-center justify-center text-center px-4 min-h-0">
             <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
-              style={{ background: 'var(--grad-avatar)', boxShadow: '0 8px 24px rgba(59,130,246,0.3)' }}
+              className="w-14 h-14 rounded-2xl overflow-hidden mb-4"
+              style={{ boxShadow: '0 8px 24px rgba(59,130,246,0.3)' }}
             >
-              <WaveLogo size={24} />
+              <img src={projectLogo} alt="OurCode AI" className="w-full h-full object-cover" />
             </div>
             <div className="text-base font-semibold text-nova-text-primary">OurCode AI</div>
             <div className="text-xs text-nova-text-muted mt-1.5 max-w-[280px] leading-relaxed">
               {t('chat.welcomeDesc')}
-            </div>
-          </div>
-
-          {/* Suggested prompts */}
-          <div className="pb-2">
-            <div className="text-[11px] text-nova-text-muted mb-1.5 px-1">{t('chat.suggested')}</div>
-            <div className="flex flex-wrap gap-1.5">
-              {SUGGESTED_PROMPTS.map((p) => (
-                <button
-                  key={p.key}
-                  onClick={() => useChatStore.getState().sendMessage(p.prompt)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-nova-text-secondary bg-nova-card border border-nova-border hover:bg-nova-hover hover:text-nova-text-primary transition-colors"
-                >
-                  <span>{p.icon}</span>
-                  {t(p.key)}
-                </button>
-              ))}
             </div>
           </div>
         </div>

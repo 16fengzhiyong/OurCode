@@ -58,7 +58,10 @@ interface UIState {
   isMarketplaceOpen: boolean
 
   // Skill Registry
-  isSkillRegistryOpen: boolean
+  isSkillRegistryOpen: boolean,
+
+  // Memory manager
+  isMemoryManagerOpen: boolean,
 
   // Window state
   isMaximized: boolean
@@ -114,6 +117,9 @@ interface UIState {
 
   openSkillRegistry: () => void
   closeSkillRegistry: () => void
+
+  openMemoryManager: () => void
+  closeMemoryManager: () => void
 
   setMaximized: (isMaximized: boolean) => void
 
@@ -189,6 +195,9 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   // Skill Registry
   isSkillRegistryOpen: false,
+
+  // Memory manager
+  isMemoryManagerOpen: false,
 
   // Window state
   isMaximized: false,
@@ -274,6 +283,9 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   openSkillRegistry: () => set({ isSkillRegistryOpen: true }),
   closeSkillRegistry: () => set({ isSkillRegistryOpen: false }),
+
+  openMemoryManager: () => set({ isMemoryManagerOpen: true }),
+  closeMemoryManager: () => set({ isMemoryManagerOpen: false }),
 
   setMaximized: (isMaximized) => set({ isMaximized }),
 

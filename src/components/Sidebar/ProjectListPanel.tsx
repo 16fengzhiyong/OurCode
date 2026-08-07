@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import FileTree from './FileTree'
-import { useI18n } from '@/i18n/useI18n'
+import projectLogo from '@/assets/ourcode-logo.png'
 
 /** Color palette for project icons */
 const PROJECT_COLORS = [
@@ -34,7 +34,6 @@ export default function ProjectListPanel() {
   } = useUIStore()
   const sessions = useChatStore((s) => s.sessions)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
-  const t = useI18n()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [showMoreSessions, setShowMoreSessions] = useState<Set<string>>(new Set())
@@ -130,8 +129,6 @@ export default function ProjectListPanel() {
 
   // ───────────── VIEW: Project-internal file tree ─────────────
   if (projectListView === 'tree' && activeProjectPath) {
-    const projectName = activeProjectPath.split(/[/\\]/).pop() || activeProjectPath
-
     return (
       <div className="h-full flex flex-col">
         {/* Back bar */}
@@ -202,12 +199,11 @@ export default function ProjectListPanel() {
                 }`}
                 onClick={() => handleEnterProject(project.path)}
               >
-                <div
-                  className="w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold shrink-0"
-                  style={{ background: color.bg, color: color.fg }}
-                >
-                  {project.name.charAt(0).toUpperCase()}
-                </div>
+                <img
+                  src={projectLogo}
+                  alt={project.name}
+                  className="w-8 h-8 rounded-md object-cover shrink-0"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold text-nova-text-primary truncate">
                     {project.name}

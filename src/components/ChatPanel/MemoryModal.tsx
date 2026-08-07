@@ -48,10 +48,15 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
   const handleAdd = async () => {
     if (!content.trim()) return
     if (scope === 'project' && !hasProject) return
-    await addMemory(content.trim(), scope, scope === 'project' ? currentProjectPath || undefined : undefined)
-    setContent('')
-    setJustAdded(t('chat.memorySaved'))
-    setTimeout(() => setJustAdded(null), 2000)
+    try {
+      await addMemory(content.trim(), scope, scope === 'project' ? currentProjectPath || undefined : undefined)
+      setContent('')
+      setJustAdded(t('chat.memorySaved'))
+      setTimeout(() => setJustAdded(null), 2000)
+    } catch (error) {
+      setJustAdded(`${t('chat.rememberError')}: ${error instanceof Error ? error.message : String(error)}`)
+      setTimeout(() => setJustAdded(null), 4000)
+    }
   }
 
   const formatDate = (ts: number) => {

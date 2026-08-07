@@ -135,6 +135,8 @@ export interface ElectronAPI {
   mcpListTools: () => Promise<Array<{ server: string; name: string; description?: string; inputSchema?: Record<string, any> }>>
   mcpCallTool: (server: string, toolName: string, args: Record<string, any>) => Promise<{ ok: boolean; result?: string; error?: string }>
   mcpReload: (rootPath: string) => Promise<{ ok: boolean; error?: string }>
+  mcpGetConfig: (rootPath: string) => Promise<{ ok: boolean; config: { mcpServers: Record<string, any> }; file: string | null; error?: string }>
+  mcpSaveConfig: (rootPath: string, config: { mcpServers: Record<string, any> }, file?: string | null) => Promise<{ ok: boolean; file?: string; error?: string }>
   mcpToolDefinitions: () => Promise<import('@shared/types').ToolDefinition[]>
 
   // Usage statistics (skills / subagents / MCP / LLM)

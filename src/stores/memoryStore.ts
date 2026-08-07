@@ -24,8 +24,10 @@ interface MemoryState {
   /** Ask the LLM to condense a conversation snippet into long-term memory
    *  (project-scoped). Throws on failure so the UI can surface the error.
    *  `model` is an optional hint — prefer the model the user is actually
-   *  chatting with, falling back to the config group's default. */
-  condenseAndAddMemory: (conversation: string, projectPath: string, model?: string) => Promise<string>
+   *  chatting with, falling back to the config group's default.
+   *  Returns the condensed text WITHOUT writing it — the UI shows the result
+   *  to the user for review/editing before `addMemory` is called. */
+  condenseMemory: (conversation: string, projectPath: string, model?: string) => Promise<string>
 }
 
 /** System prompt for the memory-condensation helper request */
@@ -58,6 +60,8 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
       set({ memories: [memory, ...get().memories] })
     } catch (error) {
       console.error('保存记忆失败:', error)
+      // Rethrow so callers can surface the failure instead of claiming success.
+      throw error
     }
   },
 
@@ -86,7 +90,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     return Array.from(paths).sort()
   },
 
-  condenseAndAddMemory: async (conversation, projectPath, model) => {
+  condenseMemory: async (conversation, projectPath, model) => {
     const group = useConfigStore.getState().getActiveConfigGroup()
     if (!group) {
       throw new Error('尚未配置 API，无法浓缩记忆。请先在设置中添加 API 配置。')
@@ -123,7 +127,6 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     if (!trimmed) {
       throw new Error('AI 未返回有效记忆内容，请重试')
     }
-    await get().addMemory(trimmed, 'project', projectPath)
     return trimmed
   },
 }))

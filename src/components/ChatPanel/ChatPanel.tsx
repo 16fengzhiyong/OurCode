@@ -2,7 +2,6 @@ import { useState } from 'react'
 import ChatMessages from './ChatMessages'
 import ChatInput from './ChatInput'
 import ChatSidebar from './ChatSidebar'
-import MemoryModal from './MemoryModal'
 import ArenaModal from './ArenaModal'
 import WorkflowModal from './WorkflowModal'
 import ModelSelector from './ModelSelector'
@@ -31,11 +30,10 @@ export default function ChatPanel() {
   const setProjectEditMode = useChatStore((s) => s.setProjectEditMode)
   const { activeConfigGroupId, models } = useConfigStore()
   const activeConfigGroup = useConfigStore((s) => s.configGroups.find((g) => g.id === s.activeConfigGroupId))
-  const { openSettings, rootPath } = useUIStore()
+  const { openSettings, rootPath, openMemoryManager } = useUIStore()
   const t = useI18n()
   const isChatSessionListOpen = useUIStore((s) => s.isChatSessionListOpen)
   const setChatSessionListOpen = useUIStore((s) => s.setChatSessionListOpen)
-  const [showMemories, setShowMemories] = useState(false)
   const [showArena, setShowArena] = useState(false)
   const [showWorkflows, setShowWorkflows] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
@@ -72,9 +70,6 @@ export default function ChatPanel() {
       {isChatSessionListOpen && (
         <ChatSidebar onClose={() => setChatSessionListOpen(false)} />
       )}
-
-      {/* Memory manager */}
-      {showMemories && <MemoryModal onClose={() => setShowMemories(false)} currentProjectPath={rootPath} />}
 
       {/* Arena (parallel model comparison) */}
       {showArena && <ArenaModal onClose={() => setShowArena(false)} />}
@@ -208,7 +203,7 @@ export default function ChatPanel() {
                           {t('chat.workflows')}
                         </button>
                         <button
-                          onClick={() => { setShowMemories(true); setShowMoreMenu(false) }}
+                          onClick={() => { openMemoryManager(); setShowMoreMenu(false) }}
                           className="w-full text-left px-3 py-1.5 text-xs text-nova-text-secondary hover:bg-nova-accent/15 hover:text-white flex items-center gap-2 transition-colors"
                         >
                           <span className="text-sm leading-none">🧠</span>

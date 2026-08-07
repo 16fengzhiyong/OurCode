@@ -9,6 +9,7 @@ import {
   buildChatUrl, buildModelsUrl, resolveFormat, FORMAT_META, PROVIDER_REGISTRY, getProviderMeta,
   EndpointFormat,
 } from '@/services/llm/endpoints'
+import McpConfigSection from './McpConfigSection'
 
 // Accent color presets
 const THEME_COLOR_PRESETS = ['#2563eb', '#7c5cbf', '#059669', '#e11d48', '#f59e0b', '#0891b2']
@@ -48,11 +49,11 @@ export default function SettingsModal() {
   } = useConfigStore()
 
   const { preferences, savePreferences } = useEditorStore()
-  const { isSettingsOpen, closeSettings, setTheme, setThemeColor } = useUIStore()
+  const { isSettingsOpen, closeSettings, setTheme, setThemeColor, rootPath } = useUIStore()
   const themeColor = useUIStore((s) => s.themeColor)
   const shortcutStore = useShortcutStore()
 
-  const [activeTab, setActiveTab] = useState<'api' | 'appearance' | 'editor' | 'shortcuts'>('api')
+  const [activeTab, setActiveTab] = useState<'api' | 'appearance' | 'editor' | 'shortcuts' | 'features'>('api')
   const [editingGroup, setEditingGroup] = useState<Partial<ApiConfigGroup> | null>(null)
   const [isCreating, setIsCreating] = useState(false)
 
@@ -306,6 +307,7 @@ export default function SettingsModal() {
             { key: 'appearance' as const, label: '外观偏好', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg> },
             { key: 'editor' as const, label: '编辑器', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg> },
             { key: 'shortcuts' as const, label: '快捷键', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M6 16h.001M10 16h.001M14 16h.001" /></svg> },
+            { key: 'features' as const, label: '功能', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2l2.4 7.2H22l-6 4.6 2.3 7.2-6.3-4.5-6.3 4.5L8 13.8 2 9.2h7.6z" /></svg> },
           ] as const).map((tab) => (
             <button
               key={tab.key}
@@ -878,6 +880,91 @@ export default function SettingsModal() {
                   </div>
                 )
               })}
+            </div>
+          )}
+
+          {/* ═══════ 功能（所有可配置功能的统一入口） ═══════ */}
+          {activeTab === 'features' && (
+            <div className="flex flex-col gap-6">
+              {/* 功能入口 */}
+              <section className="flex flex-col gap-2">
+                <h3 className="flex items-center gap-2 text-[13px] font-semibold text-nova-text-primary uppercase tracking-wider">
+                  <span style={{ width: 3, height: 14, background: 'var(--accent)', borderRadius: 2 }} />
+                  功能入口
+                </h3>
+                <SettingRow
+                  label="插件市场"
+                  desc="浏览、安装和管理插件"
+                  right={
+                    <button
+                      onClick={() => { closeSettings(); useUIStore.getState().openMarketplace() }}
+                      className="px-3 py-1.5 text-xs text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 rounded-md transition-colors"
+                    >
+                      打开
+                    </button>
+                  }
+                />
+                <SettingRow
+                  label="技能管理"
+                  desc="查看和启用 AI 技能（Slash 命令）"
+                  right={
+                    <button
+                      onClick={() => { closeSettings(); useUIStore.getState().openSkillRegistry() }}
+                      className="px-3 py-1.5 text-xs text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 rounded-md transition-colors"
+                    >
+                      打开
+                    </button>
+                  }
+                />
+                <SettingRow
+                  label="记忆管理"
+                  desc="查看、搜索和删除长期记忆"
+                  right={
+                    <button
+                      onClick={() => { closeSettings(); useUIStore.getState().openMemoryManager() }}
+                      className="px-3 py-1.5 text-xs text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 rounded-md transition-colors"
+                    >
+                      打开
+                    </button>
+                  }
+                />
+              </section>
+
+              {/* 项目设置 */}
+              <section className="flex flex-col gap-2">
+                <h3 className="flex items-center gap-2 text-[13px] font-semibold text-nova-text-primary uppercase tracking-wider">
+                  <span style={{ width: 3, height: 14, background: 'var(--accent)', borderRadius: 2 }} />
+                  项目设置
+                </h3>
+                <SettingRow
+                  label="当前项目"
+                  desc={rootPath || '尚未打开项目'}
+                  right={
+                    <button
+                      onClick={async () => {
+                        const path = await window.electronAPI.openFolder()
+                        if (path) {
+                          const ui = useUIStore.getState()
+                          ui.setRootPath(path)
+                          ui.enterProject(path)
+                        }
+                      }}
+                      className="px-3 py-1.5 text-xs text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 rounded-md transition-colors"
+                    >
+                      {rootPath ? '切换项目' : '打开文件夹'}
+                    </button>
+                  }
+                />
+              </section>
+
+              {/* MCP 服务器 */}
+              <section className="flex flex-col gap-2">
+                <h3 className="flex items-center gap-2 text-[13px] font-semibold text-nova-text-primary uppercase tracking-wider">
+                  <span style={{ width: 3, height: 14, background: 'var(--accent)', borderRadius: 2 }} />
+                  MCP 服务器
+                </h3>
+                <McpConfigSection rootPath={rootPath} />
+              </section>
             </div>
           )}
         </div>

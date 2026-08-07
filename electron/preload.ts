@@ -194,6 +194,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mcpCallTool: (server: string, toolName: string, args: Record<string, any>) =>
     ipcRenderer.invoke('mcp:callTool', server, toolName, args),
   mcpReload: (rootPath: string) => ipcRenderer.invoke('mcp:reload', rootPath),
+  mcpGetConfig: (rootPath: string) => ipcRenderer.invoke('mcp:getConfig', rootPath),
+  mcpSaveConfig: (rootPath: string, config: { mcpServers: Record<string, any> }, file?: string | null) =>
+    ipcRenderer.invoke('mcp:saveConfig', rootPath, config, file),
   mcpToolDefinitions: () => ipcRenderer.invoke('mcp:toolDefinitions'),
   mcpListResources: () => ipcRenderer.invoke('mcp:listResources'),
   mcpReadResource: (server: string, uri: string) => ipcRenderer.invoke('mcp:readResource', server, uri),
