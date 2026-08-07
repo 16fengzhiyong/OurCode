@@ -3,6 +3,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
 import ChatMessage from './ChatMessage'
 import ThinkingBlock from './ThinkingBlock'
+import MarkdownRenderer from '../Common/MarkdownRenderer'
 import BranchTreeModal from './BranchTreeModal'
 import { TodoPanel, PlanCard } from './AgentPanel'
 import WaveLogo from './WaveLogo'
@@ -364,8 +365,8 @@ export default function ChatMessages() {
             </div>
             {streamingThinking && <ThinkingBlock content={streamingThinking} defaultExpanded />}
             {streamingContent ? (
-              <div className="text-sm text-nova-text-primary whitespace-pre-wrap">
-                {streamingContent}
+              <div className="text-sm text-nova-text-primary">
+                <MarkdownRenderer content={streamingContent} />
                 <span className="animate-pulse-dot text-nova-accent">▋</span>
               </div>
             ) : !streamingThinking ? (
