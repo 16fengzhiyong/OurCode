@@ -3,43 +3,51 @@ import { useI18n } from '@/i18n/useI18n'
 
 interface ThinkingBlockProps {
   content: string
+  defaultExpanded?: boolean
 }
 
-export default function ThinkingBlock({ content }: ThinkingBlockProps) {
-  const [isExpanded, setIsExpanded] = useState(false)
+export default function ThinkingBlock({ content, defaultExpanded = false }: ThinkingBlockProps) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded)
   const t = useI18n()
 
-  return (
-    <div className="mb-2 bg-nova-bg rounded-xl border border-nova-border overflow-hidden">
+  if (!isExpanded) {
+    return (
       <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full px-3 py-2 flex items-center justify-between text-xs text-text-muted hover:text-text-secondary transition-colors"
+        onClick={() => setIsExpanded(true)}
+        className="flex items-center gap-1.5 px-2 py-1 text-[13px] leading-none
+                   text-nova-text-muted hover:text-nova-text-secondary hover:bg-nova-hover/50
+                   transition-colors select-none w-full text-left rounded"
       >
-        <span className="flex items-center gap-2">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5" />
-          </svg>
-          <span>{t('chat.thinkingTitle')}</span>
-        </span>
         <svg
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className="transition-transform"
-          style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+          className="w-2.5 h-2.5 shrink-0 transition-transform"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
         >
-          <polyline points="9 18 15 12 9 6" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 18l6-6-6-6" />
         </svg>
+        <span>{t('chat.thinkingTitle')}</span>
       </button>
+    )
+  }
 
-      {isExpanded && (
-        <div className="px-3 pb-3 text-xs text-text-muted whitespace-pre-wrap border-t border-nova-border pt-2">
-          {content}
-        </div>
-      )}
+  return (
+    <div className="border-l-2 border-nova-accent/25">
+      <button
+        onClick={() => setIsExpanded(false)}
+        className="flex items-center gap-1.5 px-2 py-1 text-[13px] leading-none
+                   text-nova-text-muted hover:text-nova-text-secondary transition-colors
+                   select-none w-full text-left"
+      >
+        <svg
+          className="w-2.5 h-2.5 shrink-0 rotate-90 transition-transform"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 18l6-6-6-6" />
+        </svg>
+        <span>{t('chat.thinkingTitle')}</span>
+      </button>
+      <div className="px-2 pb-2 text-[13px] text-nova-text-muted whitespace-pre-wrap leading-[1.5] opacity-80">
+        {content}
+      </div>
     </div>
   )
 }
