@@ -109,7 +109,9 @@ let _cache: SkillCache | null = null
 export async function listSkills(force = false, rootOverride?: string, includeDisabled = false): Promise<SkillInfo[]> {
   const root = rootOverride ?? getWorkspaceRoot()
   const global = await getGlobalSkillsDir()
-  const workspaceDirs = SKILL_DIRS.map((d) => joinPath(root, d))
+  // Before a workspace is opened (root ''), scanning the fake `/.claude/skills`
+  // style paths would hit the main-process path allowlist and log errors.
+  const workspaceDirs = root ? SKILL_DIRS.map((d) => joinPath(root, d)) : []
   const dirs = global ? [...workspaceDirs, global] : workspaceDirs
 
   // Enumerate every SKILL.md / skill.md candidate under each dir
@@ -131,7 +133,7 @@ export async function listSkills(force = false, rootOverride?: string, includeDi
     const s = await statSafe(c.path)
     if (s && s.modifiedAt > newest) newest = s.modifiedAt
   }
-  const configMtime = (await statSafe(joinPath(root, 'skills.json')))?.modifiedAt || 0
+  const configMtime = root ? (await statSafe(joinPath(root, 'skills.json')))?.modifiedAt || 0 : 0
   const cacheMtime = Math.max(newest, configMtime)
   if (!force && _cache && _cache.root === root && _cache.mtime >= cacheMtime) return _cache.skills
 
@@ -158,9 +160,11 @@ export async function listSkills(force = false, rootOverride?: string, includeDi
   }
   // Respect skills.json enable/disable overrides (default: enabled). The
   // registry UI passes includeDisabled=true so toggles stay visible.
+  // Global skills are always enabled — without a workspace there is no
+  // skills.json to consult (an empty root would hit the path allowlist).
   const visible: SkillInfo[] = []
   for (const skill of skills) {
-    if (includeDisabled || (await isSkillEnabled(skill.name, root))) visible.push(skill)
+    if (includeDisabled || !root || (await isSkillEnabled(skill.name, root))) visible.push(skill)
   }
   visible.sort((a, b) => a.name.localeCompare(b.name))
 

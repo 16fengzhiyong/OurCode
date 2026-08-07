@@ -45,6 +45,19 @@ export default function ChatPanel() {
   const projectEditMode = activeSession?.projectEditMode || 'plan'
   const activeModel = activeSession?.model || ''
 
+  // Agent mode operates on the workspace, so it needs a project folder open.
+  const hasProject = Boolean(
+    rootPath || document.getElementById('file-tree-root')?.getAttribute('data-root-path')
+  )
+
+  const handleSwitchToAgent = () => {
+    if (!hasProject) {
+      useUIStore.getState().showNotification(t('chat.agentNeedsProject'), 'warning')
+      return
+    }
+    if (activeSession) setAgentMode(activeSession.id, 'agent')
+  }
+
   const handleNewSession = () => {
     if (activeConfigGroupId) {
       createSession(activeConfigGroupId)
@@ -142,6 +155,17 @@ export default function ChatPanel() {
                   )}
                 </div>
               )}
+              <button
+                onClick={handleNewSession}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-white hover:opacity-90 transition-opacity shrink-0"
+                style={{ background: 'var(--grad-brand)', boxShadow: '0 2px 8px rgba(37,99,235,0.3)' }}
+                title={t('chat.newChat')}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                <span>{t('chat.newChat')}</span>
+              </button>
               <div className="flex items-center gap-0.5">
                 {/* ⋮ overflow menu — keeps the header clean (design: logo + connected + model + ⋮) */}
                 <div className="relative">
@@ -226,9 +250,9 @@ export default function ChatPanel() {
                     {t('chat.modeChat')}
                   </button>
                   <button
-                    onClick={() => setAgentMode(activeSession.id, 'agent')}
+                    onClick={handleSwitchToAgent}
                     className={`px-2.5 py-1 text-xs rounded-md transition-colors ${agentMode === 'agent' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
-                    title={t('chat.modeAgentHint')}
+                    title={hasProject ? t('chat.modeAgentHint') : t('chat.agentNeedsProject')}
                   >
                     {t('chat.modeAgent')}
                   </button>

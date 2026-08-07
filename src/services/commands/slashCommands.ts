@@ -11,6 +11,8 @@
  *    until the model actually invokes the skill tool).
  */
 
+import { listSkills } from '@/services/skills/skillManager'
+
 export interface SlashCommand {
   id: string
   name: string
@@ -82,7 +84,6 @@ function skillCommandTemplate(skillName: string, description: string): string {
  * carries the one-line description; the body loads on demand via skill__<name>.
  */
 export async function getSkillSlashCommands(rootOverride?: string): Promise<SlashCommand[]> {
-  const { listSkills } = await import('@/services/skills/skillManager')
   const skills = await listSkills(false, rootOverride)
   return skills.map((s) => ({
     id: `skill-${s.name}`,

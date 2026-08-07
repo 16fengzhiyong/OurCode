@@ -359,7 +359,13 @@ export class FileSystemService {
   }
 
   async listDir(dirPath: string): Promise<FileEntry[]> {
-    const entries = await readdir(dirPath, { withFileTypes: true })
+    let entries
+    try {
+      entries = await readdir(dirPath, { withFileTypes: true })
+    } catch {
+      // Directory doesn't exist yet (e.g. <userData>/skills before first run) — treat as empty.
+      return []
+    }
     const result: FileEntry[] = []
 
     for (const entry of entries) {

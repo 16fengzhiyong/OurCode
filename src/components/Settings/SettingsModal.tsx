@@ -1,25 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
-import { useConfigStore } from '@/stores/configStore'
+import { useConfigStore, ConnectionStep, ConnectionTestResult } from '@/stores/configStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useShortcutStore, ShortcutPreset } from '@/stores/shortcutStore'
-import { ApiConfigGroup } from '@/types'
-import { monaco, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
-
-// System-prompt templates
-const SYSTEM_PROMPT_TEMPLATES: Array<{ id: string; label: string; prompt: string }> = [
-  { id: 'universal', label: '通用编程助手', prompt: '你是一个专业的编程助手。当前项目使用 {{language}}，项目名称：{{projectName}}。' },
-  { id: 'python', label: 'Python 专家', prompt: '你是一位资深 Python 开发者。请遵守 PEP 8 规范，使用类型注解。当前文件：{{currentFile}}' },
-  { id: 'reviewer', label: '代码审查员', prompt: '你是一位严格的代码审查员。请从代码质量、潜在 Bug、性能和安全性等方面审查代码。' },
-  { id: 'frontend', label: '前端专家', prompt: '你是前端专家，精通 React、TypeScript 和 CSS。框架：{{framework}}。' },
-  { id: 'api', label: 'API 设计专家', prompt: '你是 API 设计专家。请帮助设计规范化的 RESTful API，使用正确的命名和 HTTP 方法。' },
-  { id: 'doc', label: '文档专家', prompt: '你是技术文档专家。项目：{{projectName}}，语言：{{language}}' },
-  { id: 'bugfix', label: 'Bug 修复专家', prompt: '你是调试专家。请分析错误信息，定位根因并提供修复方案。文件：{{currentFile}}' },
-  { id: 'sql', label: '数据库专家', prompt: '你是数据库专家。请帮助编写高效的 SQL 查询并优化性能。' },
-]
-
-const PROMPT_VARS = ['{{language}}', '{{framework}}', '{{projectName}}', '{{currentFile}}', '{{gitBranch}}', '{{date}}']
+import { ApiConfigGroup, ModelInfo } from '@/types'
+import {
+  buildChatUrl, buildModelsUrl, resolveFormat, FORMAT_META, PROVIDER_REGISTRY, getProviderMeta,
+  EndpointFormat,
+} from '@/services/llm/endpoints'
 
 // Accent color presets
 const THEME_COLOR_PRESETS = ['#2563eb', '#7c5cbf', '#059669', '#e11d48', '#f59e0b', '#0891b2']
@@ -28,30 +17,34 @@ const CONFIG_COLORS = [
   '#6C9EFF', '#B77CFF', '#4ADE80', '#FB923C', '#F87171', '#FACC15', '#2DD4BF', '#F472B6',
 ]
 
-const PROVIDERS = [
-  { value: 'openai', label: 'OpenAI', icon: 'O', color: '#10a37f' },
-  { value: 'anthropic', label: 'Anthropic', icon: 'A', color: '#d47757' },
-  { value: 'gemini', label: 'Gemini', icon: 'G', color: '#4285f4' },
-  { value: 'deepseek', label: 'DeepSeek', icon: 'D', color: '#4f46e5' },
-  { value: 'groq', label: 'Groq', icon: 'Q', color: '#f97316' },
-  { value: 'azure', label: 'Azure', icon: 'Z', color: '#0078d4' },
-  { value: 'ollama', label: 'Ollama', icon: 'L', color: '#fbbf24' },
-  { value: 'custom', label: '自定义', icon: '⚙', color: '#a1a1aa' },
-]
+/** Only these wire formats are offered as explicit overrides. */
+const FORMAT_ORDER: EndpointFormat[] = ['openai', 'responses', 'anthropic']
 
-const API_FORMAT_OPTIONS = [
-  { value: 'auto', label: '🤖 自动检测', desc: '根据提供商自动选择格式' },
-  { value: 'openai', label: '📦 OpenAI 兼容', desc: '/v1/chat/completions 格式' },
-  { value: 'anthropic', label: '🧠 Anthropic 格式', desc: '/v1/messages 格式 (Claude API)' },
-  { value: 'gemini', label: '🌐 Gemini 格式', desc: 'Gemini generateContent 格式' },
-]
+/** Final chat-request URL the selected config would actually POST to. */
+function previewChatUrl(group: Partial<ApiConfigGroup>): string {
+  const base = (group.baseUrl || '').trim().replace(/\/+$/, '')
+  if (!base) return ''
+  const fmt = resolveFormat(group.provider || 'custom', group.apiFormat)
+  const url = buildChatUrl(base, fmt, (group.defaultModel || '').trim() || undefined)
+  return fmt === 'gemini' ? `${url}?key=…` : url
+}
+
+/** Model-list URL (only when the selected format exposes one). */
+function previewModelsUrl(group: Partial<ApiConfigGroup>): string | null {
+  const base = (group.baseUrl || '').trim().replace(/\/+$/, '')
+  if (!base) return null
+  const fmt = resolveFormat(group.provider || 'custom', group.apiFormat)
+  const url = buildModelsUrl(base, fmt)
+  if (!url) return null
+  return fmt === 'gemini' ? `${url}?key=…` : url
+}
 
 export default function SettingsModal() {
   const {
     configGroups, activeConfigGroupId, models,
     loadConfigGroups, createConfigGroup, updateConfigGroup,
-    deleteConfigGroup, setActiveConfigGroup, fetchModels, testConnection,
-    savePromptVersion, getPromptHistory, restorePromptVersion,
+    deleteConfigGroup, fetchModelsForGroup, testConnectionGroup,
+    addCustomModel, removeCustomModel, customModels,
   } = useConfigStore()
 
   const { preferences, savePreferences } = useEditorStore()
@@ -62,61 +55,27 @@ export default function SettingsModal() {
   const [activeTab, setActiveTab] = useState<'api' | 'appearance' | 'editor' | 'shortcuts'>('api')
   const [editingGroup, setEditingGroup] = useState<Partial<ApiConfigGroup> | null>(null)
   const [isCreating, setIsCreating] = useState(false)
-  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
-  const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({})
+
+  // Connection test state (per editor session)
+  const [testing, setTesting] = useState(false)
+  const [testError, setTestError] = useState<string | null>(null)
+  const [testSteps, setTestSteps] = useState<ConnectionStep[]>([])
+  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null)
+
+  // Model management state (per editor session)
+  const [editorModels, setEditorModels] = useState<ModelInfo[]>([])
+  const [fetchingModels, setFetchingModels] = useState(false)
+  const [modelFetchError, setModelFetchError] = useState<string | null>(null)
+  const [newModelName, setNewModelName] = useState('')
+
   const [showEditKey, setShowEditKey] = useState(false)
-  const [showPromptHistory, setShowPromptHistory] = useState(false)
+  const [headersText, setHeadersText] = useState('')
   const [lspServersText, setLspServersText] = useState(
     Object.entries(preferences.lspServers ?? {})
       .map(([lang, cmd]) => `${lang}: ${cmd}`)
       .join('\n'),
   )
-  const promptEditorRef = useRef<HTMLDivElement>(null)
-  const promptEditorInstance = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
-
-  // Initialize Monaco editor for system prompt
-  useEffect(() => {
-    if (!promptEditorRef.current || !editingGroup) return
-    if (promptEditorInstance.current) promptEditorInstance.current.dispose()
-
-    const editor = monaco.editor.create(promptEditorRef.current, {
-      value: editingGroup.systemPrompt || '',
-      language: 'markdown',
-      theme: document.documentElement.classList.contains('dark') ? OURCODE_DARK_THEME : OURCODE_LIGHT_THEME,
-      minimap: { enabled: false },
-      lineNumbers: 'off',
-      wordWrap: 'on',
-      scrollBeyondLastLine: false,
-      folding: false,
-      glyphMargin: false,
-      lineDecorationsWidth: 0,
-      lineNumbersMinChars: 0,
-      overviewRulerBorder: false,
-      overviewRulerLanes: 0,
-      renderLineHighlight: 'none',
-      scrollbar: { vertical: 'auto', horizontal: 'hidden' },
-      fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-      padding: { top: 8, bottom: 8 },
-      automaticLayout: true,
-    })
-
-    editor.onDidChangeModelContent(() => {
-      setEditingGroup((prev) => prev ? { ...prev, systemPrompt: editor.getValue() } : prev)
-    })
-
-    promptEditorInstance.current = editor
-    return () => { editor.dispose(); promptEditorInstance.current = null }
-  }, [editingGroup?.id, isCreating])
-
-  // Sync external prompt changes into Monaco
-  useEffect(() => {
-    const editor = promptEditorInstance.current
-    const prompt = editingGroup?.systemPrompt
-    if (!editor || prompt === undefined) return
-    if (editor.getValue() !== prompt) editor.setValue(prompt || '')
-  }, [editingGroup?.systemPrompt])
 
   useEffect(() => {
     if (isSettingsOpen) {
@@ -126,64 +85,205 @@ export default function SettingsModal() {
       setIsCreating(false)
       setActiveTab('api')
       setShowEditKey(false)
+      resetEditorState()
       dialogRef.current?.focus()
     }
   }, [isSettingsOpen, loadConfigGroups])
 
   if (!isSettingsOpen) return null
 
-  const handleCreateGroup = () => {
+  /** Reset all transient editor state (test results, fetched models, ...). */
+  function resetEditorState() {
+    setTesting(false)
+    setTestError(null)
+    setTestSteps([])
+    setTestResult(null)
+    setEditorModels([])
+    setFetchingModels(false)
+    setModelFetchError(null)
+    setNewModelName('')
+    setHeadersText('')
+  }
+
+  /** Open the editor for a brand-new config of the given provider. */
+  function startNewForProvider(provider: string) {
+    const meta = getProviderMeta(provider)
+    resetEditorState()
     setIsCreating(true)
     setEditingGroup({
-      name: '新配置',
-      baseUrl: 'https://api.openai.com/v1',
+      name: `${meta?.label || provider} 配置`,
+      baseUrl: meta?.defaultBaseUrl || '',
       apiKey: '',
       systemPrompt: '',
       defaultModel: '',
-      provider: 'openai',
+      provider: provider as ApiConfigGroup['provider'],
+      apiFormat: 'auto',
       customHeaders: {},
-      color: '#6C9EFF',
+      color: meta?.color || '#6C9EFF',
     })
+  }
+
+  /** Open the editor for an existing saved config. */
+  function openSavedGroup(group: ApiConfigGroup) {
+    resetEditorState()
+    setIsCreating(false)
+    setEditingGroup({ ...group })
+    setHeadersText(Object.entries(group.customHeaders || {}).map(([k, v]) => `${k}: ${v}`).join('\n'))
+    // Seed models: reuse the store's fetched list when editing the active group,
+    // otherwise just the custom models the user added for this provider.
+    if (group.id === activeConfigGroupId && models.length > 0) {
+      setEditorModels(models)
+    } else {
+      setEditorModels(customModels.filter((c) => c.provider === group.provider).map((c) => ({
+        id: c.id,
+        name: c.name,
+        isFree: false,
+        isFavorite: false,
+        contextWindow: c.contextWindow,
+        vision: c.vision,
+        functionCall: c.functionCall,
+      })))
+    }
+  }
+
+  /** Build a full ApiConfigGroup from the editor draft (for testing / model fetch). */
+  function toFullGroup(group: Partial<ApiConfigGroup>): ApiConfigGroup {
+    return {
+      id: group.id || 'draft',
+      name: group.name || '未命名配置',
+      baseUrl: (group.baseUrl || '').trim(),
+      apiKey: (group.apiKey || '').trim(),
+      systemPrompt: group.systemPrompt || '',
+      defaultModel: (group.defaultModel || '').trim(),
+      provider: (group.provider || 'openai') as ApiConfigGroup['provider'],
+      apiFormat: group.apiFormat,
+      customHeaders: group.customHeaders || {},
+      createdAt: group.createdAt ?? Date.now(),
+      updatedAt: Date.now(),
+    }
   }
 
   const handleSaveGroup = async () => {
     if (!editingGroup) return
+    if (!(editingGroup.name || '').trim()) { setTestError('请填写配置名称'); return }
+    if (!(editingGroup.baseUrl || '').trim()) { setTestError('请填写 API 基础 URL'); return }
     const nameExists = configGroups.some((g) => g.name === editingGroup.name && g.id !== editingGroup.id)
-    if (nameExists) { alert('配置名称已存在'); return }
-    if (editingGroup.systemPrompt && editingGroup.id) savePromptVersion(editingGroup.id, editingGroup.systemPrompt)
+    if (nameExists) { setTestError('配置名称已存在'); return }
     if (isCreating) { await createConfigGroup(editingGroup) }
     else if (editingGroup.id) { await updateConfigGroup(editingGroup.id, editingGroup) }
     setEditingGroup(null)
     setIsCreating(false)
+    resetEditorState()
   }
 
-  const handleTestConnection = async (groupId: string) => {
-    const result = await testConnection(groupId)
-    setTestResults((prev) => ({ ...prev, [groupId]: result }))
-    if (result.success) fetchModels(groupId)
-  }
-
-  const handleDeleteGroup = async (id: string) => {
-    if (confirm('确定要删除此配置吗？')) await deleteConfigGroup(id)
-  }
-
-  const insertVariable = (variable: string) => {
-    const editor = promptEditorInstance.current
-    if (!editor) return
-    const selection = editor.getSelection()
-    if (selection) {
-      editor.executeEdits('', [{ range: selection, text: ' ' + variable + ' ' }])
-      editor.focus()
+  /** Test the in-progress (possibly unsaved) config from the edit form. */
+  const handleTest = async () => {
+    if (!editingGroup) return
+    const baseUrl = (editingGroup.baseUrl || '').trim()
+    const apiKey = (editingGroup.apiKey || '').trim()
+    if (!baseUrl) { setTestError('请先填写 API 基础 URL'); return }
+    // Local Ollama and custom relays may not need a key.
+    const provider = editingGroup.provider || 'openai'
+    const requiresKey = provider !== 'ollama' && provider !== 'custom'
+    if (requiresKey && !apiKey) { setTestError('请先填写 API 密钥'); return }
+    setTesting(true)
+    setTestError(null)
+    setTestResult(null)
+    setTestSteps([])
+    try {
+      const group = toFullGroup(editingGroup)
+      const result = await testConnectionGroup(group, (step) => {
+        setTestSteps((prev) => [...prev, step])
+      })
+      setTestResult(result)
+    } catch (error: any) {
+      setTestError(error?.message || '测试连接失败，请稍后重试')
+    } finally {
+      setTesting(false)
     }
   }
 
-  const promptLen = editingGroup?.systemPrompt?.length || 0
-  const promptTokens = Math.ceil(promptLen / 4)
+  const handleDeleteGroup = async () => {
+    if (!editingGroup?.id) return
+    if (confirm('确定要删除此配置吗？')) {
+      await deleteConfigGroup(editingGroup.id)
+      setEditingGroup(null)
+      setIsCreating(false)
+      resetEditorState()
+    }
+  }
+
+  const handleFetchModels = async () => {
+    if (!editingGroup) return
+    const baseUrl = (editingGroup.baseUrl || '').trim()
+    if (!baseUrl) { setModelFetchError('请先填写 API 基础 URL'); return }
+    setFetchingModels(true)
+    setModelFetchError(null)
+    try {
+      const list = await fetchModelsForGroup(toFullGroup(editingGroup))
+      setEditorModels(list)
+      if (list.length === 0) setModelFetchError('接口未返回任何模型，可手动添加')
+    } catch (error: any) {
+      setModelFetchError(error?.message || '获取模型列表失败')
+    } finally {
+      setFetchingModels(false)
+    }
+  }
+
+  const handleAddModel = () => {
+    const name = newModelName.trim()
+    if (!name || !editingGroup) return
+    if (editorModels.some((m) => m.id === name)) { setNewModelName(''); return }
+    addCustomModel({ name, provider: editingGroup.provider as ApiConfigGroup['provider'] })
+    setEditorModels((prev) => [...prev, { id: name, name, isFree: false, isFavorite: false }])
+    setNewModelName('')
+  }
+
+  const handleRemoveModel = (id: string) => {
+    if (customModels.some((c) => c.id === id)) removeCustomModel(id)
+    setEditorModels((prev) => prev.filter((m) => m.id !== id))
+  }
+
+  const handleImport = async () => {
+    const { importConfigGroups } = useConfigStore.getState()
+    const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0]
+      if (!file) return
+      const text = await file.text()
+      const password = prompt('输入导入密码（无密码请留空）')
+      await importConfigGroups(text, password || undefined)
+      loadConfigGroups()
+    }
+    input.click()
+  }
+
+  const handleExport = async () => {
+    const { exportConfigGroups } = useConfigStore.getState()
+    const password = prompt('设置导出密码（无密码请留空）')
+    const data = await exportConfigGroups(password || undefined)
+    const blob = new Blob([data], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a'); a.href = url; a.download = `ourcode-configs-${Date.now()}.json`; a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const fmt = resolveFormat(editingGroup?.provider || 'custom', editingGroup?.apiFormat)
+  const providerMeta = getProviderMeta(editingGroup?.provider || '')
+  const nativeFormat = providerMeta?.nativeFormat || 'openai'
+  const formatOverrideWarning = !!editingGroup?.apiFormat
+    && editingGroup.apiFormat !== 'auto'
+    && editingGroup.apiFormat !== nativeFormat
+  // Number of valid "Header: Value" lines currently in the custom-headers editor.
+  const parsedHeaderCount = headersText.split('\n').reduce((n, line) => {
+    const idx = line.indexOf(':')
+    return idx > 0 && line.slice(idx + 1).trim() ? n + 1 : n
+  }, 0)
 
   // ───────────── RENDER ─────────────
   return (
     <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="glass-panel rounded-xl shadow-2xl w-[960px] max-w-[95vw] max-h-[88vh] flex flex-col overflow-hidden" style={{ animation: 'fadeIn 0.2s ease-out' }}>
+      <div className="glass-panel rounded-xl shadow-2xl w-[1120px] max-w-[96vw] max-h-[90vh] flex flex-col overflow-hidden" style={{ animation: 'fadeIn 0.2s ease-out' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-7 py-5 border-b border-nova-border shrink-0">
           <div className="flex items-center gap-3">
@@ -222,351 +322,356 @@ export default function SettingsModal() {
           ))}
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-7 py-6 flex flex-col gap-6">
-          {/* ═══════ API 配置 ═══════ */}
+        {/* Content: API tab manages its own two-pane scroll; other tabs scroll as one */}
+        <div className={`flex-1 min-h-0 flex flex-col ${activeTab === 'api' ? 'px-7 py-4 overflow-hidden' : 'px-7 py-6 gap-6 overflow-y-auto'}`}>
+          {/* ═══════ API 配置（Hermes 风格：左栏提供商 + 右侧编辑，独立滚动） ═══════ */}
           {activeTab === 'api' && (
-            <div className="flex flex-col gap-5">
-              {editingGroup ? (
-                /* ── Edit/Create config ── */
-                <div className="flex flex-col gap-5">
-                  <div className="flex flex-col gap-3">
-                    <h3 className="flex items-center gap-2 text-[13px] font-semibold text-nova-text-primary uppercase tracking-wider">
-                      <span style={{ width: 3, height: 14, background: 'var(--accent)', borderRadius: 2 }} />
-                      {isCreating ? '新建配置' : '编辑配置'}
-                    </h3>
-                  </div>
-
-                  {/* Provider selector - grid */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-nova-text-secondary">选择提供商</label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {PROVIDERS.map((p) => (
-                        <button
-                          key={p.value}
-                          className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border transition-all ${
-                            editingGroup.provider === p.value
-                              ? 'border-nova-accent bg-nova-accent/10 shadow-[0_0_0_1px_var(--accent)]'
-                              : 'border-nova-border bg-nova-card hover:border-nova-border-strong'
-                          }`}
-                          onClick={() => setEditingGroup({ ...editingGroup, provider: p.value as any })}
-                        >
-                          <div className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold" style={{ background: `${p.color}20`, color: p.color }}>
-                            {p.icon}
-                          </div>
-                          <span className="text-[11px] font-medium text-nova-text-primary">{p.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Basic fields */}
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-nova-text-secondary">配置名称 <span className="text-red-400">*</span></label>
-                      <input type="text" value={editingGroup.name || ''} onChange={(e) => setEditingGroup({ ...editingGroup, name: e.target.value })}
-                        className="px-3 py-2 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors" />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-nova-text-secondary">默认模型</label>
-                      <input type="text" value={editingGroup.defaultModel || ''} onChange={(e) => setEditingGroup({ ...editingGroup, defaultModel: e.target.value })}
-                        className="px-3 py-2 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors" />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-nova-text-secondary">API 基础 URL <span className="text-red-400">*</span></label>
-                    <input type="text" value={editingGroup.baseUrl || ''} onChange={(e) => setEditingGroup({ ...editingGroup, baseUrl: e.target.value })}
-                      className="px-3 py-2 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors font-mono" />
-                  </div>
-
-                  {/* API Format override — useful for custom/azure providers */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-nova-text-secondary">API 请求格式</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {API_FORMAT_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.value}
-                          className={`flex flex-col items-start gap-0.5 p-2.5 rounded-lg border text-left transition-all ${
-                            (editingGroup.apiFormat || 'auto') === opt.value
-                              ? 'border-nova-accent bg-nova-accent/10 shadow-[0_0_0_1px_var(--accent)]'
-                              : 'border-nova-border bg-nova-card hover:border-nova-border-strong'
-                          }`}
-                          onClick={() => setEditingGroup({ ...editingGroup, apiFormat: opt.value as any })}
-                        >
-                          <span className="text-xs font-medium text-nova-text-primary">{opt.label}</span>
-                          <span className="text-[10px] text-nova-text-muted">{opt.desc}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-nova-text-secondary">API 密钥 <span className="text-red-400">*</span></label>
-                    <div className="flex gap-1.5">
-                      <input type={showEditKey ? 'text' : 'password'} value={editingGroup.apiKey || ''} onChange={(e) => setEditingGroup({ ...editingGroup, apiKey: e.target.value })}
-                        className="flex-1 px-3 py-2 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors font-mono" />
-                      <button onClick={() => setShowEditKey(!showEditKey)}
-                        className="px-3 py-2 text-xs bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors shrink-0">
-                        {showEditKey ? '🙈 隐藏' : '👁 显示'}
-                      </button>
-                    </div>
-                    <span className="text-[10px] text-nova-text-muted">支持环境变量：<code className="px-1 py-0.5 bg-nova-hover rounded text-[10px]">$OPENAI_API_KEY</code></span>
-                  </div>
-
-                  {/* Color label */}
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-medium text-nova-text-secondary">标识颜色</label>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {CONFIG_COLORS.map((c) => (
-                        <button key={c} onClick={() => setEditingGroup({ ...editingGroup, color: c })}
-                          className={`w-6 h-6 rounded-full border-2 transition-all hover:scale-110 ${editingGroup.color === c ? 'border-white shadow-[0_0_0_2px_var(--accent)]' : 'border-transparent'}`}
-                          style={{ background: c }} />
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* System prompt */}
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-medium text-nova-text-secondary">系统提示词</label>
-                      <div className="flex items-center gap-1.5">
-                        <select
-                          className="px-2 py-1 bg-nova-input-bg border border-nova-border rounded text-[11px] text-nova-text-muted outline-none"
-                          onChange={(e) => {
-                            const tpl = SYSTEM_PROMPT_TEMPLATES.find((x) => x.id === e.target.value)
-                            if (tpl) setEditingGroup({ ...editingGroup, systemPrompt: tpl.prompt })
-                            e.target.value = ''
-                          }}
-                          defaultValue=""
-                        >
-                          <option value="" disabled>📋 插入模板...</option>
-                          {SYSTEM_PROMPT_TEMPLATES.map((tpl) => (
-                            <option key={tpl.id} value={tpl.id}>{tpl.label}</option>
-                          ))}
-                        </select>
-                        <button onClick={() => setEditingGroup({ ...editingGroup, systemPrompt: '' })}
-                          className="px-2 py-1 text-[10px] rounded bg-nova-hover text-nova-text-muted hover:text-red-400 transition-colors">
-                          🔄 重置
-                        </button>
-                        <button onClick={() => {
-                          const blob = new Blob([editingGroup.systemPrompt || ''], { type: 'text/plain' })
-                          const url = URL.createObjectURL(blob)
-                          const a = document.createElement('a'); a.href = url; a.download = 'system-prompt.txt'; a.click()
-                          URL.revokeObjectURL(url)
-                        }} className="px-2 py-1 text-[10px] rounded bg-nova-hover text-nova-text-muted transition-colors">📤 导出</button>
-                        <button onClick={() => {
-                          const input = document.createElement('input'); input.type = 'file'; input.accept = '.txt,.md'
-                          input.onchange = async (e) => {
-                            const file = (e.target as HTMLInputElement).files?.[0]
-                            if (file) { const text = await file.text(); setEditingGroup({ ...editingGroup, systemPrompt: text }) }
-                          }
-                          input.click()
-                        }} className="px-2 py-1 text-[10px] rounded bg-nova-hover text-nova-text-muted transition-colors">📥 导入</button>
-                        {editingGroup.id && (
-                          <button onClick={() => setShowPromptHistory(!showPromptHistory)}
-                            className="px-2 py-1 text-[10px] rounded bg-nova-hover text-nova-text-muted transition-colors">
-                            📜 历史 ({getPromptHistory(editingGroup.id).length})
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Monaco editor */}
-                    <div className="border border-nova-border rounded-lg overflow-hidden bg-nova-input-bg">
-                      <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-nova-border bg-nova-card">
-                        <span className="text-[10px] text-nova-text-muted">Markdown</span>
-                        <span className={`text-[10px] ${promptLen > 4000 ? 'text-yellow-400' : 'text-nova-text-muted'}`}>
-                          {promptLen} 字符 · ~{promptTokens} tokens
-                        </span>
-                      </div>
-                      <div ref={promptEditorRef} style={{ height: 130 }} />
-                    </div>
-
-                    {/* Variable chips */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {PROMPT_VARS.map((v) => (
-                        <button
-                          key={v}
-                          onClick={() => insertVariable(v)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-full bg-nova-hover text-nova-text-secondary hover:text-nova-accent hover:bg-nova-accent/10 border border-transparent hover:border-nova-accent/30 transition-all cursor-pointer"
-                        >
-                          {v}
-                        </button>
-                      ))}
-                      <span className="text-[10px] text-nova-text-muted ml-auto">点击变量插入到提示词中</span>
-                    </div>
-
-                    {/* Prompt history */}
-                    {showPromptHistory && editingGroup.id && (
-                      <div className="p-2 bg-nova-surface rounded-lg border border-nova-border max-h-[120px] overflow-y-auto">
-                        {getPromptHistory(editingGroup.id).length === 0 ? (
-                          <div className="text-[10px] text-nova-text-muted py-2 text-center">暂无历史版本</div>
-                        ) : (
-                          getPromptHistory(editingGroup.id).map((v, i) => (
-                            <div key={v.timestamp}
-                              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-nova-hover cursor-pointer"
-                              onClick={() => { restorePromptVersion(editingGroup.id!, i); setEditingGroup({ ...editingGroup, systemPrompt: v.content }) }}>
-                              <span className="text-[10px] text-nova-text-muted shrink-0">{new Date(v.timestamp).toLocaleDateString()}</span>
-                              <span className="text-[10px] text-nova-text-secondary truncate flex-1">{v.content.slice(0, 60)}...</span>
-                              <span className="text-[10px] text-nova-accent">恢复</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Custom headers */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-nova-text-secondary">自定义请求头</label>
-                    <textarea
-                      value={JSON.stringify(editingGroup.customHeaders || {}, null, 2)}
-                      onChange={(e) => { try { setEditingGroup({ ...editingGroup, customHeaders: JSON.parse(e.target.value) }) } catch { /* ignore */ } }}
-                      className="px-3 py-2 bg-nova-input-bg border border-nova-border rounded-md text-xs text-nova-text-primary outline-none focus:border-nova-accent/50 resize-none font-mono"
-                      rows={2}
-                    />
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex justify-end gap-2 pt-2 border-t border-nova-border">
-                    <button onClick={() => { setEditingGroup(null); setIsCreating(false) }}
-                      className="px-4 py-2 text-sm bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors">取消</button>
-                    <button onClick={() => {
-                      const groupId = editingGroup?.id || activeConfigGroupId
-                      if (groupId) {
-                        handleTestConnection(groupId)
-                      } else {
-                        alert('请先保存配置后再测试连接')
-                      }
-                    }}
-                      className="px-4 py-2 text-sm bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors">🧪 测试连接</button>
-                    <button onClick={handleSaveGroup}
-                      className="px-4 py-2 text-sm bg-nova-accent text-white rounded-lg hover:opacity-90 transition-opacity">💾 保存配置</button>
-                  </div>
+            <div className="flex-1 min-h-0 flex gap-5">
+              {/* ── Left rail (independent scroll) ── */}
+              <div className="w-60 shrink-0 flex flex-col gap-4 border-r border-nova-border pr-4 -ml-7 pl-7 overflow-y-auto">
+                <div>
+                  <h3 className="flex items-center gap-2 text-[13px] font-semibold text-nova-text-primary uppercase tracking-wider">
+                    <span style={{ width: 3, height: 14, background: 'var(--accent)', borderRadius: 2 }} />
+                    API 配置
+                  </h3>
+                  <p className="text-xs text-nova-text-muted mt-1.5">选择提供商或已保存配置，在右侧编辑</p>
                 </div>
-              ) : (
-                /* ── Config list (cards) ── */
-                <div className="flex flex-col gap-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="flex items-center gap-2 text-[13px] font-semibold text-nova-text-primary uppercase tracking-wider">
-                        <span style={{ width: 3, height: 14, background: 'var(--accent)', borderRadius: 2 }} />
-                        API 配置组
-                      </h3>
-                      <p className="text-xs text-nova-text-muted mt-1.5">管理你的 LLM 提供商连接，支持多个配置组随时切换</p>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button onClick={async () => {
-                        const { importConfigGroups } = useConfigStore.getState()
-                        const input = document.createElement('input'); input.type = 'file'; input.accept = '.json'
-                        input.onchange = async (e) => {
-                          const file = (e.target as HTMLInputElement).files?.[0]
-                          if (!file) return
-                          const text = await file.text()
-                          const password = prompt('输入导入密码（无密码请留空）')
-                          await importConfigGroups(text, password || undefined)
-                          loadConfigGroups()
-                        }
-                        input.click()
-                      }} className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors flex items-center gap-1">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                        导入
-                      </button>
-                      <button onClick={async () => {
-                        const { exportConfigGroups } = useConfigStore.getState()
-                        const password = prompt('设置导出密码（无密码请留空）')
-                        const data = await exportConfigGroups(password || undefined)
-                        const blob = new Blob([data], { type: 'application/json' })
-                        const url = URL.createObjectURL(blob)
-                        const a = document.createElement('a'); a.href = url; a.download = `ourcode-configs-${Date.now()}.json`; a.click()
-                        URL.revokeObjectURL(url)
-                      }} className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors flex items-center gap-1">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                        导出
-                      </button>
-                      <button onClick={handleCreateGroup}
-                        className="px-3 py-1.5 text-xs bg-nova-accent text-white rounded-lg hover:opacity-90 transition-opacity flex items-center gap-1">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                        新建配置
-                      </button>
-                    </div>
-                  </div>
 
+                <button onClick={() => startNewForProvider('openai')}
+                  className="w-full px-3 py-2 text-xs bg-nova-accent text-white rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-1">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                  新建配置
+                </button>
+
+                {/* Provider picker (vertical) */}
+                <div className="flex flex-col gap-0.5">
+                  <div className="text-[10px] font-semibold text-nova-text-muted uppercase tracking-wider px-2 py-1">选择提供商</div>
+                  {PROVIDER_REGISTRY.map((p) => {
+                    const selected = isCreating && editingGroup?.provider === p.value
+                    return (
+                      <button key={p.value} onClick={() => startNewForProvider(p.value)}
+                        className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg border transition-all text-left ${
+                          selected
+                            ? 'border-nova-accent bg-nova-accent/10 shadow-[0_0_0_1px_var(--accent)]'
+                            : 'border-transparent hover:bg-nova-hover hover:border-nova-border'
+                        }`}>
+                        <div className="w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: `${p.color}20`, color: p.color }}>
+                          {p.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-nova-text-primary leading-tight">{p.label}</div>
+                          <div className="text-[10px] text-nova-text-muted truncate leading-tight">{p.description}</div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Saved configs */}
+                <div className="flex flex-col gap-0.5">
+                  <div className="text-[10px] font-semibold text-nova-text-muted uppercase tracking-wider px-2 py-1">
+                    已保存配置（{configGroups.length}）
+                  </div>
                   {configGroups.length === 0 ? (
-                    <div className="flex flex-col items-center gap-3 py-12 text-center">
-                      <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'rgba(37,99,235,0.12)', color: 'var(--accent)' }}>
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                      </div>
-                      <div className="text-sm font-semibold">还没有 API 配置</div>
-                      <div className="text-xs text-nova-text-muted max-w-[300px]">添加一个 LLM 提供商配置，开始使用 AI 功能。支持 OpenAI、Anthropic、DeepSeek 等主流平台。</div>
-                      <button onClick={handleCreateGroup} className="px-4 py-2 text-sm bg-nova-accent text-white rounded-lg hover:opacity-90 transition-opacity">新建配置</button>
-                    </div>
+                    <div className="text-[11px] text-nova-text-muted px-2 py-2 leading-relaxed">还没有配置，从上方选择一个提供商开始创建</div>
                   ) : (
-                    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))' }}>
-                      {configGroups.map((group) => {
-                        const isActive = group.id === activeConfigGroupId
-                        const testResult = testResults[group.id]
-                        const modelCount = models.length || 0
-                        return (
-                          <div
-                            key={group.id}
-                            className={`relative p-4 rounded-xl border transition-all cursor-pointer overflow-hidden ${
-                              isActive
-                                ? 'border-nova-accent shadow-[0_0_0_1px_var(--accent),0_0_20px_rgba(37,99,235,0.12)]'
-                                : 'border-nova-border bg-nova-card hover:border-nova-border-strong hover:shadow-md'
-                            }`}
-                            onClick={() => { setEditingGroup(group); setIsCreating(false) }}
-                          >
-                            {isActive && (
-                              <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: 'linear-gradient(90deg, var(--accent), #8b5cf6)' }} />
-                            )}
-                            <div className="flex items-center gap-2.5 mb-2.5">
-                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: group.color || '#6C9EFF' }} />
-                              <span className="text-sm font-semibold text-nova-text-primary">{group.name}</span>
-                              {isActive && (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-nova-accent/15 text-nova-accent">使用中</span>
-                              )}
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-nova-hover text-nova-text-muted">{group.provider}</span>
-                              {group.apiKey.startsWith('$') && (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">免费</span>
-                              )}
-                            </div>
-                            <div className="text-[11px] text-nova-text-muted font-mono truncate mb-1.5">{group.baseUrl}</div>
-                            <div className="text-[11px] text-nova-text-secondary font-mono">
-                              {showApiKey[group.id]
-                                ? group.apiKey
-                                : group.apiKey && group.apiKey.length > 8
-                                  ? `${group.apiKey.slice(0, 4)}...${group.apiKey.slice(-4)}`
-                                  : group.apiKey || '无需密钥'}
-                            </div>
-                            <div className="flex items-center gap-1.5 mt-2">
-                              <span className="w-1.5 h-1.5 rounded-full bg-green-400" style={{ boxShadow: '0 0 6px rgba(34,197,94,0.5)' }} />
-                              <span className="text-[11px] text-green-400">连接正常</span>
-                              <span className="text-[10px] text-nova-text-muted ml-auto">{modelCount} 个模型</span>
-                            </div>
-                            {testResult && (
-                              <div className={`text-[11px] mt-1 ${testResult.success ? 'text-green-400' : 'text-red-400'}`}>
-                                {testResult.success ? '✓' : '✗'} {testResult.message}
-                              </div>
-                            )}
-                            <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-nova-border" onClick={(e) => e.stopPropagation()}>
-                              <button onClick={() => setActiveConfigGroup(group.id)}
-                                className="px-2.5 py-1 text-[10px] rounded-md bg-nova-hover text-nova-text-secondary hover:text-nova-text-primary transition-colors">设为活跃</button>
-                              <button onClick={() => { setEditingGroup(group); setIsCreating(false) }}
-                                className="px-2.5 py-1 text-[10px] rounded-md bg-nova-hover text-nova-text-secondary hover:text-nova-text-primary transition-colors">编辑</button>
-                              <button onClick={() => handleTestConnection(group.id)}
-                                className="px-2.5 py-1 text-[10px] rounded-md bg-nova-hover text-nova-text-secondary hover:text-nova-text-primary transition-colors">测试连接</button>
-                              <button onClick={() => handleDeleteGroup(group.id)}
-                                className="px-2.5 py-1 text-[10px] rounded-md bg-transparent text-nova-text-muted hover:text-red-400 transition-colors ml-auto">删除</button>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
+                    configGroups.map((group) => {
+                      const active = group.id === activeConfigGroupId
+                      const selected = !isCreating && editingGroup?.id === group.id
+                      return (
+                        <button key={group.id} onClick={() => openSavedGroup(group)}
+                          className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg border transition-all text-left ${
+                            selected
+                              ? 'border-nova-accent bg-nova-accent/10 shadow-[0_0_0_1px_var(--accent)]'
+                              : 'border-transparent hover:bg-nova-hover hover:border-nova-border'
+                          }`}>
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: group.color || '#6C9EFF' }} />
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-xs font-medium text-nova-text-primary truncate leading-tight">{group.name}</span>
+                            <span className="block text-[10px] text-nova-text-muted truncate leading-tight font-mono">{group.baseUrl}</span>
+                          </span>
+                          {active && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium bg-nova-accent/15 text-nova-accent shrink-0">使用中</span>
+                          )}
+                        </button>
+                      )
+                    })
                   )}
                 </div>
-              )}
+
+                {/* Import / export */}
+                <div className="flex gap-1.5 mt-auto">
+                  <button onClick={handleImport} className="flex-1 px-2 py-1.5 text-[11px] bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors flex items-center justify-center gap-1">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                    导入
+                  </button>
+                  <button onClick={handleExport} className="flex-1 px-2 py-1.5 text-[11px] bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors flex items-center justify-center gap-1">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                    导出
+                  </button>
+                </div>
+              </div>
+
+              {/* ── Editor (right, independent scroll, compact so everything fits) ── */}
+              <div className="flex-1 min-w-0 min-h-0 overflow-y-auto pr-1">
+                {editingGroup ? (
+                  <div className="flex flex-col gap-3">
+                    {/* Provider banner — compact */}
+                    <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg border border-nova-border bg-nova-card">
+                      {providerMeta && (
+                        <div className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold shrink-0" style={{ background: `${providerMeta.color}20`, color: providerMeta.color }}>
+                          {providerMeta.icon}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[13px] font-semibold text-nova-text-primary">{providerMeta?.label || editingGroup.provider}</span>
+                        <span className="ml-2 text-[11px] text-nova-text-muted truncate">{providerMeta?.description}</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-nova-hover text-nova-text-muted shrink-0">
+                        请求格式：{FORMAT_META[fmt]?.label || fmt}
+                      </span>
+                      {!isCreating && editingGroup.id && (
+                        <button onClick={handleDeleteGroup}
+                          className="shrink-0 px-2 py-0.5 text-[11px] rounded-md bg-transparent text-nova-text-muted hover:text-red-400 transition-colors">删除</button>
+                      )}
+                    </div>
+
+                    {/* Name + default model */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium text-nova-text-secondary">配置名称 <span className="text-red-400">*</span></label>
+                        <input type="text" value={editingGroup.name || ''} onChange={(e) => setEditingGroup({ ...editingGroup, name: e.target.value })}
+                          className="px-2.5 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-[13px] text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium text-nova-text-secondary">默认模型</label>
+                        <input type="text" list="settings-model-options" value={editingGroup.defaultModel || ''}
+                          onChange={(e) => setEditingGroup({ ...editingGroup, defaultModel: e.target.value })}
+                          placeholder="可输入或从列表选择"
+                          className="px-2.5 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-[13px] text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors font-mono" />
+                        <datalist id="settings-model-options">
+                          {editorModels.map((m) => <option key={m.id} value={m.id} />)}
+                        </datalist>
+                      </div>
+                    </div>
+
+                    {/* Base URL + full URL preview */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-medium text-nova-text-secondary">API 基础 URL <span className="text-red-400">*</span></label>
+                      <input type="text" value={editingGroup.baseUrl || ''} onChange={(e) => setEditingGroup({ ...editingGroup, baseUrl: e.target.value })}
+                        placeholder={providerMeta?.defaultBaseUrl || 'https://api.example.com/v1'}
+                        className="px-2.5 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-[13px] text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors font-mono" />
+                      <UrlPreview group={editingGroup} />
+                    </div>
+
+                    {/* API request format — only the 3 supported wire formats */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-medium text-nova-text-secondary">
+                        API 请求格式
+                        <span className="ml-1.5 text-[10px] text-nova-text-muted font-normal">提供商 ≠ 请求格式：同一网关可暴露多种格式</span>
+                      </label>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        <button
+                          className={`flex flex-col items-start gap-0.5 px-2 py-1.5 rounded-lg border text-left transition-all ${
+                            (editingGroup.apiFormat || 'auto') === 'auto'
+                              ? 'border-nova-accent bg-nova-accent/10 shadow-[0_0_0_1px_var(--accent)]'
+                              : 'border-nova-border bg-nova-card hover:border-nova-border-strong'
+                          }`}
+                          onClick={() => setEditingGroup({ ...editingGroup, apiFormat: 'auto' })}
+                        >
+                          <span className="flex items-center gap-1 text-[11px] font-medium text-nova-text-primary leading-tight">
+                            跟随提供商默认
+                            <span className="text-[9px] px-1 py-0.5 rounded-full bg-nova-accent/15 text-nova-accent shrink-0">推荐</span>
+                          </span>
+                          <span className="text-[9px] text-nova-text-muted leading-tight">
+                            {FORMAT_META[nativeFormat].label} · {FORMAT_META[nativeFormat].desc}
+                          </span>
+                        </button>
+                        {FORMAT_ORDER.map((f) => {
+                          const isNative = f === nativeFormat
+                          const selected = editingGroup.apiFormat === f
+                          return (
+                            <button key={f}
+                              className={`flex flex-col items-start gap-0.5 px-2 py-1.5 rounded-lg border text-left transition-all ${
+                                selected
+                                  ? 'border-nova-accent bg-nova-accent/10 shadow-[0_0_0_1px_var(--accent)]'
+                                  : 'border-nova-border bg-nova-card hover:border-nova-border-strong'
+                              }`}
+                              onClick={() => setEditingGroup({ ...editingGroup, apiFormat: f })}
+                            >
+                              <span className="flex items-center gap-1 text-[11px] font-medium text-nova-text-primary leading-tight">
+                                {FORMAT_META[f].label}
+                                {isNative && <span className="text-[9px] px-1 py-0.5 rounded-full bg-green-500/15 text-green-400 shrink-0">推荐</span>}
+                              </span>
+                              <span className="text-[9px] text-nova-text-muted leading-tight">{FORMAT_META[f].desc}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {formatOverrideWarning && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-yellow-400/90 px-2 py-1 bg-yellow-500/10 border border-yellow-500/25 rounded-md">
+                          ⚠ 该格式与提供商默认（{FORMAT_META[nativeFormat].label}）不同，请确认你的网关/服务确实支持
+                        </div>
+                      )}
+                    </div>
+
+                    {/* API key + color */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium text-nova-text-secondary">API 密钥 <span className="text-red-400">*</span></label>
+                        <div className="flex gap-1.5">
+                          <input type={showEditKey ? 'text' : 'password'} value={editingGroup.apiKey || ''} onChange={(e) => setEditingGroup({ ...editingGroup, apiKey: e.target.value })}
+                            className="flex-1 px-2.5 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-[13px] text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors font-mono" />
+                          <button onClick={() => setShowEditKey(!showEditKey)}
+                            className="px-2 py-1 text-[11px] bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors shrink-0">
+                            {showEditKey ? '🙈' : '👁'}
+                          </button>
+                        </div>
+                        <span className="text-[9px] text-nova-text-muted">支持环境变量 <code className="px-0.5 bg-nova-hover rounded text-[9px]">$ENV_KEY</code></span>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] font-medium text-nova-text-secondary">标识颜色</label>
+                        <div className="flex items-center gap-1.5 flex-wrap flex-1 content-center">
+                          {CONFIG_COLORS.map((c) => (
+                            <button key={c} onClick={() => setEditingGroup({ ...editingGroup, color: c })}
+                              className={`w-5 h-5 rounded-full border-2 transition-all hover:scale-110 ${editingGroup.color === c ? 'border-white shadow-[0_0_0_2px_var(--accent)]' : 'border-transparent'}`}
+                              style={{ background: c }} />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Model management */}
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-medium text-nova-text-secondary">
+                          模型列表
+                          {editorModels.length > 0 && <span className="ml-1 text-[10px] text-nova-text-muted">（{editorModels.length} 个）</span>}
+                        </label>
+                        <button onClick={handleFetchModels} disabled={fetchingModels || testing}
+                          className="px-2 py-1 text-[11px] bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors disabled:opacity-50 flex items-center gap-1.5">
+                          {fetchingModels ? (
+                            <>
+                              <span className="w-3 h-3 border-2 border-nova-accent/30 border-t-nova-accent rounded-full animate-spin" />
+                              获取中…
+                            </>
+                          ) : (
+                            <>
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
+                              获取模型列表
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      {modelFetchError && (
+                        <div className="text-[10px] text-red-400 px-2 py-1 bg-red-500/10 border border-red-500/25 rounded-md break-all">{modelFetchError}</div>
+                      )}
+                      {editorModels.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto">
+                          {editorModels.map((m) => {
+                            const isDefault = m.id === editingGroup.defaultModel
+                            const isCustom = customModels.some((c) => c.id === m.id)
+                            return (
+                              <span key={m.id}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-mono transition-colors cursor-pointer group ${
+                                  isDefault
+                                    ? 'border-nova-accent bg-nova-accent/15 text-nova-accent'
+                                    : 'border-nova-border bg-nova-card text-nova-text-secondary hover:border-nova-accent/50'
+                                }`}
+                                title={isDefault ? '当前默认模型' : '点击设为默认模型'}
+                                onClick={() => setEditingGroup({ ...editingGroup, defaultModel: m.id })}
+                              >
+                                {m.id}
+                                {isCustom && (
+                                  <button onClick={(e) => { e.stopPropagation(); handleRemoveModel(m.id) }}
+                                    className="text-nova-text-muted hover:text-red-400 transition-colors opacity-60 group-hover:opacity-100" title="移除自定义模型">
+                                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+                                  </button>
+                                )}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        !fetchingModels && (
+                          <div className="text-[10px] text-nova-text-muted px-2 py-1 bg-nova-hover/40 border border-dashed border-nova-border rounded-md">
+                            还没有模型。点「获取模型列表」从接口拉取，或在下方手动添加。
+                          </div>
+                        )
+                      )}
+                      <div className="flex gap-1.5">
+                        <input type="text" value={newModelName} onChange={(e) => setNewModelName(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleAddModel() }}
+                          placeholder="手动添加模型名，如 deepseek-reasoner"
+                          className="flex-1 px-2.5 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-xs text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors font-mono" />
+                        <button onClick={handleAddModel} disabled={!newModelName.trim()}
+                          className="px-2.5 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors disabled:opacity-50 shrink-0">＋ 添加</button>
+                      </div>
+                    </div>
+
+                    {/* Custom headers (collapsed by default, expand to edit) */}
+                    <details className="group rounded-lg border border-nova-border bg-nova-card">
+                      <summary className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium text-nova-text-secondary cursor-pointer hover:text-nova-text-primary transition-colors select-none list-none [&::-webkit-details-marker]:hidden">
+                        <svg className="w-3 h-3 shrink-0 transition-transform group-open:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6" /></svg>
+                        自定义请求头
+                        {parsedHeaderCount > 0 && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-nova-hover text-nova-text-muted">{parsedHeaderCount} 条</span>
+                        )}
+                      </summary>
+                      <div className="flex flex-col gap-1 px-2.5 pb-2.5 pt-1">
+                        <span className="text-[9px] text-nova-text-muted">每行一条，格式：Header: Value</span>
+                        <textarea value={headersText}
+                          onChange={(e) => setHeadersText(e.target.value)}
+                          onBlur={() => {
+                            const map: Record<string, string> = {}
+                            for (const line of headersText.split('\n')) {
+                              const idx = line.indexOf(':')
+                              if (idx > 0 && line.slice(idx + 1).trim()) map[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
+                            }
+                            setEditingGroup({ ...editingGroup, customHeaders: map })
+                          }}
+                          placeholder={'Authorization: Bearer sk-xxx\nX-API-Key: xxx'}
+                          className="w-full h-24 px-2.5 py-2 bg-nova-input-bg border border-nova-border rounded-md text-xs text-nova-text-primary resize-none outline-none focus:border-nova-accent/50 font-mono" />
+                      </div>
+                    </details>
+
+                    {/* Test result panel */}
+                    {(testing || testSteps.length > 0 || testError) && (
+                      <div className="flex flex-col gap-1.5">
+                        {testError && !testing && (
+                          <div className="flex items-center gap-1.5 text-[11px] text-red-400 px-2 py-1.5 bg-red-500/10 border border-red-500/25 rounded-md">{testError}</div>
+                        )}
+                        {testing && (
+                          <div className="flex items-center gap-2 text-[11px] text-nova-text-secondary px-2 py-1.5">
+                            <span className="w-3 h-3 border-2 border-nova-accent/30 border-t-nova-accent rounded-full animate-spin" />
+                            正在测试连接…
+                          </div>
+                        )}
+                        {testSteps.length > 0 && <TestResultPanel steps={testSteps} success={testResult?.success} />}
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex justify-end gap-2 pt-2 border-t border-nova-border">
+                      <button onClick={() => { setEditingGroup(null); setIsCreating(false); resetEditorState() }}
+                        className="px-3.5 py-1.5 text-[13px] bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors">取消</button>
+                      <button onClick={handleTest} disabled={testing}
+                        className="px-3.5 py-1.5 text-[13px] bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors disabled:opacity-50">🧪 测试连接</button>
+                      <button onClick={handleSaveGroup}
+                        className="px-3.5 py-1.5 text-[13px] bg-nova-accent text-white rounded-lg hover:opacity-90 transition-opacity">💾 保存配置</button>
+                    </div>
+                  </div>
+                ) : (
+                  /* Empty state */
+                  <div className="flex flex-col items-center justify-center gap-3 h-full min-h-[320px] text-center">
+                    <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'rgba(37,99,235,0.12)', color: 'var(--accent)' }}>
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" /></svg>
+                    </div>
+                    <div className="text-sm font-semibold">选择一个提供商开始配置</div>
+                    <div className="text-xs text-nova-text-muted max-w-[300px]">从左侧列表选择提供商创建新配置，或点击已保存配置进行编辑。每个配置都支持测试连接、获取模型列表。</div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -652,8 +757,8 @@ export default function SettingsModal() {
                 <SettingRow label="自动保存" desc="切换文件时自动保存修改" right={
                   <ToggleButton on={preferences.autoSave} onClick={() => savePreferences({ autoSave: !preferences.autoSave })} />
                 } />
-                <SettingRow label="自动保存" desc="切换文件时自动保存修改" right={
-                  <ToggleButton on={preferences.autoSave} onClick={() => savePreferences({ autoSave: !preferences.autoSave })} />
+                <SettingRow label="对话历史编辑" desc="开启后支持编辑消息、拖动排序和批量删除" right={
+                  <ToggleButton on={preferences.chatHistoryEditMode} onClick={() => savePreferences({ chatHistoryEditMode: !preferences.chatHistoryEditMode })} />
                 } />
               </div>
 
@@ -799,5 +904,63 @@ function ToggleButton({ on, onClick }: { on: boolean; onClick: () => void }) {
         style={{ left: on ? '20px' : '1px' }}
       />
     </button>
+  )
+}
+
+/** Live preview of the exact URLs the current config would hit. */
+function UrlPreview({ group }: { group: Partial<ApiConfigGroup> }) {
+  const chatUrl = previewChatUrl(group)
+  const modelsUrl = previewModelsUrl(group)
+  if (!chatUrl && !modelsUrl) return null
+
+  const copy = async (text: string) => {
+    try { await navigator.clipboard.writeText(text) } catch { /* clipboard unavailable */ }
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5 px-2 py-1 bg-nova-hover/50 border border-nova-border rounded-md">
+      {chatUrl && (
+        <div className="flex items-center gap-1.5 text-[10px] font-mono break-all">
+          <span className="text-nova-text-muted shrink-0">最终请求地址</span>
+          <span className="text-nova-accent flex-1 break-all">{chatUrl}</span>
+          <button onClick={() => copy(chatUrl)} title="复制" className="text-nova-text-muted hover:text-nova-text-primary shrink-0 transition-colors">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+          </button>
+        </div>
+      )}
+      {modelsUrl && (
+        <div className="flex items-center gap-1.5 text-[10px] font-mono break-all">
+          <span className="text-nova-text-muted shrink-0">模型列表地址</span>
+          <span className="text-nova-text-secondary flex-1 break-all">{modelsUrl}</span>
+          <button onClick={() => copy(modelsUrl)} title="复制" className="text-nova-text-muted hover:text-nova-text-primary shrink-0 transition-colors">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Per-step connection test report. */
+function TestResultPanel({ steps, success }: { steps: ConnectionStep[]; success?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1 p-2 rounded-lg border border-nova-border bg-nova-card">
+      <div className={`flex items-center gap-1.5 text-[11px] font-medium ${success === undefined ? 'text-nova-text-secondary' : success ? 'text-green-400' : 'text-red-400'}`}>
+        <span>{success === undefined ? '测试中' : success ? '✓ 连接成功' : '✗ 连接失败'}</span>
+      </div>
+      {steps.map((step, i) => (
+        <div key={i} className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <span className={step.ok ? 'text-green-400' : 'text-red-400'}>{step.ok ? '✓' : '✗'}</span>
+            <span className="text-nova-text-primary shrink-0">{step.name}</span>
+            <span className="text-nova-text-muted truncate flex-1">{step.detail}</span>
+            {step.ms !== undefined && <span className="text-nova-text-muted shrink-0 font-mono">{step.ms}ms</span>}
+          </div>
+          {step.url && (
+            <div className="text-[9px] font-mono text-nova-text-muted break-all pl-4">{step.url}</div>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }

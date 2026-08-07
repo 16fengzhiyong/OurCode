@@ -1,5 +1,7 @@
 import { LLMRequest, LLMStreamChunk, ApiConfigGroup } from '@/types'
 import { LLMAdapter } from '../types'
+import { llmFetch } from '../http'
+import { buildChatUrl, buildModelsUrl } from '../endpoints'
 
 /**
  * DeepSeek adapter — uses OpenAI-compatible API with DeepSeek-specific features
@@ -7,7 +9,7 @@ import { LLMAdapter } from '../types'
  */
 export class DeepSeekAdapter implements LLMAdapter {
   async *sendRequest(req: LLMRequest, config: ApiConfigGroup, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
-    const url = `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`
+    const url = buildChatUrl(config.baseUrl, 'openai', req.model)
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -40,15 +42,22 @@ export class DeepSeekAdapter implements LLMAdapter {
     }
     // Add tools if provided
     if (req.tools && req.tools.length > 0) {
-      ;(body as any).tools = req.tools
+      (body as any).tools = req.tools
+    }
+    // Deep thinking: DeepSeek reasoning models accept both `thinking` and `reasoning_effort`
+    if (req.thinking) {
+      Object.assign(body, {
+        thinking: { type: 'enabled' },
+        reasoning_effort: req.reasoningEffort || 'high',
+      })
     }
 
-    const response = await fetch(url, {
+    const response = await llmFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
       signal,
-    })
+    }, { stream: true })
 
     if (!response.ok) {
       const errorText = await response.text()
@@ -123,7 +132,9 @@ export class DeepSeekAdapter implements LLMAdapter {
 
   async fetchModels(config: ApiConfigGroup, signal?: AbortSignal): Promise<string[]> {
     try {
-      const response = await fetch(`${config.baseUrl.replace(/\/+$/, '')}/models`, {
+      const url = buildModelsUrl(config.baseUrl, 'openai')
+      if (!url) return ['deepseek-chat', 'deepseek-coder', 'deepseek-reasoner']
+      const response = await llmFetch(url, {
         headers: {
           Authorization: `Bearer ${config.apiKey}`,
           ...config.customHeaders,

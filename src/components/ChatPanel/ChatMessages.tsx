@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useChatStore } from '@/stores/chatStore'
+import { useEditorStore } from '@/stores/editorStore'
 import ChatMessage from './ChatMessage'
 import ThinkingBlock from './ThinkingBlock'
 import BranchTreeModal from './BranchTreeModal'
@@ -37,6 +38,12 @@ export default function ChatMessages() {
   const [showBranchTree, setShowBranchTree] = useState(false)
   const t = useI18n()
 
+  // History is read-only by default; editing (drag reorder / inline edit /
+  // batch delete) requires the "对话历史编辑" toggle in Settings.
+  const editEnabled = useEditorStore((s) => s.preferences.chatHistoryEditMode)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const dragLockTopRef = useRef<number | null>(null)
+
   // Context truncation warning
   const tokenWarning = useMemo(() => {
     if (!activeSession) return null
@@ -49,23 +56,40 @@ export default function ChatMessages() {
     return null
   }, [activeSession])
 
-  // Show undo toast when undo stack changes
+  // Auto-scroll to the latest message when entering a session, when the
+  // conversation grows, or while streaming. Crucially NOT when the user
+  // reorders/edits history — that used to yank the whole view to the bottom
+  // right after dropping a dragged message.
+  const prevLenRef = useRef(0)
+  const prevSessionRef = useRef('')
   useEffect(() => {
-    if (undoStack.length > 0) {
-      setShowUndoToast(true)
-      const timer = setTimeout(() => setShowUndoToast(false), 5000)
-      return () => clearTimeout(timer)
+    if (!activeSession) return
+    const sid = activeSession.id
+    const len = activeSession.messages.length
+    const sessionChanged = sid !== prevSessionRef.current
+    const grew = len > prevLenRef.current
+    prevSessionRef.current = sid
+    prevLenRef.current = len
+    if (sessionChanged || grew || streamingContent) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [undoStack.length])
+  }, [activeSession, streamingContent])
 
+  // Leaving history-edit mode resets any active batch selection.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [activeSession?.messages, streamingContent])
+    if (!editEnabled) {
+      setIsSelectMode(false)
+      setSelectedIds(new Set())
+    }
+  }, [editEnabled])
 
   const handleDragStart = useCallback((index: number, e: React.DragEvent) => {
     setDragIndex(index)
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', String(index))
+    // Lock the list's scroll position while dragging so the browser's
+    // edge auto-scroll can't slide the whole conversation around.
+    if (scrollRef.current) dragLockTopRef.current = scrollRef.current.scrollTop
   }, [])
 
   const handleDragOver = useCallback((index: number, e: React.DragEvent) => {
@@ -81,12 +105,23 @@ export default function ChatMessages() {
     }
     setDragIndex(null)
     setOverIndex(null)
+    dragLockTopRef.current = null
   }, [dragIndex, activeSession, reorderMessages])
 
   const handleDragEnd = useCallback(() => {
     setDragIndex(null)
     setOverIndex(null)
+    dragLockTopRef.current = null
   }, [])
+
+  // Show undo toast when undo stack changes
+  useEffect(() => {
+    if (undoStack.length > 0) {
+      setShowUndoToast(true)
+      const timer = setTimeout(() => setShowUndoToast(false), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [undoStack.length])
 
   if (!activeSession) return null
 
@@ -110,9 +145,19 @@ export default function ChatMessages() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4">
-      {/* Batch select toolbar */}
-      {messages.length > 0 && (
+    <div
+      ref={scrollRef}
+      onScroll={() => {
+        // While a drag is active, hold the list in place so edge auto-scroll
+        // doesn't slide the conversation up/down mid-drag.
+        const lock = dragLockTopRef.current
+        const el = scrollRef.current
+        if (lock !== null && el && Math.abs(el.scrollTop - lock) > 1) el.scrollTop = lock
+      }}
+      className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4"
+    >
+      {/* Batch select toolbar — only in history-edit mode */}
+      {editEnabled && messages.length > 0 && (
         <div className="flex items-center gap-2">
           <button
             onClick={() => { setIsSelectMode(!isSelectMode); setSelectedIds(new Set()) }}
@@ -245,11 +290,11 @@ export default function ChatMessages() {
       {messages.map((msg, index) => (
         <div
           key={msg.id}
-          draggable
-          onDragStart={(e) => handleDragStart(index, e)}
-          onDragOver={(e) => handleDragOver(index, e)}
-          onDrop={(e) => handleDrop(index, e)}
-          onDragEnd={handleDragEnd}
+          draggable={editEnabled}
+          onDragStart={editEnabled ? (e) => handleDragStart(index, e) : undefined}
+          onDragOver={editEnabled ? (e) => handleDragOver(index, e) : undefined}
+          onDrop={editEnabled ? (e) => handleDrop(index, e) : undefined}
+          onDragEnd={editEnabled ? handleDragEnd : undefined}
           className={`transition-all ${
             dragIndex === index ? 'opacity-40' : ''
           } ${

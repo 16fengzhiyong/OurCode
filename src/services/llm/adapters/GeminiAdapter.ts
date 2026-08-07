@@ -1,5 +1,7 @@
 import { ApiConfigGroup, LLMRequest, LLMStreamChunk } from '@/types'
 import { LLMAdapter } from '../types'
+import { llmFetch } from '../http'
+import { buildChatUrl, buildModelsUrl } from '../endpoints'
 
 const GEMINI_MODELS = [
   'gemini-2.0-flash',
@@ -12,7 +14,7 @@ const GEMINI_MODELS = [
 export class GeminiAdapter implements LLMAdapter {
   async *sendRequest(req: LLMRequest, config: ApiConfigGroup, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
     const stream = req.stream ? 'streamGenerateContent' : 'generateContent'
-    const url = `${config.baseUrl.replace(/\/+$/, '')}/v1beta/models/${req.model}:${stream}?key=${config.apiKey}`
+    const url = `${buildChatUrl(config.baseUrl, 'gemini', req.model).replace(':generateContent', `:${stream}`)}?key=${config.apiKey}`
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -67,6 +69,13 @@ export class GeminiAdapter implements LLMAdapter {
       },
     }
 
+    // Deep thinking: Gemini reasoning models use thinkingConfig.thinkingBudget
+    // (low/medium/high -> 2048/4096/8192 tokens). A budget > 0 enables thinking.
+    if (req.thinking) {
+      const effortBudgets = { low: 2048, medium: 4096, high: 8192 }
+      body.generationConfig.thinkingConfig = { thinkingBudget: effortBudgets[req.reasoningEffort || 'high'] }
+    }
+
     if (systemInstruction) {
       body.systemInstruction = systemInstruction
     }
@@ -78,12 +87,12 @@ export class GeminiAdapter implements LLMAdapter {
       }))
     }
 
-    const response = await fetch(url, {
+    const response = await llmFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
       signal,
-    })
+    }, { stream: true })
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '')
@@ -150,8 +159,8 @@ export class GeminiAdapter implements LLMAdapter {
 
   async fetchModels(config: ApiConfigGroup, signal?: AbortSignal): Promise<string[]> {
     try {
-      const url = `${config.baseUrl.replace(/\/+$/, '')}/v1beta/models?key=${config.apiKey}`
-      const response = await fetch(url, { signal })
+      const url = `${buildModelsUrl(config.baseUrl, 'gemini')}?key=${config.apiKey}`
+      const response = await llmFetch(url, { signal })
       if (!response.ok) {
         throw new Error(`获取模型列表失败 (${response.status})`)
       }

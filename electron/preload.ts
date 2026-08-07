@@ -140,6 +140,38 @@ contextBridge.exposeInMainWorld('electronAPI', {
   webFetch: (url: string, options?: { timeoutMs?: number; maxBytes?: number }) =>
     ipcRenderer.invoke('web:fetch', url, options),
 
+  // LLM HTTP bridge — main-process net.fetch (no CORS), supports streaming
+  llmHttp: (req: {
+    id: string
+    url: string
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    stream?: boolean
+    timeoutMs?: number
+  }) => ipcRenderer.invoke('llm:http', req),
+  llmHttpAbort: (id: string) => ipcRenderer.send('llm:httpAbort', id),
+  onLlmHttpHeaders: (callback: (payload: { id: string; ok: boolean; status: number; statusText: string; headers: Record<string, string> }) => void) => {
+    const listener = (_event: any, payload: any) => callback(payload)
+    ipcRenderer.on('llm:httpHeaders', listener)
+    return () => { ipcRenderer.removeListener('llm:httpHeaders', listener) }
+  },
+  onLlmHttpChunk: (callback: (payload: { id: string; data: string }) => void) => {
+    const listener = (_event: any, payload: any) => callback(payload)
+    ipcRenderer.on('llm:httpChunk', listener)
+    return () => { ipcRenderer.removeListener('llm:httpChunk', listener) }
+  },
+  onLlmHttpDone: (callback: (payload: { id: string }) => void) => {
+    const listener = (_event: any, payload: any) => callback(payload)
+    ipcRenderer.on('llm:httpDone', listener)
+    return () => { ipcRenderer.removeListener('llm:httpDone', listener) }
+  },
+  onLlmHttpError: (callback: (payload: { id: string; message: string }) => void) => {
+    const listener = (_event: any, payload: any) => callback(payload)
+    ipcRenderer.on('llm:httpError', listener)
+    return () => { ipcRenderer.removeListener('llm:httpError', listener) }
+  },
+
   // Memories
   memoryList: () => ipcRenderer.invoke('memory:list'),
   memoryAdd: (content: string, scope?: string) => ipcRenderer.invoke('memory:add', content, scope),

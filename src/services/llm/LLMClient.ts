@@ -1,6 +1,7 @@
 import { ApiConfigGroup, LLMRequest, LLMStreamChunk } from '@/types'
 import { LLMAdapter, ProviderType } from './types'
 import { OpenAIAdapter } from './adapters/OpenAIAdapter'
+import { ResponsesAdapter } from './adapters/ResponsesAdapter'
 import { AnthropicAdapter } from './adapters/AnthropicAdapter'
 import { GeminiAdapter } from './adapters/GeminiAdapter'
 import { OllamaAdapter } from './adapters/OllamaAdapter'
@@ -13,12 +14,13 @@ const openaiAdapter = new OpenAIAdapter()
 
 const adapters: Record<ProviderType, LLMAdapter> = {
   openai: openaiAdapter,
+  responses: new ResponsesAdapter(),
   anthropic: new AnthropicAdapter(),
   gemini: new GeminiAdapter(),
   ollama: new OllamaAdapter(),
   deepseek: new DeepSeekAdapter(),
   groq: new GroqAdapter(),
-  azure: openaiAdapter, // Azure uses OpenAI-compatible format
+  azure: new OpenAIAdapter('azure'), // Azure uses the deployments URL scheme
   custom: openaiAdapter, // Custom uses OpenAI-compatible format
 }
 
@@ -32,14 +34,17 @@ export function getAdapter(provider: ProviderType, apiFormat?: string): LLMAdapt
 
 export async function* sendLLMRequest(
   req: LLMRequest,
-  config: ApiConfigGroup
+  config: ApiConfigGroup,
+  timeoutMs: number = REQUEST_TIMEOUT_MS
 ): AsyncGenerator<LLMStreamChunk> {
   const adapter = getAdapter(config.provider, config.apiFormat)
+  // Trim stray whitespace/newlines so a pasted key can't silently break auth.
+  const safeConfig = { ...config, apiKey: (config.apiKey || '').trim() }
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    yield* adapter.sendRequest(req, config, controller.signal)
+    yield* adapter.sendRequest(req, safeConfig, controller.signal)
   } catch (error: any) {
     if (error.name === 'AbortError' || controller.signal.aborted) {
       throw new Error('请求超时，请稍后重试')
@@ -50,13 +55,17 @@ export async function* sendLLMRequest(
   }
 }
 
-export async function fetchModels(config: ApiConfigGroup): Promise<string[]> {
+export async function fetchModels(
+  config: ApiConfigGroup,
+  timeoutMs: number = REQUEST_TIMEOUT_MS
+): Promise<string[]> {
   const adapter = getAdapter(config.provider, config.apiFormat)
+  const safeConfig = { ...config, apiKey: (config.apiKey || '').trim() }
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    return await adapter.fetchModels(config, controller.signal)
+    return await adapter.fetchModels(safeConfig, controller.signal)
   } catch (error: any) {
     if (error.name === 'AbortError' || controller.signal.aborted) {
       throw new Error('获取模型列表超时，请检查网络连接后重试')

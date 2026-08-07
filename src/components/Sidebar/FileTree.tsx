@@ -18,6 +18,11 @@ export default function FileTree({ rootPath }: FileTreeProps) {
   const { showHiddenFiles } = useEditorStore((s) => s.preferences)
   const t = useI18n()
 
+  // Drag scroll lock: while dragging a file, hold the tree's scroll position so
+  // the browser's edge auto-scroll can't slide the whole tree up/down mid-drag.
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const dragLockTopRef = useRef<number | null>(null)
+
   // Mirror expandedDirs in a ref so the watcher callback never sees a stale closure
   const expandedDirsRef = useRef(expandedDirs)
   useEffect(() => { expandedDirsRef.current = expandedDirs }, [expandedDirs])
@@ -143,7 +148,19 @@ export default function FileTree({ rootPath }: FileTreeProps) {
       </div>
 
       {/* File Tree */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onDragStartCapture={() => {
+          if (scrollRef.current) dragLockTopRef.current = scrollRef.current.scrollTop
+        }}
+        onDragEndCapture={() => { dragLockTopRef.current = null }}
+        onScroll={() => {
+          const lock = dragLockTopRef.current
+          const el = scrollRef.current
+          if (lock !== null && el && Math.abs(el.scrollTop - lock) > 1) el.scrollTop = lock
+        }}
+        className="flex-1 overflow-y-auto"
+      >
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <LoadingSpinner size="md" text={t('sidebar.loading')} />

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { ApiConfigGroup, ModelInfo, ModelParams, CustomModel, DEFAULT_MODEL_PARAMS, lookupModelMetadata } from '@/types'
-import { fetchModels as llmFetchModels } from '@/services/llm/LLMClient'
+import { fetchModels as llmFetchModels, sendLLMRequest } from '@/services/llm/LLMClient'
+import { buildChatUrl, buildModelsUrl, resolveFormat } from '@/services/llm/endpoints'
 import { v4 as uuidv4 } from 'uuid'
 
 /** Resolve environment variable references in API key (e.g. $OPENAI_API_KEY) */
@@ -15,19 +16,80 @@ async function resolveEnvVars(value: string): Promise<string> {
   }
 }
 
-export interface PromptVersion {
-  content: string
-  timestamp: number
+/** One check inside a connection test (model list / chat probe). */
+export interface ConnectionStep {
+  name: string
+  ok: boolean
+  detail: string
+  url?: string
+  ms?: number
 }
 
-interface ConfigState {
+/** Full result of a connection test, with per-step detail so the UI can show progress. */
+export interface ConnectionTestResult {
+  success: boolean
+  message: string
+  steps: ConnectionStep[]
+}
+
+/** Connection tests are probes — 15s per call is enough, no need for the full 30s. */
+const TEST_TIMEOUT_MS = 15_000
+
+function enrichModel(id: string, provider: string): ModelInfo {
+  const favorites = useConfigStore.getState().favoriteModelIds
+  const custom = useConfigStore.getState().customModels.find((c) => c.id === id)
+  const meta = lookupModelMetadata(id)
+  return {
+    id,
+    name: custom?.name || id,
+    isFree: id.includes('free') || id.includes('gpt-3.5') || id.includes('llama') || id.includes('mistral') || id.includes('gemma'),
+    isFavorite: favorites.includes(id),
+    contextWindow: custom?.contextWindow || meta?.contextWindow,
+    vision: custom?.vision ?? meta?.vision,
+    functionCall: custom?.functionCall ?? meta?.functionCall,
+  }
+}
+
+/** Merge API-fetched models with the user's manually-added custom models for this provider. */
+function mergeWithCustom(ids: string[], provider: string): ModelInfo[] {
+  const apiModels = ids.map((id) => enrichModel(id, provider))
+  const customForGroup = useConfigStore.getState().customModels
+    .filter((c) => c.provider === provider)
+    .map((c) => enrichModel(c.id, provider))
+  const existingIds = new Set(apiModels.map((m) => m.id))
+  return [...apiModels, ...customForGroup.filter((m) => !existingIds.has(m.id))]
+}
+
+/** Effective chat URL a config would POST to (for previews and test reporting). */
+function chatRequestUrl(group: ApiConfigGroup, model?: string): string {
+  const fmt = resolveFormat(group.provider, group.apiFormat)
+  const url = buildChatUrl(group.baseUrl, fmt, model)
+  return fmt === 'gemini' ? `${url}?key=…` : url
+}
+
+/** Effective model-list URL a config would GET (null when unsupported). */
+function modelsRequestUrl(group: ApiConfigGroup): string | null {
+  const fmt = resolveFormat(group.provider, group.apiFormat)
+  const url = buildModelsUrl(group.baseUrl, fmt)
+  if (!url) return null
+  return fmt === 'gemini' ? `${url}?key=…` : url
+}
+
+/** Attach a practical hint when a probe 404s — usually a wrong base-URL path. */
+function detailWithHint(message: string): string {
+  if (/\b404\b/.test(message)) {
+    return `${message}（提示：404 通常是 base URL 路径不对，很多中转站接口在 /openai/v1 下而非 /v1）`
+  }
+  return message
+}
+
+export interface ConfigState {
   configGroups: ApiConfigGroup[]
   activeConfigGroupId: string | null
   models: ModelInfo[]
   isLoadingModels: boolean
   modelParams: ModelParams
   favoriteModelIds: string[]
-  promptHistory: Record<string, PromptVersion[]> // groupId -> versions
   modelsCache: Record<string, { models: string[]; timestamp: number }> // groupId -> cached models
   modelsError: string | null // error message from last model fetch
   customModels: CustomModel[] // user-added custom models
@@ -41,17 +103,17 @@ interface ConfigState {
   getActiveConfigGroup: () => ApiConfigGroup | undefined
 
   fetchModels: (configGroupId?: string) => Promise<void>
+  /** Fetch models for an arbitrary (possibly unsaved) config — used by the settings editor. */
+  fetchModelsForGroup: (group: ApiConfigGroup) => Promise<ModelInfo[]>
   setModelParams: (params: Partial<ModelParams>) => void
   toggleFavorite: (modelId: string) => void
   addCustomModel: (model: Omit<CustomModel, 'id' | 'createdAt'>) => void
   removeCustomModel: (modelId: string) => void
 
-  // Prompt history
-  savePromptVersion: (groupId: string, content: string) => void
-  getPromptHistory: (groupId: string) => PromptVersion[]
-  restorePromptVersion: (groupId: string, index: number) => void
-
-  testConnection: (configGroupId: string) => Promise<{ success: boolean; message: string }>
+  /** Test a saved config group by id */
+  testConnection: (configGroupId: string, onStep?: (step: ConnectionStep) => void) => Promise<ConnectionTestResult>
+  /** Test an arbitrary (possibly unsaved) config group — used by the settings editor */
+  testConnectionGroup: (group: ApiConfigGroup, onStep?: (step: ConnectionStep) => void) => Promise<ConnectionTestResult>
   exportConfigGroups: (password?: string) => Promise<string>
   importConfigGroups: (data: string, password?: string) => Promise<void>
   reorderConfigGroups: (fromIndex: number, toIndex: number) => void
@@ -65,7 +127,6 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   isLoadingModels: false,
   modelParams: DEFAULT_MODEL_PARAMS,
   favoriteModelIds: JSON.parse(localStorage.getItem('favoriteModelIds') || '[]'),
-  promptHistory: JSON.parse(localStorage.getItem('promptHistory') || '{}'),
   modelsCache: {},
   modelsError: null,
   customModels: JSON.parse(localStorage.getItem('customModels') || '[]'),
@@ -94,10 +155,11 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       id: uuidv4(),
       name: groupData.name || '新配置组',
       baseUrl: groupData.baseUrl || 'https://api.openai.com/v1',
-      apiKey: groupData.apiKey || '',
+      apiKey: (groupData.apiKey || '').trim(),
       systemPrompt: groupData.systemPrompt || '',
       defaultModel: groupData.defaultModel || '',
       provider: groupData.provider || 'openai' as const,
+      apiFormat: groupData.apiFormat,
       customHeaders: groupData.customHeaders || {},
       color: groupData.color,
       // Append after existing groups so the persisted order stays intuitive
@@ -118,7 +180,11 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     const group = get().configGroups.find((g) => g.id === id)
     if (!group) return
 
-    const updated = { ...group, ...updates }
+    const updated = {
+      ...group,
+      ...updates,
+      apiKey: updates.apiKey !== undefined ? (updates.apiKey || '').trim() : group.apiKey,
+    }
     await window.electronAPI.saveConfigGroup(updated)
     set((s) => ({
       configGroups: s.configGroups.map((g) => (g.id === id ? updated : g)),
@@ -153,32 +219,11 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     const group = get().configGroups.find((g) => g.id === groupId)
     if (!group) return
 
-    const enrichModel = (id: string): ModelInfo => {
-      const favorites = get().favoriteModelIds
-      const meta = lookupModelMetadata(id)
-      const custom = get().customModels.find((c) => c.id === id)
-      return {
-        id,
-        name: custom?.name || id,
-        isFree: id.includes('free') || id.includes('gpt-3.5') || id.includes('llama') || id.includes('mistral') || id.includes('gemma'),
-        isFavorite: favorites.includes(id),
-        contextWindow: custom?.contextWindow || meta?.contextWindow,
-        vision: custom?.vision ?? meta?.vision,
-        functionCall: custom?.functionCall ?? meta?.functionCall,
-      }
-    }
-
     // Check cache (1 hour TTL)
     const cache = get().modelsCache[groupId!]
     const CACHE_TTL = 60 * 60 * 1000 // 1 hour
     if (cache && (Date.now() - cache.timestamp) < CACHE_TTL) {
-      const apiModels = cache.models.map(enrichModel)
-      const customForGroup = get().customModels
-        .filter((c) => c.provider === group.provider)
-        .map((c) => enrichModel(c.id))
-      // Merge: custom models not already in API list
-      const existingIds = new Set(apiModels.map((m) => m.id))
-      const merged = [...apiModels, ...customForGroup.filter((m) => !existingIds.has(m.id))]
+      const merged = mergeWithCustom(cache.models, group.provider)
       set({ models: merged, modelsError: null })
       return
     }
@@ -187,13 +232,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
 
     try {
       const modelIds = await llmFetchModels(group)
-
-      const apiModels = modelIds.map(enrichModel)
-      const customForGroup = get().customModels
-        .filter((c) => c.provider === group.provider)
-        .map((c) => enrichModel(c.id))
-      const existingIds = new Set(apiModels.map((m) => m.id))
-      const merged = [...apiModels, ...customForGroup.filter((m) => !existingIds.has(m.id))]
+      const merged = mergeWithCustom(modelIds, group.provider)
 
       // Update cache
       set((s) => ({
@@ -206,6 +245,11 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       console.error('获取模型列表失败:', error)
       set({ isLoadingModels: false, modelsError: error.message || '获取模型列表失败' })
     }
+  },
+
+  fetchModelsForGroup: async (group) => {
+    const modelIds = await llmFetchModels(group, TEST_TIMEOUT_MS)
+    return mergeWithCustom(modelIds, group.provider)
   },
 
   setModelParams: (params) => {
@@ -254,45 +298,17 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     })
   },
 
-  savePromptVersion: (groupId, content) => {
-    const { promptHistory } = get()
-    const existing = promptHistory[groupId] || []
-    // Don't save duplicate
-    if (existing.length > 0 && existing[0].content === content) return
-    const newVersion: PromptVersion = { content, timestamp: Date.now() }
-    const updated = [newVersion, ...existing].slice(0, 20) // Keep last 20
-    const newHistory = { ...promptHistory, [groupId]: updated }
-    localStorage.setItem('promptHistory', JSON.stringify(newHistory))
-    set({ promptHistory: newHistory })
+  testConnectionGroup: async (group, onStep) => {
+    return runConnectionTest({
+      ...group,
+      apiKey: await resolveEnvVars(group.apiKey || ''),
+    }, onStep)
   },
 
-  getPromptHistory: (groupId) => {
-    return get().promptHistory[groupId] || []
-  },
-
-  restorePromptVersion: (groupId, index) => {
-    const history = get().promptHistory[groupId] || []
-    const version = history[index]
-    if (!version) return
-    get().updateConfigGroup(groupId, { systemPrompt: version.content })
-  },
-
-  testConnection: async (configGroupId) => {
+  testConnection: async (configGroupId, onStep) => {
     const group = get().configGroups.find((g) => g.id === configGroupId)
-    if (!group) return { success: false, message: '未找到配置组' }
-
-    try {
-      const models = await llmFetchModels(group)
-      return {
-        success: true,
-        message: `连接成功! 发现 ${models.length} 个模型。`,
-      }
-    } catch (error: any) {
-      return {
-        success: false,
-        message: `连接失败: ${error.message}`,
-      }
-    }
+    if (!group) return { success: false, message: '未找到配置组', steps: [] }
+    return runConnectionTest(group, onStep)
   },
 
   exportConfigGroups: async (password?: string) => {
@@ -357,10 +373,90 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       models: [],
       modelParams: DEFAULT_MODEL_PARAMS,
       favoriteModelIds: [],
-      promptHistory: {},
       modelsCache: {},
       modelsError: null,
       customModels: [],
     })
   },
 }))
+
+/**
+ * Run a real connection test against a config group.
+ *
+ * Two checks, so a misconfigured URL *and* a wrong model name both surface
+ * instead of failing silently:
+ *   1. Model list (GET /models) — best-effort, some providers lack it.
+ *   2. A real 1-round chat request using the default model (or the first
+ *      model from the list) — this is the actual path chat messages take,
+ *      and catches errors like "Unsupported model" or a bad base URL.
+ * Success is decided by the chat probe when a model is known, otherwise by
+ * the model-list call.
+ */
+async function runConnectionTest(group: ApiConfigGroup, onStep?: (step: ConnectionStep) => void): Promise<ConnectionTestResult> {
+  const steps: ConnectionStep[] = []
+  const fmt = resolveFormat(group.provider, group.apiFormat)
+
+  const pushStep = (step: ConnectionStep) => {
+    steps.push(step)
+    onStep?.(step)
+  }
+
+  // 1) Model list (best-effort)
+  let models: string[] = []
+  const modelsUrl = modelsRequestUrl(group)
+  if (!modelsUrl) {
+    pushStep({ name: '模型列表', ok: true, detail: '该格式无模型列表接口，使用内置默认列表', url: modelsUrl || undefined })
+  } else {
+    const t0 = Date.now()
+    try {
+      models = await llmFetchModels(group, TEST_TIMEOUT_MS)
+      pushStep({ name: '模型列表', ok: true, detail: `获取到 ${models.length} 个模型`, url: modelsUrl, ms: Date.now() - t0 })
+    } catch (error: any) {
+      pushStep({ name: '模型列表', ok: false, detail: detailWithHint(error?.message || '未知错误'), url: modelsUrl, ms: Date.now() - t0 })
+    }
+  }
+
+  // 2) Real chat request to verify the endpoint + model name
+  const chatModel = group.defaultModel || models[0]
+  if (chatModel) {
+    const t0 = Date.now()
+    try {
+      await sendChatProbe(group, chatModel)
+      pushStep({ name: '对话请求', ok: true, detail: `${chatModel} 响应正常`, url: chatRequestUrl(group, chatModel), ms: Date.now() - t0 })
+    } catch (error: any) {
+      pushStep({ name: '对话请求', ok: false, detail: detailWithHint(error?.message || '未知错误'), url: chatRequestUrl(group, chatModel), ms: Date.now() - t0 })
+    }
+  } else {
+    pushStep({ name: '对话请求', ok: false, detail: '未提供模型（请填写默认模型或先获取模型列表）', url: chatRequestUrl(group) })
+  }
+
+  const chatStep = steps[1]
+  const success = chatModel ? (chatStep?.ok ?? false) : (steps[0]?.ok ?? false)
+  return {
+    success,
+    message: success
+      ? '连接成功'
+      : `连接失败（${fmt} 格式）`,
+    steps,
+  }
+}
+
+/** Minimal non-streaming chat request that exercises the real request path. */
+async function sendChatProbe(group: ApiConfigGroup, model: string): Promise<void> {
+  for await (const chunk of sendLLMRequest(
+    {
+      model,
+      messages: [{ role: 'user', content: 'ping' }],
+      stream: false,
+      temperature: 0,
+      maxTokens: 16,
+      topP: 1,
+      frequencyPenalty: 0,
+      presencePenalty: 0,
+    },
+    group,
+    TEST_TIMEOUT_MS,
+  )) {
+    if (chunk.done) break
+  }
+}

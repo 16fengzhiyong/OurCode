@@ -5,4 +5,4 @@ export interface LLMAdapter {
   fetchModels(config: ApiConfigGroup, signal?: AbortSignal): Promise<string[]>
 }
 
-export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'deepseek' | 'groq' | 'azure' | 'custom'
+export type ProviderType = 'openai' | 'responses' | 'anthropic' | 'gemini' | 'ollama' | 'deepseek' | 'groq' | 'azure' | 'custom'

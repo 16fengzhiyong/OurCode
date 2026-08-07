@@ -70,6 +70,11 @@ interface UIState {
   // Context Menu
   contextMenu: { x: number; y: number; items: ContextMenuItem[] } | null
 
+  // Notifications (transient toast stack — surfaced by NotificationToasts)
+  notifications: AppNotification[]
+  showNotification: (message: string, type?: AppNotification['type']) => void
+  dismissNotification: (id: number) => void
+
   // Actions
   toggleSidebar: () => void
   setSidebarWidth: (width: number) => void
@@ -119,6 +124,16 @@ export interface ContextMenuItem {
   action?: () => void
 }
 
+/** A transient toast notification (plugin api.ui.showNotification et al.). */
+export interface AppNotification {
+  id: number
+  message: string
+  type: 'info' | 'warning' | 'error'
+}
+
+/** Monotonic id source for notifications (never reused within a session). */
+let _nextNotificationId = 1
+
 export const useUIStore = create<UIState>((set, get) => ({
   // Sidebar — starts hidden: on first launch no folder is open, so showing the
   // explorer panel would render a large empty area with nothing to fill it
@@ -167,6 +182,9 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   // Context Menu
   contextMenu: null,
+
+  // Notifications
+  notifications: [],
 
   // Actions
   toggleSidebar: () => set((s) => ({ isSidebarVisible: !s.isSidebarVisible })),
@@ -243,4 +261,12 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   showContextMenu: (x, y, items) => set({ contextMenu: { x, y, items } }),
   hideContextMenu: () => set({ contextMenu: null }),
+
+  showNotification: (message, type = 'info') => {
+    const text = (message || '').trim()
+    if (!text) return
+    // Cap the visible stack at 5 — drop the oldest when exceeded.
+    set((s) => ({ notifications: [...s.notifications, { id: _nextNotificationId++, message: text, type }].slice(-5) }))
+  },
+  dismissNotification: (id) => set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) })),
 }))

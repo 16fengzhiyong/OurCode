@@ -11,6 +11,7 @@ import SettingsModal from '../Settings/SettingsModal'
 import CommandPalette from '../CommandPalette/CommandPalette'
 import QuickOpen from '../Sidebar/QuickOpen'
 import ContextMenu from '../Common/ContextMenu'
+import NotificationToasts from '../Common/NotificationToasts'
 import PluginMarketplace from '../Plugin/PluginMarketplace'
 import SkillRegistryModal from '../Skills/SkillRegistryModal'
 import ProblemsPanel from '../Editor/ProblemsPanel'
@@ -56,6 +57,22 @@ export default function MainLayout() {
     const handleResize = () => setWindowWidth(window.innerWidth)
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // While an HTML5 drag (file in the tree, message reorder, ...) is in flight,
+  // disable the title bar's -webkit-app-region so the OS can't hijack the drag
+  // into a window move — that made the whole interface "slide up" mid-drag.
+  useEffect(() => {
+    const onDragStart = () => document.body.classList.add('app-dragging')
+    const onDragEnd = () => document.body.classList.remove('app-dragging')
+    window.addEventListener('dragstart', onDragStart, true)
+    window.addEventListener('dragend', onDragEnd, true)
+    window.addEventListener('drop', onDragEnd, true)
+    return () => {
+      window.removeEventListener('dragstart', onDragStart, true)
+      window.removeEventListener('dragend', onDragEnd, true)
+      window.removeEventListener('drop', onDragEnd, true)
+    }
   }, [])
 
   const isCompact = windowWidth < COMPACT_BREAKPOINT
@@ -271,6 +288,7 @@ export default function MainLayout() {
       {contextMenu && <ContextMenu />}
       <PluginMarketplace />
       <SkillRegistryModal />
+      <NotificationToasts />
     </div>
   )
 }

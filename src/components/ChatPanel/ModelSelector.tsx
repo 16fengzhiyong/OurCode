@@ -1,6 +1,7 @@
 import { useState, useMemo, lazy, Suspense } from 'react'
 import { useConfigStore } from '@/stores/configStore'
 import { useChatStore } from '@/stores/chatStore'
+import { useUIStore } from '@/stores/uiStore'
 import { lookupModelMetadata } from '@/types'
 
 const ModelCompareView = lazy(() => import('./ModelCompareView'))
@@ -23,70 +24,76 @@ const PROVIDER_COLORS: Record<string, string> = {
 }
 
 export default function ModelSelector() {
-  const [showAdvancedParams, setShowAdvancedParams] = useState(false)
+  const {
+    models, isLoadingModels, modelsError, configGroups, activeConfigGroupId,
+    setActiveConfigGroup, fetchModels, getActiveConfigGroup, toggleFavorite,
+  } = useConfigStore()
+  const { activeSessionId, getActiveSession, updateSessionModel } = useChatStore()
+  const openSettings = useUIStore((s) => s.openSettings)
+
+  const [showProviderMenu, setShowProviderMenu] = useState(false)
+  const [showModelList, setShowModelList] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const [freeOnly, setFreeOnly] = useState(false)
   const [showFavorites, setShowFavorites] = useState(false)
   const [showCompare, setShowCompare] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [providerFilter, setProviderFilter] = useState<string>('')
-  const [contextFilter, setContextFilter] = useState<string>('')
-  const [showModelList, setShowModelList] = useState(false)
-  const {
-    models, isLoadingModels, modelsError, modelParams,
-    fetchModels, setModelParams, getActiveConfigGroup, toggleFavorite,
-  } = useConfigStore()
-  const { activeSessionId, getActiveSession, updateSessionModel, updateSessionParams } = useChatStore()
 
   const activeSession = getActiveSession()
-  const currentModel = activeSession?.model || getActiveConfigGroup()?.defaultModel || ''
+  const activeGroup = getActiveConfigGroup()
+  const currentModel = activeSession?.model || activeGroup?.defaultModel || ''
 
-  // Unique providers
-  const providers = useMemo(() => {
-    const set = new Set(models.map((m) => getProviderFromModelId(m.id)))
-    return Array.from(set).sort()
-  }, [models])
-
-  // Filter models
+  // Filter models of the currently selected provider
   const filteredModels = useMemo(() => {
     let result = [...models]
     if (freeOnly) result = result.filter((m) => m.isFree)
     if (showFavorites) result = result.filter((m) => m.isFavorite)
-    if (providerFilter) result = result.filter((m) => getProviderFromModelId(m.id) === providerFilter)
-    if (contextFilter) {
-      const minTokens = parseInt(contextFilter)
-      result = result.filter((m) => { const meta = lookupModelMetadata(m.id); return meta?.contextWindow && meta.contextWindow >= minTokens })
-    }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter((m) => m.id.toLowerCase().includes(q) || (m.alias && m.alias.toLowerCase().includes(q)))
     }
     result.sort((a, b) => { if (a.isFavorite && !b.isFavorite) return -1; if (!a.isFavorite && b.isFavorite) return 1; return a.id.localeCompare(b.id) })
     return result
-  }, [models, freeOnly, showFavorites, searchQuery, providerFilter, contextFilter])
+  }, [models, freeOnly, searchQuery, showFavorites])
 
   // Favorite models (for horizontal quick-access strip)
   const favoriteModels = useMemo(() => models.filter((m) => m.isFavorite), [models])
 
+  const handleProviderSelect = (groupId: string) => {
+    setShowProviderMenu(false)
+    setShowModelList(false)
+    if (groupId !== activeConfigGroupId) setActiveConfigGroup(groupId)
+  }
+
   const handleModelChange = (modelId: string) => {
-    if (activeSessionId) updateSessionModel(activeSessionId, modelId)
+    if (activeSessionId) {
+      // Rebinding the session to the active group keeps its API key/base URL
+      // in sync with the provider the model was picked from. Without this the
+      // session keeps authenticating with a stale group's key (401).
+      updateSessionModel(activeSessionId, modelId, activeConfigGroupId || undefined)
+    }
     setShowModelList(false)
   }
 
-  const handleParamChange = (key: string, value: number) => {
-    setModelParams({ [key]: value })
-    if (activeSessionId) updateSessionParams(activeSessionId, { [key]: value })
-  }
-
   const freeCount = models.filter((m) => m.isFree).length
-  const favoriteCount = models.filter((m) => m.isFavorite).length
 
   return (
-    <div className="space-y-2.5">
-      {/* Model selector row */}
+    <div className="space-y-2">
+      {/* ── Provider first, then model ── */}
       <div className="flex items-center gap-2">
+        {/* Provider selector */}
         <button
-          onClick={() => setShowModelList(!showModelList)}
-          className="flex-1 py-1.5 px-3 bg-nova-input-bg text-nova-text-secondary rounded-lg border border-nova-border text-xs text-left flex items-center gap-2 hover:border-nova-accent/40 transition-colors"
+          onClick={() => { setShowProviderMenu(!showProviderMenu); setShowModelList(false) }}
+          className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-2 bg-nova-input-bg text-nova-text-secondary rounded-lg border border-nova-border text-xs hover:border-nova-accent/40 transition-colors max-w-[45%]"
+        >
+          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: activeGroup?.color || '#6C9EFF' }} />
+          <span className="truncate">{activeGroup?.name || '选择提供商'}</span>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 opacity-60"><polyline points="6 9 12 15 18 9" /></svg>
+        </button>
+
+        {/* Model selector */}
+        <button
+          onClick={() => { setShowModelList(!showModelList); setShowProviderMenu(false) }}
+          className="flex-1 min-w-0 py-1.5 px-3 bg-nova-input-bg text-nova-text-secondary rounded-lg border border-nova-border text-xs text-left flex items-center gap-2 hover:border-nova-accent/40 transition-colors"
         >
           {currentModel ? (
             <>
@@ -99,13 +106,14 @@ export default function ModelSelector() {
             </>
           ) : (
             <span className="text-nova-text-muted">
-              {isLoadingModels ? '加载中...' : '选择模型'}
+              {isLoadingModels ? '加载中…' : '选择模型'}
             </span>
           )}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 ml-auto opacity-60"><polyline points="6 9 12 15 18 9" /></svg>
         </button>
 
         <button onClick={() => fetchModels()} disabled={isLoadingModels}
-          className="p-1.5 rounded-lg text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover disabled:opacity-50 transition-colors" title="刷新">
+          className="p-1.5 rounded-lg text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover disabled:opacity-50 transition-colors" title="刷新模型列表">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
@@ -119,54 +127,173 @@ export default function ModelSelector() {
             </svg>
           </button>
         )}
-
-        <button onClick={() => setShowAdvancedParams(!showAdvancedParams)}
-          className={`p-1.5 rounded-lg transition-colors ${showAdvancedParams ? 'bg-nova-accent/15 text-nova-accent' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`} title="高级参数">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-        </button>
       </div>
 
-      {/* Inline compact params — always visible */}
-      <div className="flex items-center gap-2 px-2 py-1.5 bg-nova-card/50 rounded-lg border border-nova-border/50 text-[10px]">
-        <span className="text-nova-text-muted shrink-0">参数:</span>
-        <div className="flex items-center gap-1.5 flex-1 flex-wrap">
-          <InlineParam label="温度" value={modelParams.temperature} min={0} max={2} step={0.1} onChange={(v) => handleParamChange('temperature', v)} />
-          <span className="text-nova-border">|</span>
-          <InlineParam label="Max Tokens" value={modelParams.maxTokens} min={0} max={128000} step={1000} onChange={(v) => handleParamChange('maxTokens', v)} zeroLabel="无限制" />
-          <span className="text-nova-border">|</span>
-          <InlineParam label="Top P" value={modelParams.topP} min={0} max={1} step={0.05} onChange={(v) => handleParamChange('topP', v)} />
-        </div>
-      </div>
-
-      {/* Advanced params panel */}
-      {showAdvancedParams && (
-        <div className="p-3 bg-nova-card rounded-xl border border-nova-border grid grid-cols-2 gap-3.5">
-          {[
-            { key: 'temperature', label: 'Temperature', min: 0, max: 2, step: 0.1 },
-            { key: 'maxTokens', label: 'Max Tokens', min: 0, max: 128000, step: 1000 },
-            { key: 'topP', label: 'Top P', min: 0, max: 1, step: 0.05 },
-            { key: 'frequencyPenalty', label: 'Frequency Penalty', min: -2, max: 2, step: 0.1 },
-            { key: 'presencePenalty', label: 'Presence Penalty', min: -2, max: 2, step: 0.1 },
-          ].map(({ key, label, min, max, step }) => (
-            <div key={key} className="flex flex-col gap-1.5">
-              <div className="flex justify-between text-[11px]">
-                <span className="font-medium text-nova-text-secondary">{label}</span>
-                <span className="text-nova-text-muted font-mono">
-                  {(modelParams as any)[key] === 0 && key === 'maxTokens' ? '无限制' : (modelParams as any)[key]}
-                </span>
-              </div>
-              <input type="range" min={min} max={max} step={step} value={(modelParams as any)[key]}
-                onChange={(e) => handleParamChange(key, parseFloat(e.target.value))}
-                className="w-full accent-nova-accent" />
+      {/* ── Provider dropdown ── */}
+      {showProviderMenu && (
+        <div className="bg-nova-card border border-nova-border rounded-xl overflow-hidden" style={{ animation: 'fadeIn 0.15s ease-out' }}>
+          {configGroups.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 px-4 py-6 text-center">
+              <div className="text-xs font-medium text-nova-text-primary">还没有 API 配置</div>
+              <div className="text-[10px] text-nova-text-muted">添加一个提供商后即可选择模型</div>
+              <button
+                onClick={() => { setShowProviderMenu(false); openSettings() }}
+                className="mt-1 px-3 py-1.5 text-[11px] bg-nova-accent text-white rounded-lg hover:opacity-90 transition-opacity">
+                去设置添加配置
+              </button>
             </div>
-          ))}
+          ) : (
+            <div className="py-1">
+              <div className="text-[10px] font-semibold text-nova-text-muted uppercase tracking-wider px-3 py-1.5">选择 API 配置（提供商）</div>
+              {configGroups.map((g) => {
+                const active = g.id === activeConfigGroupId
+                return (
+                  <button key={g.id} onClick={() => handleProviderSelect(g.id)}
+                    className={`flex items-center gap-2.5 w-full px-3.5 py-2 text-left transition-colors ${
+                      active ? 'bg-nova-accent/10' : 'hover:bg-nova-hover'
+                    }`}>
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: g.color || '#6C9EFF' }} />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-[12px] font-medium text-nova-text-primary truncate">{g.name}</span>
+                      <span className="block text-[10px] text-nova-text-muted truncate font-mono">{g.baseUrl}</span>
+                    </span>
+                    {active && <span className="text-[11px] text-nova-accent shrink-0">✓</span>}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Error */}
-      {modelsError && (
+      {/* ── Model dropdown ── */}
+      {showModelList && (
+        <div className="bg-nova-card border border-nova-border rounded-xl overflow-hidden" style={{ animation: 'fadeIn 0.15s ease-out' }}>
+          {models.length > 0 && (
+            <>
+              {/* Search */}
+              <div className="relative px-2.5 pt-2">
+                <svg className="absolute left-4.5 top-3.5 w-3 h-3 text-nova-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="8" strokeWidth="2" /><line x1="21" y1="21" x2="16.65" y2="16.65" strokeWidth="2" />
+                </svg>
+                <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="搜索模型..."
+                  className="w-full pl-6 pr-2 py-1.5 bg-nova-input-bg border border-nova-border rounded text-[11px] text-nova-text-primary outline-none focus:border-nova-accent/50 placeholder-nova-text-muted" />
+              </div>
+              {/* Filters */}
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5">
+                <button onClick={() => setFreeOnly(!freeOnly)}
+                  className={`inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-full border transition-colors ${
+                    freeOnly ? 'bg-green-500/15 text-green-400 border-green-500/40' : 'bg-nova-hover text-nova-text-muted border-transparent hover:text-nova-text-secondary'
+                  }`}>
+                  免费 {freeCount > 0 && `(${freeCount})`}
+                </button>
+                <button onClick={() => setShowFavorites(!showFavorites)}
+                  className={`inline-flex items-center gap-1 px-2 py-1 text-[10px] rounded-full border transition-colors ${
+                    showFavorites ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/40' : 'bg-nova-hover text-nova-text-muted border-transparent hover:text-nova-text-secondary'
+                  }`}>
+                  ★ 收藏
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Loading */}
+          {isLoadingModels && (
+            <div className="flex items-center gap-2 px-3.5 py-4 text-[11px] text-nova-text-secondary">
+              <span className="w-3.5 h-3.5 border-2 border-nova-accent/30 border-t-nova-accent rounded-full animate-spin" />
+              正在获取模型列表…
+            </div>
+          )}
+
+          {/* Error */}
+          {modelsError && (
+            <div className="flex items-center gap-2 px-3.5 py-3 text-[11px] bg-red-500/10 border-t border-red-500/30 text-red-400">
+              <span className="flex-1 truncate">获取模型失败: {modelsError}</span>
+              <button onClick={() => fetchModels()} disabled={isLoadingModels}
+                className="shrink-0 px-2 py-0.5 bg-red-500/20 text-red-300 rounded hover:bg-red-500/30 disabled:opacity-50 transition-colors">重试</button>
+            </div>
+          )}
+
+          {/* Empty / no match */}
+          {!isLoadingModels && !modelsError && filteredModels.length === 0 && (
+            <div className="flex flex-col items-center gap-2 px-4 py-5 text-center">
+              {models.length === 0 ? (
+                <>
+                  <div className="text-xs font-medium text-nova-text-primary">暂无模型</div>
+                  <div className="text-[10px] text-nova-text-muted">点「刷新」从接口拉取，或在设置里添加模型</div>
+                  <button onClick={() => fetchModels()} className="mt-1 px-3 py-1.5 text-[11px] bg-nova-hover text-nova-text-secondary rounded-lg hover:text-nova-text-primary transition-colors">
+                    刷新获取模型
+                  </button>
+                </>
+              ) : (
+                <div className="text-[11px] text-nova-text-muted">没有匹配的模型</div>
+              )}
+            </div>
+          )}
+
+          {/* Model list */}
+          {!isLoadingModels && filteredModels.length > 0 && (
+            <div className="max-h-[220px] overflow-y-auto border-t border-nova-border">
+              {filteredModels.slice(0, 50).map((model) => {
+                const meta = lookupModelMetadata(model.id)
+                const provider = getProviderFromModelId(model.id)
+                return (
+                  <div
+                    key={model.id}
+                    className={`flex items-center gap-2.5 px-3.5 py-2.5 cursor-pointer transition-colors border-b border-nova-border last:border-b-0 ${
+                      currentModel === model.id ? 'bg-nova-accent/10' : 'hover:bg-nova-hover'
+                    }`}
+                    onClick={() => handleModelChange(model.id)}
+                  >
+                    {/* Star */}
+                    <button onClick={(e) => { e.stopPropagation(); toggleFavorite(model.id) }}
+                      className={`shrink-0 text-sm ${model.isFavorite ? 'text-yellow-400' : 'text-nova-text-muted hover:text-yellow-400'} bg-transparent border-none cursor-pointer`}>
+                      {model.isFavorite ? '★' : '☆'}
+                    </button>
+
+                    {/* Provider icon */}
+                    <div className="w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-bold shrink-0"
+                      style={{ background: `${PROVIDER_COLORS[provider] || '#2563eb'}20`, color: PROVIDER_COLORS[provider] || '#2563eb' }}>
+                      {provider.charAt(0).toUpperCase()}
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-medium text-nova-text-primary truncate">{model.alias || model.id}</div>
+                      <div className="text-[10px] text-nova-text-muted">{provider}</div>
+                    </div>
+
+                    {/* Meta tags */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {meta?.contextWindow && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-nova-hover text-nova-text-muted">
+                          {meta.contextWindow >= 1048576 ? `${Math.round(meta.contextWindow / 1048576)}M` : `${Math.round(meta.contextWindow / 1000)}K`}
+                        </span>
+                      )}
+                      {meta?.vision && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-nova-accent/10 text-nova-accent">👁 视觉</span>
+                      )}
+                      {meta?.functionCall && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-nova-accent/10 text-nova-accent">⚡ 函数调用</span>
+                      )}
+                      {model.isFree && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">免费</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              {filteredModels.length > 50 && (
+                <div className="text-[10px] text-nova-text-muted text-center py-2">还有 {filteredModels.length - 50} 个模型...</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Persistent error banner (collapsed state) */}
+      {modelsError && !showModelList && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-[11px] bg-red-500/10 border border-red-500/30 text-red-400">
           <span className="flex-1 truncate">获取模型失败: {modelsError}</span>
           <button onClick={() => fetchModels()} disabled={isLoadingModels}
@@ -209,145 +336,12 @@ export default function ModelSelector() {
         </div>
       )}
 
-      {/* Filter chips */}
-      {models.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Search */}
-          <div className="relative flex-1 min-w-[100px]">
-            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-nova-text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <circle cx="11" cy="11" r="8" strokeWidth="2" /><line x1="21" y1="21" x2="16.65" y2="16.65" strokeWidth="2" />
-            </svg>
-            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索模型..."
-              className="w-full pl-7 pr-2 py-1.5 bg-nova-input-bg border border-nova-border rounded text-[11px] text-nova-text-primary outline-none focus:border-nova-accent/50 placeholder-nova-text-muted" />
-          </div>
-
-          {/* Provider filter - pill */}
-          <select value={providerFilter} onChange={(e) => setProviderFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-[11px] rounded-full border cursor-pointer transition-colors bg-nova-hover text-nova-text-muted border-transparent hover:text-nova-text-secondary hover:border-nova-border-strong outline-none"
-            style={{ fontFamily: 'inherit' }}>
-            <option value="">全部提供商</option>
-            {providers.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
-
-          {/* Context filter - pill */}
-          <select value={contextFilter} onChange={(e) => setContextFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-[11px] rounded-full border cursor-pointer transition-colors bg-nova-hover text-nova-text-muted border-transparent hover:text-nova-text-secondary hover:border-nova-border-strong outline-none"
-            style={{ fontFamily: 'inherit' }}>
-            <option value="">上下文</option>
-            <option value="32768">≥ 32K</option>
-            <option value="65536">≥ 64K</option>
-            <option value="131072">≥ 128K</option>
-            <option value="1048576">≥ 1M</option>
-          </select>
-
-          {/* Free filter pill */}
-          <button onClick={() => setFreeOnly(!freeOnly)}
-            className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] rounded-full border transition-colors whitespace-nowrap ${
-              freeOnly
-                ? 'bg-green-500/15 text-green-400 border-green-500/40'
-                : 'bg-nova-hover text-nova-text-muted border-transparent hover:text-nova-text-secondary hover:border-nova-border-strong'
-            }`}>
-            免费 {freeCount > 0 && `(${freeCount})`}
-          </button>
-
-          {/* Favorites filter pill */}
-          <button onClick={() => setShowFavorites(!showFavorites)}
-            className={`inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] rounded-full border transition-colors whitespace-nowrap ${
-              showFavorites
-                ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/40'
-                : 'bg-nova-hover text-nova-text-muted border-transparent hover:text-nova-text-secondary hover:border-nova-border-strong'
-            }`}>
-            ★ 收藏 {favoriteCount > 0 && `(${favoriteCount})`}
-          </button>
-        </div>
-      )}
-
-      {/* Model list dropdown */}
-      {showModelList && filteredModels.length > 0 && (
-        <div className="max-h-[200px] overflow-y-auto bg-nova-card border border-nova-border rounded-xl" style={{ animation: 'fadeIn 0.15s ease-out' }}>
-          {filteredModels.slice(0, 50).map((model) => {
-            const meta = lookupModelMetadata(model.id)
-            const provider = getProviderFromModelId(model.id)
-            return (
-              <div
-                key={model.id}
-                className={`flex items-center gap-2.5 px-3.5 py-2.5 cursor-pointer transition-colors border-b border-nova-border last:border-b-0 ${
-                  currentModel === model.id ? 'bg-nova-accent/10' : 'hover:bg-nova-hover'
-                }`}
-                onClick={() => handleModelChange(model.id)}
-              >
-                {/* Star */}
-                <button onClick={(e) => { e.stopPropagation(); toggleFavorite(model.id) }}
-                  className={`shrink-0 text-sm ${model.isFavorite ? 'text-yellow-400' : 'text-nova-text-muted hover:text-yellow-400'} bg-transparent border-none cursor-pointer`}>
-                  {model.isFavorite ? '★' : '☆'}
-                </button>
-
-                {/* Provider icon */}
-                <div className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold shrink-0"
-                  style={{ background: `${PROVIDER_COLORS[provider] || '#2563eb'}20`, color: PROVIDER_COLORS[provider] || '#2563eb' }}>
-                  {provider.charAt(0).toUpperCase()}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-medium text-nova-text-primary truncate">{model.alias || model.id}</div>
-                  <div className="text-[10px] text-nova-text-muted">{provider}</div>
-                </div>
-
-                {/* Meta tags */}
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {meta?.contextWindow && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-nova-hover text-nova-text-muted">
-                      {meta.contextWindow >= 1048576 ? `${Math.round(meta.contextWindow / 1048576)}M` : `${Math.round(meta.contextWindow / 1000)}K`}
-                    </span>
-                  )}
-                  {meta?.vision && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-nova-accent/10 text-nova-accent">👁 视觉</span>
-                  )}
-                  {meta?.functionCall && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-nova-accent/10 text-nova-accent">⚡ 函数调用</span>
-                  )}
-                  {model.isFree && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">免费</span>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-          {filteredModels.length > 50 && (
-            <div className="text-[10px] text-nova-text-muted text-center py-2">还有 {filteredModels.length - 50} 个模型...</div>
-          )}
-        </div>
-      )}
-
       {/* Model comparison modal */}
       {showCompare && (
         <Suspense fallback={<div className="text-xs text-nova-text-muted">加载中...</div>}>
           <ModelCompareView onClose={() => setShowCompare(false)} />
         </Suspense>
       )}
-    </div>
-  )
-}
-
-/** Compact inline parameter with label + value + micro-slider */
-function InlineParam({ label, value, min, max, step, onChange, zeroLabel }: {
-  label: string; value: number; min: number; max: number; step: number;
-  onChange: (v: number) => void; zeroLabel?: string;
-}) {
-  return (
-    <div className="flex items-center gap-1">
-      <span className="text-nova-text-muted">{label}</span>
-      <input
-        type="range"
-        min={min} max={max} step={step} value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-12 h-1 accent-nova-accent cursor-pointer"
-      />
-      <span className="text-nova-text-secondary font-mono min-w-[28px] text-right">
-        {value === 0 && zeroLabel ? zeroLabel : value}
-      </span>
     </div>
   )
 }

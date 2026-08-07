@@ -268,6 +268,7 @@ export const zhCN = {
   'chat.modeProjectHint': '项目模式：先制定计划，批准后执行',
   'chat.modeAgent': 'Agent',
   'chat.modeAgentHint': 'Agent 模式：自主规划并执行任务，计划批准后自动运行',
+  'chat.agentNeedsProject': 'Agent 模式需要先打开一个项目文件夹才能使用',
   'chat.chatModeHint': '对话模式：直接回答',
   'chat.chatMode': '💬 对话',
   'chat.planModeHint': '计划模式：先制定计划，批准后执行',

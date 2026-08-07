@@ -1,9 +1,11 @@
 import { ApiConfigGroup, LLMRequest, LLMStreamChunk } from '@/types'
 import { LLMAdapter } from '../types'
+import { llmFetch } from '../http'
+import { buildChatUrl, buildModelsUrl } from '../endpoints'
 
 export class OllamaAdapter implements LLMAdapter {
   async *sendRequest(req: LLMRequest, config: ApiConfigGroup, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
-    const url = `${config.baseUrl.replace(/\/+$/, '')}/api/chat`
+    const url = buildChatUrl(config.baseUrl, 'ollama')
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -40,12 +42,12 @@ export class OllamaAdapter implements LLMAdapter {
       body.tools = req.tools
     }
 
-    const response = await fetch(url, {
+    const response = await llmFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
       signal,
-    })
+    }, { stream: true })
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '')
@@ -110,8 +112,9 @@ export class OllamaAdapter implements LLMAdapter {
   }
 
   async fetchModels(config: ApiConfigGroup, signal?: AbortSignal): Promise<string[]> {
-    const url = `${config.baseUrl.replace(/\/+$/, '')}/api/tags`
-    const response = await fetch(url, { signal })
+    const url = buildModelsUrl(config.baseUrl, 'ollama')
+    if (!url) return []
+    const response = await llmFetch(url, { signal })
     if (!response.ok) {
       throw new Error(`获取 Ollama 模型列表失败 (${response.status})`)
     }

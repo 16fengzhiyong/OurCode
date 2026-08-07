@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ChatMessage as ChatMessageType } from '@/types'
 import { useChatStore } from '@/stores/chatStore'
+import { useEditorStore } from '@/stores/editorStore'
 import { useMemoryStore } from '@/stores/memoryStore'
 import { EXHAUSTED_MARKER } from '@shared/constants'
 import ThinkingBlock from './ThinkingBlock'
@@ -73,6 +74,9 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   const [remembered, setRemembered] = useState(false)
   const t = useI18n()
 
+  // Inline editing and batch selection only apply in history-edit mode.
+  const editEnabled = useEditorStore((s) => s.preferences.chatHistoryEditMode)
+
   const { editMessage, regenerateFromMessage, createBranchFromMessage, continueGeneration, checkpoints, revertCheckpoint } = useChatStore()
   const addMemory = useMemoryStore((s) => s.addMemory)
 
@@ -143,8 +147,8 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
 
   return (
     <div className={`group animate-fade-in ${isUser ? 'flex justify-end' : 'flex gap-2.5'}`}>
-      {/* Batch select checkbox */}
-      {isSelectMode && (
+      {/* Batch select checkbox — only in history-edit mode */}
+      {isSelectMode && editEnabled && (
         <label className="flex items-start pt-2 cursor-pointer shrink-0">
           <input
             type="checkbox"
@@ -270,13 +274,15 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
                     {t('chat.rollback')}
                   </GhostButton>
                 )}
-                <GhostButton onClick={() => setIsEditing(true)} title={t('chat.editMessage')}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                  </svg>
-                  {t('chat.edit')}
-                </GhostButton>
+                {editEnabled && (
+                  <GhostButton onClick={() => setIsEditing(true)} title={t('chat.editMessage')}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                    </svg>
+                    {t('chat.edit')}
+                  </GhostButton>
+                )}
                 {isAssistant && (
                   <GhostButton onClick={handleRegenerate} title={t('chat.regenerate')}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

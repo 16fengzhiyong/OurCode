@@ -165,6 +165,31 @@ describe('chatStore message management', () => {
     expect(mockApi.saveSession).toHaveBeenCalled()
   })
 
+  it('updateSessionModel with a configGroupId rebinds the session to that group', () => {
+    makeSession()
+    useChatStore.getState().updateSessionModel('s1', 'LongCat-2.0', 'cfg-longcat')
+    const s = useChatStore.getState().getActiveSession()!
+    expect(s.model).toBe('LongCat-2.0')
+    expect(s.configGroupId).toBe('cfg-longcat')
+  })
+
+  it('updateSessionModel without a configGroupId keeps the existing binding', () => {
+    makeSession()
+    useChatStore.getState().updateSessionModel('s1', 'gpt-4o')
+    const s = useChatStore.getState().getActiveSession()!
+    expect(s.model).toBe('gpt-4o')
+    expect(s.configGroupId).toBe('cfg-1')
+  })
+
+  it('updateSessionConfigGroup rebinds without touching the model', () => {
+    makeSession()
+    useChatStore.getState().updateSessionModel('s1', 'LongCat-2.0')
+    useChatStore.getState().updateSessionConfigGroup('s1', 'cfg-longcat')
+    const s = useChatStore.getState().getActiveSession()!
+    expect(s.model).toBe('LongCat-2.0')
+    expect(s.configGroupId).toBe('cfg-longcat')
+  })
+
   it('exportSession markdown renders roles and content', () => {
     makeSession()
     addUser('s1', '你好')

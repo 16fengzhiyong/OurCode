@@ -99,6 +99,22 @@ export interface ElectronAPI {
     ok: boolean; status?: number; contentType?: string; finalUrl?: string; text?: string; error?: string
   }>
 
+  // LLM HTTP bridge — main-process net.fetch (no CORS), supports streaming
+  llmHttp: (req: {
+    id: string
+    url: string
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    stream?: boolean
+    timeoutMs?: number
+  }) => Promise<{ ok: boolean; status?: number; statusText?: string; headers?: Record<string, string>; text?: string; error?: string }>
+  llmHttpAbort: (id: string) => void
+  onLlmHttpHeaders: (callback: (payload: { id: string; ok: boolean; status: number; statusText: string; headers: Record<string, string> }) => void) => () => void
+  onLlmHttpChunk: (callback: (payload: { id: string; data: string }) => void) => () => void
+  onLlmHttpDone: (callback: (payload: { id: string }) => void) => () => void
+  onLlmHttpError: (callback: (payload: { id: string; message: string }) => void) => () => void
+
   // Memories
   memoryList: () => Promise<import('@shared/types').Memory[]>
   memoryAdd: (content: string, scope?: string, projectPath?: string) => Promise<import('@shared/types').Memory>

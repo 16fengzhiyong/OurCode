@@ -332,7 +332,8 @@ interface ChatState {
 
   // Persistence
   saveSession: (sessionId: string) => Promise<void>
-  updateSessionModel: (sessionId: string, model: string) => void
+  updateSessionModel: (sessionId: string, model: string, configGroupId?: string) => void
+  updateSessionConfigGroup: (sessionId: string, configGroupId: string) => void
   updateSessionParams: (sessionId: string, params: Partial<ModelParams>) => void
   resetStore: () => void
 }
@@ -1221,10 +1222,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  updateSessionModel: (sessionId, model) => {
+  updateSessionModel: (sessionId, model, configGroupId) => {
     set((s) => ({
       sessions: s.sessions.map((sess) =>
-        sess.id === sessionId ? { ...sess, model } : sess
+        sess.id === sessionId
+          ? { ...sess, model, ...(configGroupId !== undefined ? { configGroupId } : {}) }
+          : sess
+      ),
+    }))
+    get().saveSession(sessionId)
+  },
+
+  // Rebinding is what keeps the session's API key/base URL in sync with the
+  // provider shown in the UI. Without it a session can end up using a model
+  // picked from another config group while still authenticating with the old
+  // group's key — which surfaces as a confusing 401 "invalid API key".
+  updateSessionConfigGroup: (sessionId, configGroupId) => {
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === sessionId ? { ...sess, configGroupId, updatedAt: Date.now() } : sess
       ),
     }))
     get().saveSession(sessionId)
@@ -1322,6 +1338,22 @@ async function runAgentLoop(
   if (!configGroup) return
 
   const agentMode = opts?.agentModeOverride || (session.agentMode === 'agent' ? 'agent' : 'chat')
+
+  // Agent mode operates on the workspace, so a project folder must be open.
+  // If a session was left in agent mode and the project got closed, fall back
+  // to plain chat instead of running tool calls against an empty workspace.
+  if (agentMode === 'agent') {
+    const hasProject = Boolean(
+      session.projectPath
+      || document.getElementById('file-tree-root')?.getAttribute('data-root-path')
+      || useUIStore.getState().rootPath
+    )
+    if (!hasProject) {
+      chatStore.setAgentMode(sessionId, 'chat')
+      useUIStore.getState().showNotification('Agent 模式需要先打开一个项目文件夹', 'warning')
+      return
+    }
+  }
 
   // Refresh dynamic tools (MCP servers + workspace skills) before building the tool list
   await toolExecutor.refreshMcpTools()
@@ -1428,6 +1460,8 @@ async function runAgentLoop(
         topP: session.modelParams.topP,
         frequencyPenalty: session.modelParams.frequencyPenalty,
         presencePenalty: session.modelParams.presencePenalty,
+        thinking: session.modelParams.thinking,
+        reasoningEffort: session.modelParams.reasoningEffort,
         tools: toolDefinitions,
       }
 

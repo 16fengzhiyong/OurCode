@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, type WebContents, type IpcMainInvokeEvent } from 'electron'
 import { join, resolve, dirname, sep } from 'path'
-import { existsSync } from 'fs'
+import { existsSync, mkdirSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import { exec, execFile } from 'child_process'
 import * as pty from 'node-pty'
@@ -776,6 +776,118 @@ function registerIpcHandlers(): void {
     }
   })
 
+  // ───────────────────── LLM HTTP bridge (chat / model lists) ─────────────────────
+  // The renderer is sandboxed, so its fetch() is subject to CORS. Third-party
+  // OpenAI-compatible relays (longcat, one-api, new-api, ...) often omit CORS
+  // headers, which makes renderer-side LLM calls fail with a cryptic
+  // "Failed to fetch". Route LLM requests through net.fetch (main process, no
+  // CORS) — same pattern as web:fetch above. Streaming responses are forwarded
+  // chunk-by-chunk over IPC so the renderer's SSE parsing stays untouched.
+  const llmControllers = new Map<string, AbortController>()
+
+  ipcMain.on('llm:httpAbort', (_event, id: string) => {
+    llmControllers.get(id)?.abort()
+  })
+
+  ipcMain.handle('llm:http', async (event, req: {
+    id: string
+    url: string
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    stream?: boolean
+    timeoutMs?: number
+  }) => {
+    if (!req.id) return { ok: false, error: '缺少请求 id' }
+    let parsed: URL
+    try {
+      parsed = new URL(req.url)
+    } catch {
+      return { ok: false, error: '无效的 URL' }
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return { ok: false, error: '仅支持 http/https URL' }
+    }
+
+    const controller = new AbortController()
+    llmControllers.set(req.id, controller)
+    const timer = setTimeout(() => controller.abort(), req.timeoutMs || 30_000)
+
+    const headers: Record<string, string> = { ...req.headers }
+    // Case-insensitive check: the renderer usually sends 'Content-Type' already;
+    // appending a lowercased twin would produce a duplicate header that some
+    // gateways (Spring Boot) reject with 415 Unsupported Media Type.
+    const hasContentType = Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')
+    if (req.body && !hasContentType) headers['content-type'] = 'application/json'
+
+    try {
+      const res = await net.fetch(parsed.toString(), {
+        method: req.method || 'GET',
+        headers,
+        body: req.body,
+        signal: controller.signal,
+        redirect: 'follow',
+      })
+
+      const responseHeaders: Record<string, string> = {}
+      res.headers.forEach((value, key) => { responseHeaders[key] = value })
+
+      if (!req.stream) {
+        const text = await res.text()
+        return {
+          ok: res.ok,
+          status: res.status,
+          statusText: res.statusText,
+          headers: responseHeaders,
+          text,
+        }
+      }
+
+      // Streaming: forward status/headers first, then body chunks as base64
+      event.sender.send('llm:httpHeaders', {
+        id: req.id,
+        ok: res.ok,
+        status: res.status,
+        statusText: res.statusText,
+        headers: responseHeaders,
+      })
+
+      if (!res.body) {
+        // Empty body (e.g. 204) — signal end of stream right away
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('llm:httpDone', { id: req.id })
+        }
+        return { ok: true }
+      }
+
+      const reader = res.body.getReader()
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          if (event.sender.isDestroyed()) break
+          event.sender.send('llm:httpChunk', { id: req.id, data: Buffer.from(value).toString('base64') })
+        }
+      } finally {
+        reader.releaseLock()
+      }
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('llm:httpDone', { id: req.id })
+      }
+      return { ok: true }
+    } catch (error: any) {
+      const aborted = controller.signal.aborted
+      const message = aborted ? '请求超时或已取消' : (error.message || '网络请求失败')
+      if (req.stream && !event.sender.isDestroyed()) {
+        event.sender.send('llm:httpError', { id: req.id, message })
+      }
+      return { ok: false, error: message }
+    } finally {
+      clearTimeout(timer)
+      llmControllers.delete(req.id)
+    }
+  })
+
   // ───────────────────── Memories ─────────────────────
   ipcMain.handle('memory:list', async () => {
     return store.getMemories()
@@ -1075,6 +1187,13 @@ if (!app.requestSingleInstanceLock()) {
 app.whenReady().then(() => {
   // Initialize services
   const userDataPath = app.getPath('userData')
+  // The renderer's skill/agent scanners discover global dirs in userData via
+  // fs:listDir / fs:stat, so register them alongside user-opened workspaces.
+  // Create them so first-run (and the fs:listDir bridge) doesn't hit ENOENT.
+  mkdirSync(join(userDataPath, 'skills'), { recursive: true })
+  mkdirSync(join(userDataPath, 'agents'), { recursive: true })
+  registerRoot(join(userDataPath, 'skills'))
+  registerRoot(join(userDataPath, 'agents'))
   fileSystem = new FileSystemService()
   store = new SQLiteStore(userDataPath)
   backup = new BackupService(join(userDataPath, 'backups'))

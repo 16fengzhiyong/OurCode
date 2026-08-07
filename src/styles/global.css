@@ -177,6 +177,13 @@ select option {
   -webkit-app-region: no-drag;
 }
 
+/* During an HTML5 drag the title bar must not act as a window drag handle —
+   otherwise the OS hijacks the drag and the whole window slides around. */
+body.app-dragging .drag-region,
+body.app-dragging .drag-region * {
+  -webkit-app-region: no-drag;
+}
+
 /* Monaco Editor overrides */
 .monaco-editor {
   padding-top: 8px;

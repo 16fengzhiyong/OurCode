@@ -1,9 +1,20 @@
 import { ApiConfigGroup, LLMRequest, LLMStreamChunk, LLMToolCall } from '@/types'
 import { LLMAdapter } from '../types'
+import { llmFetch } from '../http'
+import { buildChatUrl, buildModelsUrl, EndpointFormat } from '../endpoints'
 
+/**
+ * OpenAI Chat Completions adapter.
+ *
+ * Also used for Azure OpenAI (deployments URL scheme) via `new OpenAIAdapter('azure')`.
+ * The azure `model` field carries the deployment name.
+ */
 export class OpenAIAdapter implements LLMAdapter {
+  constructor(private format: 'openai' | 'azure' = 'openai') {}
+
   async *sendRequest(req: LLMRequest, config: ApiConfigGroup, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
-    const url = `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`
+    const format: EndpointFormat = this.format === 'azure' ? 'azure' : 'openai'
+    const url = buildChatUrl(config.baseUrl, format, req.model)
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -51,12 +62,17 @@ export class OpenAIAdapter implements LLMAdapter {
       body.tools = req.tools
     }
 
-    const response = await fetch(url, {
+    // Deep thinking: OpenAI reasoning models (o-series) use `reasoning_effort`
+    if (req.thinking) {
+      body.reasoning_effort = req.reasoningEffort || 'high'
+    }
+
+    const response = await llmFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
       signal,
-    })
+    }, { stream: true })
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '')
@@ -66,6 +82,7 @@ export class OpenAIAdapter implements LLMAdapter {
     if (!req.stream) {
       const data = await response.json()
       const content = data.choices?.[0]?.message?.content || ''
+      const thinking = data.choices?.[0]?.message?.reasoning_content || ''
       const usage = data.usage
       const toolCalls = data.choices?.[0]?.message?.tool_calls?.map((tc: any) => ({
         id: tc.id,
@@ -77,6 +94,7 @@ export class OpenAIAdapter implements LLMAdapter {
       }))
       yield {
         content,
+        thinking: thinking || undefined,
         done: false,
         toolCalls,
         usage: usage ? { promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens } : undefined,
@@ -169,19 +187,23 @@ export class OpenAIAdapter implements LLMAdapter {
   }
 
   async fetchModels(config: ApiConfigGroup, signal?: AbortSignal): Promise<string[]> {
-    const url = `${config.baseUrl.replace(/\/+$/, '')}/models`
+    const format: EndpointFormat = this.format === 'azure' ? 'azure' : 'openai'
+    const url = buildModelsUrl(config.baseUrl, format)
+    if (!url) return []
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${config.apiKey}`,
       ...config.customHeaders,
     }
 
-    const response = await fetch(url, { headers, signal })
+    const response = await llmFetch(url, { headers, signal })
     if (!response.ok) {
       throw new Error(`获取模型列表失败 (${response.status}): ${response.statusText}`)
     }
 
     const data = await response.json()
-    return (data.data || []).map((m: any) => m.id).sort()
+    // OpenAI /v1/models returns { data: [...] }; Azure deployments returns { value: [...] }
+    const list: any[] = data?.data || data?.value || []
+    return list.map((m: any) => m.id).filter(Boolean).sort()
   }
 }

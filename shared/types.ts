@@ -8,9 +8,9 @@ export interface ApiConfigGroup {
   apiKey: string // Decrypted at runtime in renderer
   systemPrompt: string
   defaultModel: string
-  provider: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'deepseek' | 'groq' | 'azure' | 'custom'
+  provider: 'openai' | 'responses' | 'anthropic' | 'gemini' | 'ollama' | 'deepseek' | 'groq' | 'azure' | 'custom'
   /** Override the API format regardless of provider. 'auto' uses the provider's native format. */
-  apiFormat?: 'auto' | 'openai' | 'anthropic' | 'gemini'
+  apiFormat?: 'auto' | 'openai' | 'responses' | 'anthropic' | 'gemini' | 'ollama' | 'azure'
   customHeaders: Record<string, string>
   color?: string // Color label for the config group
   sortOrder?: number // smaller = higher priority
@@ -25,6 +25,9 @@ export interface ModelParams {
   topP: number
   frequencyPenalty: number
   presencePenalty: number
+  // Deep thinking (reasoning models): toggle + effort level
+  thinking: boolean
+  reasoningEffort: 'low' | 'medium' | 'high'
 }
 
 // Chat Branch
@@ -257,6 +260,10 @@ export interface UserPreferences {
   /** 'system' follows the OS locale (zh-* → zh-CN, otherwise en-US) */
   language: 'zh-CN' | 'en-US' | 'system'
   encryptChatData: boolean
+  /** When enabled the chat history becomes editable: edit messages, drag to
+   *  reorder, and batch-delete. Off by default so history can't be mangled
+   *  by an accidental drag. */
+  chatHistoryEditMode: boolean
   /** LSP servers by Monaco language id, e.g. { python: "pylsp", go: "gopls -mode stdio" } */
   lspServers?: Record<string, string>
 }
@@ -313,6 +320,9 @@ export interface LLMRequest {
   presencePenalty: number
   stream: boolean
   tools?: ToolDefinition[]
+  // Deep thinking (reasoning models); optional so non-chat request builders stay compatible
+  thinking?: boolean
+  reasoningEffort?: 'low' | 'medium' | 'high'
 }
 
 // LLM Stream Chunk

@@ -271,6 +271,7 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.modeProjectHint': 'Project mode: produce a plan first, execute after approval',
   'chat.modeAgent': 'Agent',
   'chat.modeAgentHint': 'Agent mode: plan and execute tasks autonomously, auto-run after plan approval',
+  'chat.agentNeedsProject': 'Agent mode requires a project folder to be opened first',
   'chat.chatModeHint': 'Chat mode: answer directly',
   'chat.chatMode': '💬 Chat',
   'chat.planModeHint': 'Plan mode: draft a plan first, run after approval',

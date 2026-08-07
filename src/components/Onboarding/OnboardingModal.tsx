@@ -4,6 +4,7 @@ import { useI18n } from '@/i18n/useI18n'
 
 const PROVIDERS = [
   { id: 'openai', name: 'OpenAI', defaultUrl: 'https://api.openai.com/v1' },
+  { id: 'responses', name: 'OpenAI Responses', defaultUrl: 'https://api.openai.com/v1' },
   { id: 'anthropic', name: 'Anthropic', defaultUrl: 'https://api.anthropic.com' },
   { id: 'deepseek', name: 'DeepSeek', defaultUrl: 'https://api.deepseek.com/v1' },
   { id: 'ollama', name: 'Ollama (Local)', defaultUrl: 'http://localhost:11434/v1' },

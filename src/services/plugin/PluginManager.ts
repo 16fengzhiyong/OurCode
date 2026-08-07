@@ -1,35 +1,13 @@
 import { PluginManifest, PluginInfo, PluginPermission, PluginMessage, ExtensionAPI } from './types'
 import { getFileContent } from '@/editor/modelRegistry'
 import { registerCommand, unregisterCommand } from '@/services/commands/commandRegistry'
-
-// Lazy store imports to avoid circular dependency
-let _editorStore: any = null
-let _chatStore: any = null
-let _uiStore: any = null
-
-async function getEditorStore() {
-  if (!_editorStore) {
-    const mod = await import('@/stores/editorStore')
-    _editorStore = mod.useEditorStore
-  }
-  return _editorStore
-}
-
-async function getChatStore() {
-  if (!_chatStore) {
-    const mod = await import('@/stores/chatStore')
-    _chatStore = mod.useChatStore
-  }
-  return _chatStore
-}
-
-async function getUIStore() {
-  if (!_uiStore) {
-    const mod = await import('@/stores/uiStore')
-    _uiStore = mod.useUIStore
-  }
-  return _uiStore
-}
+// Static store imports: the stores are already statically imported by the app
+// shell, so a dynamic import here would neither avoid a cycle nor split the
+// bundle — it only trips Vite's "dynamic import will not move module into
+// another chunk" warning.
+import { useEditorStore } from '@/stores/editorStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useUIStore } from '@/stores/uiStore'
 
 /**
  * PluginManager handles plugin lifecycle:
@@ -95,11 +73,6 @@ export class PluginManager {
     try {
       // Load plugin code
       const code = await this.loadPluginCode(id)
-
-      // Initialize store references so the extension API can reach live
-      // editor/chat/ui state (previously these loaders were never called and
-      // every store-backed API returned null).
-      await Promise.all([getEditorStore(), getChatStore(), getUIStore()])
 
       // Create sandboxed Worker
       const worker = this.createSandboxedWorker(id, code, plugin.enabledPermissions)
@@ -214,7 +187,7 @@ export class PluginManager {
       editor: {
         getActiveFile: () => {
           if (!hasPerm('editor.read')) return null
-          const store = _editorStore?.getState?.()
+          const store = useEditorStore.getState()
           if (!store) return null
           const activeFile = store.openFiles.find((f: any) => f.path === store.activeFilePath)
           if (!activeFile) return null
@@ -286,10 +259,10 @@ export class PluginManager {
       ai: {
         sendMessage: async (content: string) => {
           if (!hasPerm('ai.chat')) throw new Error('Permission denied: ai.chat required')
-          const chatStore = _chatStore?.getState?.()
+          const chatStore = useChatStore.getState()
           if (!chatStore) throw new Error('Chat store not available')
           return new Promise<string>((resolve) => {
-            const unsub = _chatStore.subscribe((state: any) => {
+            const unsub = useChatStore.subscribe((state: any) => {
               if (!state.isLoading && state.streamingContent === '') {
                 const session = state.sessions.find((s: any) => s.id === state.activeSessionId)
                 const lastAssistant = [...(session?.messages || [])].reverse().find((m: any) => m.role === 'assistant')
@@ -304,7 +277,7 @@ export class PluginManager {
         },
         onMessage: (callback: (message: { role: string; content: string }) => void) => {
           if (!hasPerm('ai.chat')) return () => {}
-          const unsub = _chatStore.subscribe((state: any) => {
+          const unsub = useChatStore.subscribe((state: any) => {
             if (state.streamingContent) {
               callback({ role: 'assistant', content: state.streamingContent })
             }
@@ -334,10 +307,7 @@ export class PluginManager {
         },
         showNotification: (message: string, type: 'info' | 'warning' | 'error') => {
           // Notifications are always allowed
-          const uiStore = _uiStore?.getState?.()
-          if (uiStore?.showNotification) {
-            uiStore.showNotification(message, type)
-          }
+          useUIStore.getState().showNotification(message, type)
         },
       },
       commands: {
@@ -369,11 +339,11 @@ export class PluginManager {
           return el?.getAttribute('data-root-path') || null
         },
         getOpenFiles: () => {
-          const store = _editorStore?.getState?.()
+          const store = useEditorStore.getState()
           return store?.openFiles?.map((f: any) => f.path) || []
         },
         getActiveFile: () => {
-          const store = _editorStore?.getState?.()
+          const store = useEditorStore.getState()
           return store?.activeFilePath || null
         },
       },

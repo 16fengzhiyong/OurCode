@@ -1,5 +1,7 @@
 // IPC Channel Constants
 
+import { ModelParams } from './types'
+
 export const IPC_CHANNELS = {
   // File System
   FS_READ_FILE: 'fs:readFile',
@@ -94,12 +96,14 @@ export const IPC_CHANNELS = {
 } as const
 
 // Default Model Parameters
-export const DEFAULT_MODEL_PARAMS = {
+export const DEFAULT_MODEL_PARAMS: ModelParams = {
   temperature: 1.0,
   maxTokens: 0, // 0 means unlimited
   topP: 1.0,
   frequencyPenalty: 0,
   presencePenalty: 0,
+  thinking: false,
+  reasoningEffort: 'high',
 }
 
 // Default User Preferences
@@ -115,6 +119,7 @@ export const DEFAULT_PREFERENCES = {
   chatPosition: 'right' as const,
   language: 'system' as const,
   encryptChatData: false,
+  chatHistoryEditMode: false,
 }
 
 // Free model keywords

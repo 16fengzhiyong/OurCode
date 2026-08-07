@@ -1,5 +1,7 @@
 import { ApiConfigGroup, LLMRequest, LLMStreamChunk, LLMToolCall } from '@/types'
 import { LLMAdapter } from '../types'
+import { llmFetch } from '../http'
+import { buildChatUrl } from '../endpoints'
 
 const ANTHROPIC_MODELS = [
   'claude-sonnet-4-20250514',
@@ -11,7 +13,7 @@ const ANTHROPIC_MODELS = [
 
 export class AnthropicAdapter implements LLMAdapter {
   async *sendRequest(req: LLMRequest, config: ApiConfigGroup, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
-    const url = `${config.baseUrl.replace(/\/+$/, '')}/messages`
+    const url = buildChatUrl(config.baseUrl, 'anthropic', req.model)
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -75,6 +77,15 @@ export class AnthropicAdapter implements LLMAdapter {
       top_p: req.topP,
     }
 
+    // Deep thinking: Anthropic extended thinking maps effort to a token budget
+    // (low/medium/high -> 2048/4096/8192). max_tokens must stay above the budget.
+    if (req.thinking) {
+      const effortBudgets = { low: 2048, medium: 4096, high: 8192 }
+      const budget = effortBudgets[req.reasoningEffort || 'high']
+      body.thinking = { type: 'enabled', budget_tokens: budget }
+      if (body.max_tokens <= budget) body.max_tokens = budget + 2048
+    }
+
     if (systemPrompt) {
       body.system = systemPrompt
     }
@@ -88,12 +99,12 @@ export class AnthropicAdapter implements LLMAdapter {
       }))
     }
 
-    const response = await fetch(url, {
+    const response = await llmFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
       signal,
-    })
+    }, { stream: true })
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '')

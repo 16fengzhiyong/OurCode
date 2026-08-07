@@ -1,5 +1,7 @@
 import { LLMRequest, LLMStreamChunk, ApiConfigGroup } from '@/types'
 import { LLMAdapter } from '../types'
+import { llmFetch } from '../http'
+import { buildChatUrl, buildModelsUrl } from '../endpoints'
 
 /**
  * Groq adapter — uses OpenAI-compatible API with Groq-specific optimizations
@@ -7,7 +9,7 @@ import { LLMAdapter } from '../types'
  */
 export class GroqAdapter implements LLMAdapter {
   async *sendRequest(req: LLMRequest, config: ApiConfigGroup, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
-    const url = `${config.baseUrl.replace(/\/+$/, '')}/chat/completions`
+    const url = buildChatUrl(config.baseUrl, 'openai', req.model)
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -40,15 +42,19 @@ export class GroqAdapter implements LLMAdapter {
     }
     // Add tools if provided
     if (req.tools && req.tools.length > 0) {
-      ;(body as any).tools = req.tools
+      (body as any).tools = req.tools
+    }
+    // Deep thinking: Groq is OpenAI-compatible, reasoning models use `reasoning_effort`
+    if (req.thinking) {
+      Object.assign(body, { reasoning_effort: req.reasoningEffort || 'high' })
     }
 
-    const response = await fetch(url, {
+    const response = await llmFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
       signal,
-    })
+    }, { stream: true })
 
     if (!response.ok) {
       const errorText = await response.text()
@@ -118,7 +124,9 @@ export class GroqAdapter implements LLMAdapter {
 
   async fetchModels(config: ApiConfigGroup, signal?: AbortSignal): Promise<string[]> {
     try {
-      const response = await fetch(`${config.baseUrl.replace(/\/+$/, '')}/models`, {
+      const url = buildModelsUrl(config.baseUrl, 'openai')
+      if (!url) return ['llama3-70b-8192', 'llama3-8b-8192', 'mixtral-8x7b-32768', 'gemma-7b-it', 'llama-3.3-70b-versatile']
+      const response = await llmFetch(url, {
         headers: {
           Authorization: `Bearer ${config.apiKey}`,
           ...config.customHeaders,

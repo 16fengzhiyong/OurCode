@@ -150,6 +150,8 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
         topP: session?.modelParams.topP ?? 1.0,
         frequencyPenalty: session?.modelParams.frequencyPenalty ?? 0,
         presencePenalty: session?.modelParams.presencePenalty ?? 0,
+        thinking: session?.modelParams.thinking ?? false,
+        reasoningEffort: session?.modelParams.reasoningEffort ?? 'high',
         tools: toolDefinitions,
       }
 

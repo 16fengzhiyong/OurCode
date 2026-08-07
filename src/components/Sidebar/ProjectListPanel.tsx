@@ -39,42 +39,52 @@ export default function ProjectListPanel() {
   const [searchQuery, setSearchQuery] = useState('')
   const [showMoreSessions, setShowMoreSessions] = useState<Set<string>>(new Set())
 
-  // Collect unique projects from recentProjects + sessions' projectPath
+  // Collect unique projects from recentProjects + sessions' projectPath.
+  // Recently opened projects keep their open-order (most recent first) so the
+  // list doesn't re-sort/jump when a chat session is created or updated —
+  // previously a new session bumped the project's recency key and the whole
+  // list shifted, which read as "the project list collapses by itself".
   const projects = useMemo(() => {
     const map = new Map<string, { name: string; path: string; lastOpened: number; sessionCount: number }>()
 
-    // Add all recently opened projects (ordered by recency)
-    for (const rp of recentProjects) {
+    // Recently opened projects keep their open-order (most recent first) with a
+    // stable recency key, so creating/updating sessions never re-sorts the list.
+    recentProjects.forEach((rp, idx) => {
       const name = rp.split(/[/\\]/).pop() || rp
-      map.set(rp, { name, path: rp, lastOpened: 0, sessionCount: 0 })
-    }
+      map.set(rp, { name, path: rp, lastOpened: (recentProjects.length - idx) * 1000, sessionCount: 0 })
+    })
 
-    // Collect from sessions (enrich with session count + update lastOpened)
+    // Projects only known from chat sessions go after the recent ones, ordered
+    // by their latest session activity.
+    const sessionOnly: Array<{ name: string; path: string; lastOpened: number; sessionCount: number }> = []
+    const byPath = new Map<string, { name: string; path: string; lastOpened: number; sessionCount: number }>()
+
     for (const s of sessions) {
       if (!s.projectPath) continue
-      if (!map.has(s.projectPath)) {
-        const name = s.projectPath.split(/[/\\]/).pop() || s.projectPath
-        map.set(s.projectPath, { name, path: s.projectPath, lastOpened: s.updatedAt, sessionCount: 1 })
-      } else {
-        const entry = map.get(s.projectPath)!
-        entry.sessionCount++
-        if (s.updatedAt > entry.lastOpened) entry.lastOpened = s.updatedAt
+      if (map.has(s.projectPath)) {
+        map.get(s.projectPath)!.sessionCount++
+        continue
       }
-    }
-
-    // For projects without sessions, use their position in recentProjects as lastOpened
-    let recencyIndex = recentProjects.length
-    for (const [path, info] of map) {
-      if (info.lastOpened === 0) {
-        const idx = recentProjects.indexOf(path)
-        info.lastOpened = idx >= 0 ? (recentProjects.length - idx) * 1000 : 0
+      let entry = byPath.get(s.projectPath)
+      if (!entry) {
+        entry = {
+          name: s.projectPath.split(/[/\\]/).pop() || s.projectPath,
+          path: s.projectPath,
+          lastOpened: 0,
+          sessionCount: 0,
+        }
+        byPath.set(s.projectPath, entry)
+        sessionOnly.push(entry)
       }
+      entry.sessionCount++
+      if (s.updatedAt > entry.lastOpened) entry.lastOpened = s.updatedAt
     }
+    sessionOnly.sort((a, b) => b.lastOpened - a.lastOpened)
 
-    // Sort by lastOpened desc
-    return Array.from(map.entries())
-      .map(([path, info]) => ({ ...info, path }))
-      .sort((a, b) => b.lastOpened - a.lastOpened)
+    return [
+      ...Array.from(map.entries()).map(([path, info]) => ({ ...info, path })),
+      ...sessionOnly,
+    ]
   }, [recentProjects, sessions])
 
   // Filter by search
