@@ -5,7 +5,6 @@ import ChatMessage from './ChatMessage'
 import ThinkingBlock from './ThinkingBlock'
 import BranchTreeModal from './BranchTreeModal'
 import { TodoPanel, PlanCard } from './AgentPanel'
-import AgentRunPanel from './AgentRunPanel'
 import WaveLogo from './WaveLogo'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -28,7 +27,6 @@ const SUGGESTED_PROMPTS: Array<{ icon: string; key: 'chat.suggestExplain' | 'cha
 export default function ChatMessages() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const activeSession = useChatStore((s) => s.getActiveSession())
-  const activeRun = useChatStore((s) => s.activeRun)
   const { isLoading, streamingContent, streamingThinking, reorderMessages, undoStack, undoDelete, switchBranch, queuedMessages, clearQueue } = useChatStore()
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
@@ -59,7 +57,9 @@ export default function ChatMessages() {
   // Auto-scroll to the latest message when entering a session, when the
   // conversation grows, or while streaming. Crucially NOT when the user
   // reorders/edits history — that used to yank the whole view to the bottom
-  // right after dropping a dragged message.
+  // right after dropping a dragged message. We scroll ONLY the messages
+  // container (never scrollIntoView, which would also scroll outer layout
+  // containers if they ever overflow).
   const prevLenRef = useRef(0)
   const prevSessionRef = useRef('')
   useEffect(() => {
@@ -71,7 +71,8 @@ export default function ChatMessages() {
     prevSessionRef.current = sid
     prevLenRef.current = len
     if (sessionChanged || grew || streamingContent) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      const el = scrollRef.current
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
     }
   }, [activeSession, streamingContent])
 
@@ -123,9 +124,49 @@ export default function ChatMessages() {
     }
   }, [undoStack.length])
 
-  if (!activeSession) return null
+  // ── Message merging (must be before early return — hook ordering rule) ──
+  const messages = useMemo(() => activeSession?.messages || [], [activeSession?.messages])
+  const displayMessages = useMemo(() => {
+    const result: typeof messages = []
+    let i = 0
+    while (i < messages.length) {
+      const msg = messages[i]
+      if (msg.role === 'tool') { i++; continue }
 
-  const { messages } = activeSession
+      if (msg.role === 'assistant' && msg.toolCalls?.length && !msg.content.trim()) {
+        const mergedToolCalls = [...msg.toolCalls]
+        const mergedToolResults = [...(msg.toolResults || [])]
+        let mergedThinking = msg.thinking || ''
+        let j = i + 1
+        let found = false
+        while (j < messages.length) {
+          const next = messages[j]
+          if (next.role === 'tool') { j++; continue }
+          if (next.role === 'assistant' && next.toolCalls?.length && !next.content.trim()) {
+            mergedToolCalls.push(...next.toolCalls)
+            mergedToolResults.push(...(next.toolResults || []))
+            if (next.thinking) mergedThinking += (mergedThinking ? '\n\n' : '') + next.thinking
+            j++
+          } else if (next.role === 'assistant') {
+            result.push({ ...next, toolCalls: mergedToolCalls, toolResults: mergedToolResults, thinking: mergedThinking || next.thinking || undefined })
+            i = j + 1; found = true; break
+          } else {
+            result.push({ ...msg, toolCalls: mergedToolCalls, toolResults: mergedToolResults, thinking: mergedThinking || undefined })
+            i = j; found = true; break
+          }
+        }
+        if (!found) {
+          result.push({ ...msg, toolCalls: mergedToolCalls, toolResults: mergedToolResults, thinking: mergedThinking || undefined })
+          i = j
+        }
+      } else {
+        result.push(msg); i++
+      }
+    }
+    return result
+  }, [messages])
+
+  if (!activeSession) return null
 
   const handleBatchDelete = () => {
     if (!activeSession || selectedIds.size === 0) return
@@ -157,7 +198,7 @@ export default function ChatMessages() {
       className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4"
     >
       {/* Batch select toolbar — only in history-edit mode */}
-      {editEnabled && messages.length > 0 && (
+      {editEnabled && displayMessages.length > 0 && (
         <div className="flex items-center gap-2">
           <button
             onClick={() => { setIsSelectMode(!isSelectMode); setSelectedIds(new Set()) }}
@@ -217,16 +258,9 @@ export default function ChatMessages() {
         <BranchTreeModal sessionId={activeSession.id} onClose={() => setShowBranchTree(false)} />
       )}
 
-      {/* Agent run panel (agent mode: plan + steps + trace). Falls back to the
-          standalone todo/plan cards in chat & project modes. */}
-      {activeRun?.sessionId === activeSession.id ? (
-        <AgentRunPanel sessionId={activeSession.id} />
-      ) : (
-        <>
-          <TodoPanel sessionId={activeSession.id} />
-          <PlanCard sessionId={activeSession.id} />
-        </>
-      )}
+      {/* Agent todo & plan cards */}
+      <TodoPanel sessionId={activeSession.id} />
+      <PlanCard sessionId={activeSession.id} />
 
       {/* Queued messages while the agent is working */}
       {queuedMessages.length > 0 && (
@@ -287,18 +321,22 @@ export default function ChatMessages() {
         </div>
       )}
 
-      {messages.map((msg, index) => (
+      {displayMessages
+        .map((msg, _displayIndex) => {
+          // Find the real index in the unfiltered messages array for drag-drop
+          const originalIndex = messages.findIndex((m) => m.id === msg.id)
+          return (
         <div
           key={msg.id}
           draggable={editEnabled}
-          onDragStart={editEnabled ? (e) => handleDragStart(index, e) : undefined}
-          onDragOver={editEnabled ? (e) => handleDragOver(index, e) : undefined}
-          onDrop={editEnabled ? (e) => handleDrop(index, e) : undefined}
+          onDragStart={editEnabled ? (e) => handleDragStart(originalIndex, e) : undefined}
+          onDragOver={editEnabled ? (e) => handleDragOver(originalIndex, e) : undefined}
+          onDrop={editEnabled ? (e) => handleDrop(originalIndex, e) : undefined}
           onDragEnd={editEnabled ? handleDragEnd : undefined}
           className={`transition-all ${
-            dragIndex === index ? 'opacity-40' : ''
+            dragIndex === originalIndex ? 'opacity-40' : ''
           } ${
-            overIndex === index && dragIndex !== null && dragIndex !== index
+            overIndex === originalIndex && dragIndex !== null && dragIndex !== originalIndex
               ? 'border-t-2 border-nova-accent'
               : ''
           }`}
@@ -311,7 +349,9 @@ export default function ChatMessages() {
             onToggleSelect={toggleSelect}
           />
         </div>
-      ))}
+            )
+          })}
+
 
       {isLoading && (
         <div className="flex gap-2.5 animate-fade-in">
@@ -322,7 +362,7 @@ export default function ChatMessages() {
             <div className="flex items-center gap-1.5 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
               <span>OurCode AI</span>
             </div>
-            {streamingThinking && <ThinkingBlock content={streamingThinking} />}
+            {streamingThinking && <ThinkingBlock content={streamingThinking} defaultExpanded />}
             {streamingContent ? (
               <div className="text-sm text-nova-text-primary whitespace-pre-wrap">
                 {streamingContent}

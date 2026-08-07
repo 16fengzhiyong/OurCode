@@ -438,6 +438,10 @@ export const zhCN = {
   'chat.reject': '拒绝',
   'chat.approve': '批准',
   'chat.thinkingTitle': '思考过程',
+  'chat.agentExecutionFlow': 'Agent 执行流',
+  'chat.totalSteps': '共 {count} 步',
+  'chat.subAgentRunning': '子 Agent 执行中...',
+  'chat.thinkingOutput': '思考/输出',
 
   // ── Agent 面板 ─────────────────────────────────────────────────────────
   'agent.pending': '待办',
@@ -537,6 +541,9 @@ export const zhCN = {
   'tool.params': '参数:',
   'tool.result': '结果:',
   'tool.todoCount': '{count} 项任务',
+  'tool.toolCallLabel': '工具调用',
+  'tool.completed': '已完成',
+  'tool.completedWithError': '已完成(有误)',
 
   // ── 侧边栏 / 文件树 ────────────────────────────────────────────────────
   'sidebar.explorer': '资源管理器',

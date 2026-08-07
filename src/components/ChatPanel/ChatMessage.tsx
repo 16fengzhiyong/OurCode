@@ -1,12 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ChatMessage as ChatMessageType } from '@/types'
 import { useChatStore } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useMemoryStore } from '@/stores/memoryStore'
 import { EXHAUSTED_MARKER } from '@shared/constants'
-import ThinkingBlock from './ThinkingBlock'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
-import ToolCallBlock from './ToolCallBlock'
+import AgentTimeline from './AgentTimeline'
 import WaveLogo from './WaveLogo'
 import ErrorCard from './ErrorCard'
 import { useI18n } from '@/i18n/useI18n'
@@ -80,6 +79,30 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   const { editMessage, regenerateFromMessage, createBranchFromMessage, continueGeneration, checkpoints, revertCheckpoint } = useChatStore()
   const addMemory = useMemoryStore((s) => s.addMemory)
 
+  // ── Agent status for assistant header ──
+  const activeRun = useChatStore((s) => s.activeRun)
+  const session = useChatStore((s) => s.sessions.find((x) => x.id === sessionId))
+  const lastRun = session?.agentRuns?.slice(-1)[0]
+  const run = activeRun?.sessionId === sessionId
+    ? session?.agentRuns?.find((r) => r.id === activeRun.runId)
+    : lastRun
+  const isLive = run && (run.status === 'running' || run.status === 'creating_plan' || run.status === 'approved_running' || run.status === 'waiting_plan')
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (!isLive) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [isLive])
+
+  let agentBadge: { icon: string; label: string; cls: string; elapsed?: number } | null = null
+  if (isLive) {
+    agentBadge = { icon: '⏳', label: t('agent.runStatus.running'), cls: 'text-[#3B82F6]', elapsed: Math.floor((now - run!.startedAt) / 1000) }
+  } else if (run?.status === 'done') {
+    agentBadge = { icon: '✓', label: t('agent.runStatus.done'), cls: 'text-green-400', elapsed: run.finishedAt ? Math.floor((run.finishedAt - run.startedAt) / 1000) : undefined }
+  } else if (run?.status === 'error') {
+    agentBadge = { icon: '✗', label: t('agent.runStatus.error'), cls: 'text-red-400' }
+  }
+
   const handleSaveEdit = () => {
     editMessage(sessionId, message.id, editContent)
     setIsEditing(false)
@@ -118,6 +141,9 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   const isExhausted = isAssistant && message.content.startsWith(EXHAUSTED_MARKER)
   const codeBlock = isAssistant ? extractLastCodeBlock(message.content) : null
 
+  // Process summary (thinking + tool calls) → rendered via AgentTimeline
+  const hasProcess = (isAssistant && !!message.thinking) || (isAssistant && !!message.toolCalls?.length)
+
   // Checkpoints tied to this assistant message → "回滚修改"
   const msgCheckpoints = checkpoints.filter((c) => c.messageId === message.id)
 
@@ -127,23 +153,11 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
     }
   }
 
-  // Tool result messages - compact card aligned under the assistant avatar
-  if (isTool) {
-    return (
-      <div className="pl-10 group animate-fade-in">
-        {message.toolResults && message.toolResults.length > 0 && (
-          <ToolCallBlock
-            toolCalls={message.toolResults.map((r) => ({
-              id: r.toolCallId,
-              name: r.name,
-              arguments: {},
-            }))}
-            toolResults={message.toolResults}
-          />
-        )}
-      </div>
-    )
-  }
+  // Tool result messages — no longer rendered as separate messages.
+  // Tool results are now displayed inline within the corresponding assistant
+  // message's ToolCallBlock (via the toolResults prop).
+  // Legacy tool messages from older sessions are filtered out in ChatMessages.tsx.
+  if (isTool) return null
 
   return (
     <div className={`group animate-fade-in ${isUser ? 'flex justify-end' : 'flex gap-2.5'}`}>
@@ -171,10 +185,16 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
 
       {/* Content column */}
       <div className={`min-w-0 ${isUser ? 'max-w-[80%]' : 'flex-1'}`}>
-        {/* Assistant meta header (design: name row above content card) */}
+        {/* Assistant meta header */}
         {!isUser && (
           <div className="flex items-center gap-1.5 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
             <span>OurCode AI</span>
+            {agentBadge && (
+              <span className={agentBadge.cls}>
+                · {agentBadge.icon} {agentBadge.label}
+                {agentBadge.elapsed !== undefined && ` ${agentBadge.elapsed}s`}
+              </span>
+            )}
           </div>
         )}
         {/* Structured LLM error → friendly error card (never raw JSON text) */}
@@ -205,15 +225,15 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
                 if (isUser) e.currentTarget.style.background = 'var(--bubble-user)'
               }}
             >
-              {/* Thinking block */}
-              {message.thinking && <ThinkingBlock content={message.thinking} />}
-
-              {/* Tool calls */}
-              {isAssistant && message.toolCalls && message.toolCalls.length > 0 && (
-                <ToolCallBlock
-                  toolCalls={message.toolCalls}
-                  toolResults={message.toolResults}
-                />
+              {/* Agent execution timeline (thinking + tool calls) */}
+              {hasProcess && (
+                <div className="mb-1.5">
+                  <AgentTimeline
+                    toolCalls={message.toolCalls}
+                    toolResults={message.toolResults}
+                    thinking={message.thinking}
+                  />
+                </div>
               )}
 
               {/* Edited indicator */}

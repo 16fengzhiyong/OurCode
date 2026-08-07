@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useChatStore } from '@/stores/chatStore'
-import type { AgentRun, AgentTraceEntry, AgentToolKind } from '@/types'
+import type { AgentRun } from '@/types'
 import { useI18n } from '@/i18n/useI18n'
 import type { TranslationKey } from '@/i18n'
 import { TodoPanel, PlanCard } from './AgentPanel'
 
 /**
  * Agent run panel: shows the live state of the active agent run — status,
- * elapsed time, submitted plan (with todo progress), and the categorized
- * tool-execution trace (Windsurf-style think/search/edit/execute/...).
+ * elapsed time, submitted plan, and todo progress.
+ * Tool-level execution detail is now rendered inline in AgentTimeline.
  * Rendered above the chat messages while an agent run belongs to this session.
  */
 
@@ -34,24 +34,6 @@ const RUN_STATUS_STYLE: Record<AgentRun['status'], string> = {
   rejected: 'text-nova-text-muted border-nova-border bg-nova-hover/30',
 }
 
-const KIND_ICON: Record<AgentToolKind, string> = {
-  think: '💭',
-  search: '🔍',
-  edit: '✏️',
-  execute: '⚡',
-  fetch: '🌐',
-  switch_mode: '🔄',
-  ask: '❓',
-  other: '🧩',
-}
-
-const TRACE_STATUS_ICON: Record<AgentTraceEntry['status'], string> = {
-  running: '⏳',
-  success: '✓',
-  error: '✗',
-  rejected: '⛔',
-}
-
 interface PlanSteps { title?: string; steps?: Array<{ summary?: string; detail?: string }> }
 
 /** Parse a stored plan (JSON {title, steps}) back into displayable steps */
@@ -66,7 +48,6 @@ function parsePlan(run: AgentRun): PlanSteps {
 
 export default function AgentRunPanel({ sessionId }: { sessionId: string }) {
   const activeRun = useChatStore((s) => s.activeRun)
-  const trace = useChatStore((s) => s.agentTrace)
   const session = useChatStore((s) => s.sessions.find((x) => x.id === sessionId))
   const stopGeneration = useChatStore((s) => s.stopGeneration)
   const t = useI18n()
@@ -101,8 +82,8 @@ export default function AgentRunPanel({ sessionId }: { sessionId: string }) {
           {t('agent.elapsed', { seconds: elapsed })}
         </span>
         <span className="ml-auto flex items-center gap-2 text-[10px] text-nova-text-muted">
-          <span>{t('agent.toolCalls', { count: trace.length })}</span>
-          <span>{t('agent.fileChanges', { count: trace.filter((x) => x.kind === 'edit').length })}</span>
+          <span>{t('agent.toolCalls', { count: run.toolCallCount })}</span>
+          <span>{t('agent.fileChanges', { count: run.fileChangeCount })}</span>
           {isRunning && (
             <button
               onClick={stopGeneration}
@@ -150,37 +131,6 @@ export default function AgentRunPanel({ sessionId }: { sessionId: string }) {
       {/* Plan approval buttons + todo list (agent mode) */}
       <PlanCard sessionId={sessionId} />
       <TodoPanel sessionId={sessionId} />
-
-      {/* Categorized execution trace */}
-      <div className="px-3 py-2 border-t border-nova-border/40">
-        <div className="text-[11px] text-nova-text-muted mb-1.5">{t('agent.trace')}</div>
-        {trace.length === 0 ? (
-          <div className="text-xs text-nova-text-muted">{t('agent.traceEmpty')}</div>
-        ) : (
-          <div className="space-y-0.5 max-h-56 overflow-y-auto">
-            {trace.map((entry) => (
-              <div key={entry.id} className="flex items-center gap-1.5 px-1.5 py-1 rounded text-xs bg-nova-hover/20">
-                <span className="shrink-0">{KIND_ICON[entry.kind]}</span>
-                <span className="font-mono text-nova-text-primary shrink-0">{entry.name}</span>
-                <span className="text-nova-text-muted truncate min-w-0">{entry.summary}</span>
-                <span
-                  className={`ml-auto shrink-0 ${
-                    entry.status === 'success'
-                      ? 'text-green-400'
-                      : entry.status === 'error'
-                        ? 'text-red-400'
-                        : entry.status === 'rejected'
-                          ? 'text-yellow-400'
-                          : 'text-nova-text-muted'
-                  }`}
-                >
-                  {TRACE_STATUS_ICON[entry.status]}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   )
 }

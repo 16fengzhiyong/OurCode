@@ -61,6 +61,11 @@
   --shadow-xl: 0 0 20px rgba(0, 0, 0, 0.15);
   --shadow-hover: 0 0 8px rgba(0, 0, 0, 0.12);
   --backdrop-blur: blur(20px) saturate(180%) brightness(0.55);
+
+  /* Tool call highlight chips */
+  --hl-bg: #3a3a3a;
+  --hl-bg-hover: #4a4a4a;
+  --hl-text: #e0e0e0;
 }
 
 /* Light theme — zinc-100 palette + blue accent */
@@ -104,6 +109,11 @@
   --grad-brand: linear-gradient(135deg, #3b82f6, #2563eb);
   --grad-avatar: linear-gradient(135deg, #60a5fa, #8b5cf6);
   --backdrop-blur: blur(20px) saturate(180%);
+
+  /* Tool call highlight chips */
+  --hl-bg: #e4e4e7;
+  --hl-bg-hover: #d4d4d8;
+  --hl-text: #3f3f46;
 }
 
 html {
@@ -458,6 +468,16 @@ body.app-dragging .drag-region * {
   transition: background 0.15s;
   position: relative;
 }
+
+/* The sidebar/chat drag handles overlay their edge and must NOT stay in flow.
+   .resizer's position:relative (needed for the ::after divider line) would
+   otherwise override the absolute utility (same specificity, later in the
+   cascade) — turning the handle into a 100%-height block below the sidebar
+   and doubling the layout's scroll height, which scrollIntoView then scrolled
+   into view, yanking the whole UI up. */
+.resizer.absolute {
+  position: absolute;
+}
 .resizer::after {
   content: '';
   position: absolute;
@@ -577,4 +597,106 @@ body.app-dragging .drag-region * {
 
 .pill-btn.primary:hover {
   background: var(--ai-glow, #3b82f6);
+}
+
+/* ── Agent Timeline ─────────────────────────────────────────────────────── */
+
+/* Tool call chip — dark monospace badge */
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #2a2a2a;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: #d4d4d4;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+  cursor: pointer;
+  transition: background 0.15s;
+  line-height: 1.5;
+}
+.tool-chip:hover {
+  background: #3a3a3a;
+}
+.tool-chip .param {
+  color: #ce9178;
+}
+.tool-chip.active {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+/* Thinking / text output block — blue left border */
+.step-text-output {
+  color: #c8c8c8;
+  padding: 5px 10px 5px 28px;
+  margin: 2px 0 6px 0;
+  background: #232323;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  border-left: 2px solid #0078d4;
+}
+
+/* Sub-agent indented block */
+.sub-agent-block {
+  margin-left: 28px;
+  padding-left: 14px;
+  border-left: 2px solid #444;
+  margin-top: 2px;
+  margin-bottom: 4px;
+}
+
+/* Workflow wrapper — collapsible card */
+.workflow-wrapper {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.workflow-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-muted);
+  user-select: none;
+  transition: background 0.15s;
+}
+.workflow-toggle:hover {
+  background: var(--hover);
+}
+
+.workflow-toggle .arrow {
+  transition: transform 0.2s ease;
+  font-size: 10px;
+}
+
+.workflow-toggle.open .arrow {
+  transform: rotate(90deg);
+}
+
+.workflow-content {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* Timeline step row */
+.timeline-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 0;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+.timeline-row .step-icon {
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+  line-height: 1.5;
 }

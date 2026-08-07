@@ -441,6 +441,10 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.reject': 'Reject',
   'chat.approve': 'Approve',
   'chat.thinkingTitle': 'Thinking',
+  'chat.agentExecutionFlow': 'Agent execution flow',
+  'chat.totalSteps': '{count} steps total',
+  'chat.subAgentRunning': 'Sub-agent running...',
+  'chat.thinkingOutput': 'Thinking',
 
   // ── Agent panel ────────────────────────────────────────────────────────
   'agent.pending': 'Pending',
@@ -540,6 +544,9 @@ export const enUS: Record<TranslationKey, string> = {
   'tool.params': 'Arguments:',
   'tool.result': 'Result:',
   'tool.todoCount': '{count} todos',
+  'tool.toolCallLabel': 'Tools',
+  'tool.completed': 'Done',
+  'tool.completedWithError': 'Done (errors)',
 
   // ── Sidebar / File tree ────────────────────────────────────────────────
   'sidebar.explorer': 'Explorer',
