@@ -122,7 +122,7 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
 
     setIsRemembering(true)
     try {
-      await condenseAndAddMemory(conversation, projectPath)
+      await condenseAndAddMemory(conversation, projectPath, session?.model)
       setRemembered(true)
       useUIStore.getState().showNotification(t('chat.rememberedProject'), 'success')
       setTimeout(() => setRemembered(false), 2000)

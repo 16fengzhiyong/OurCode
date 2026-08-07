@@ -22,8 +22,10 @@ interface MemoryState {
   getGlobalMemories: () => Memory[]
   getProjectPaths: () => string[]
   /** Ask the LLM to condense a conversation snippet into long-term memory
-   *  (project-scoped). Throws on failure so the UI can surface the error. */
-  condenseAndAddMemory: (conversation: string, projectPath: string) => Promise<string>
+   *  (project-scoped). Throws on failure so the UI can surface the error.
+   *  `model` is an optional hint — prefer the model the user is actually
+   *  chatting with, falling back to the config group's default. */
+  condenseAndAddMemory: (conversation: string, projectPath: string, model?: string) => Promise<string>
 }
 
 /** System prompt for the memory-condensation helper request */
@@ -84,13 +86,13 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     return Array.from(paths).sort()
   },
 
-  condenseAndAddMemory: async (conversation, projectPath) => {
+  condenseAndAddMemory: async (conversation, projectPath, model) => {
     const group = useConfigStore.getState().getActiveConfigGroup()
     if (!group) {
       throw new Error('尚未配置 API，无法浓缩记忆。请先在设置中添加 API 配置。')
     }
-    const model = group.defaultModel || ''
-    if (!model) {
+    const resolvedModel = (model || group.defaultModel || '').trim()
+    if (!resolvedModel) {
       throw new Error('当前配置未设置默认模型，无法浓缩记忆。')
     }
 
@@ -98,7 +100,7 @@ export const useMemoryStore = create<MemoryState>((set, get) => ({
     let condensed = ''
     for await (const chunk of sendLLMRequest(
       {
-        model,
+        model: resolvedModel,
         messages: [
           { role: 'system', content: CONDENSE_SYSTEM_PROMPT },
           { role: 'user', content: conversation },
