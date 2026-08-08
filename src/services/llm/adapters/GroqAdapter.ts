@@ -54,7 +54,7 @@ export class GroqAdapter implements LLMAdapter {
       headers,
       body: JSON.stringify(body),
       signal,
-    }, { stream: true })
+    }, { stream: true, skipTlsVerify: !!config.skipTlsVerify })
 
     if (!response.ok) {
       const errorText = await response.text()
@@ -132,7 +132,7 @@ export class GroqAdapter implements LLMAdapter {
           ...config.customHeaders,
         },
         signal,
-      })
+      }, { skipTlsVerify: !!config.skipTlsVerify })
 
       if (response.ok) {
         const data = await response.json()

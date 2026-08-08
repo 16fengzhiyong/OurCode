@@ -4,6 +4,11 @@
       "command": "node",
       "args": ["mcp-servers/git-server/server.js"],
       "env": { "GIT_PAGER": "cat" }
+    },
+    "intranet-gateway": {
+      "serverUrl": "https://gateway.internal.example.com/mcp",
+      "headers": { "Authorization": "Bearer xxx" },
+      "skipTlsVerify": true
     }
   }
 }

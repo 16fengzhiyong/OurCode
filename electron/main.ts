@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, type WebContents, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, session, type WebContents, type IpcMainInvokeEvent } from 'electron'
 import { join, resolve, dirname, sep, relative, isAbsolute } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
@@ -87,6 +87,47 @@ const lspServers = new Map<string, LspServer>()
 
 // Active debug session (single, like VS Code's launch)
 let debugClient: DebugAdapterClient | null = null
+
+// Hosts whose TLS certificate verification is skipped (intranet / self-signed /
+// private-CA certs). Populated from config groups with skipTlsVerify enabled —
+// only those hosts get the bypass, everything else keeps default verification.
+const tlsSkippedHosts: Set<string> = new Set()
+
+// Hosts of in-flight requests that opted in via req.skipTlsVerify (unsaved
+// draft configs being connection-tested). Removed when the request finishes.
+const tlsDraftHosts: Set<string> = new Set()
+
+/** Rebuild the TLS-bypass host set from the persisted config groups. */
+function refreshTlsSkippedHosts(): void {
+  tlsSkippedHosts.clear()
+  try {
+    for (const group of store.getConfigGroups()) {
+      if (!group.skipTlsVerify) continue
+      let parsed: URL
+      try {
+        parsed = new URL(group.baseUrl)
+      } catch {
+        continue
+      }
+      if (parsed.protocol === 'https:' && parsed.hostname) tlsSkippedHosts.add(parsed.hostname)
+    }
+  } catch {
+    // Store not ready yet — the first refresh happens right after init
+  }
+}
+
+/**
+ * Accept certificates only for hosts the user explicitly opted into bypassing
+ * (per-config skipTlsVerify). 0 = trust, -3 = fall back to default verification.
+ * Affects main-process net.fetch (the llm:http / web:fetch bridge) as well as
+ * webContents loads in the default session; Node https requests (e.g. MCP
+ * transports) are unaffected.
+ */
+function registerTlsBypass(): void {
+  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+    callback(tlsSkippedHosts.has(request.hostname) || tlsDraftHosts.has(request.hostname) ? 0 : -3)
+  })
+}
 
 /** Broadcast a debug event to all windows. */
 function emitDebugEvent(event: string, body: unknown): void {
@@ -466,11 +507,14 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('store:saveConfigGroup', async (_event, group) => {
-    return store.saveConfigGroup(group)
+    const saved = store.saveConfigGroup(group)
+    refreshTlsSkippedHosts()
+    return saved
   })
 
   ipcMain.handle('store:deleteConfigGroup', async (_event, id: string) => {
-    return store.deleteConfigGroup(id)
+    store.deleteConfigGroup(id)
+    refreshTlsSkippedHosts()
   })
 
   ipcMain.handle('crypto:encryptForExport', async (_event, text: string, password: string) => {
@@ -797,6 +841,7 @@ function registerIpcHandlers(): void {
     body?: string
     stream?: boolean
     timeoutMs?: number
+    skipTlsVerify?: boolean
   }) => {
     if (!req.id) return { ok: false, error: '缺少请求 id' }
     let parsed: URL
@@ -808,6 +853,11 @@ function registerIpcHandlers(): void {
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
       return { ok: false, error: '仅支持 http/https URL' }
     }
+
+    // Per-request TLS bypass: honor skipTlsVerify from the (possibly unsaved)
+    // config group the renderer is testing, without touching the persisted set.
+    const draftBypass = parsed.protocol === 'https:' && !!req.skipTlsVerify && !!parsed.hostname
+    if (draftBypass) tlsDraftHosts.add(parsed.hostname)
 
     const controller = new AbortController()
     llmControllers.set(req.id, controller)
@@ -885,6 +935,7 @@ function registerIpcHandlers(): void {
     } finally {
       clearTimeout(timer)
       llmControllers.delete(req.id)
+      if (draftBypass) tlsDraftHosts.delete(parsed.hostname)
     }
   })
 
@@ -1248,6 +1299,10 @@ app.whenReady().then(() => {
   store = new SQLiteStore(userDataPath)
   backup = new BackupService(join(userDataPath, 'backups'))
   mcp = new MCPManager()
+
+  // Per-group TLS bypass for intranet / self-signed certificates
+  refreshTlsSkippedHosts()
+  registerTlsBypass()
 
   // Track MCP server lifecycle for the usage dashboard (ready / failure counts,
   // mirroring Windsurf's McpServerState tracking)

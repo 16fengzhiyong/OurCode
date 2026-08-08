@@ -22,6 +22,7 @@ const mockApi = {
 vi.stubGlobal('window', { electronAPI: mockApi })
 
 import { useChatStore, stopGitBranchPolling, trimHistoryForContext } from '@/stores/chatStore'
+import { useUIStore } from '@/stores/uiStore'
 
 // Capture the pristine initial state so each test starts clean
 const initialState = useChatStore.getState()
@@ -280,6 +281,47 @@ describe('chatStore agent run state', () => {
     expect(useChatStore.getState().sessions[0].targetMode).toBe(true)
     useChatStore.getState().setTargetMode('s1', false)
     expect(useChatStore.getState().sessions[0].targetMode).toBe(false)
+  })
+
+  it('createSession defaults to agent mode inside a project, chat outside', () => {
+    useUIStore.getState().enterProject('/proj-a')
+    useChatStore.getState().createSession('cfg-1')
+    const inProject = useChatStore.getState().sessions[0]
+    expect(inProject.agentMode).toBe('agent')
+    expect(inProject.projectPath).toBe('/proj-a')
+    // Target mode is never defaulted on
+    expect(inProject.targetMode).toBeUndefined()
+
+    useUIStore.getState().setRootPath(null)
+    useChatStore.getState().createSession('cfg-1')
+    const outside = useChatStore.getState().sessions[0]
+    expect(outside.agentMode).toBe('chat')
+  })
+
+  it('blocks enabling target mode while another session of the same project runs it', () => {
+    makeSession('s1')
+    useChatStore.setState((st) => ({ sessions: st.sessions.map((s) => ({ ...s, projectPath: '/proj' })) }))
+    useChatStore.getState().setTargetMode('s1', true)
+    expect(useChatStore.getState().sessions.find((s) => s.id === 's1')!.targetMode).toBe(true)
+
+    // Second session, same project — must be refused
+    makeSession('s2')
+    useChatStore.setState((st) => ({ sessions: st.sessions.map((s) => (s.id === 's2' ? { ...s, projectPath: '/proj' } : s)) }))
+    useChatStore.getState().setTargetMode('s2', true)
+    expect(useChatStore.getState().sessions.find((s) => s.id === 's2')!.targetMode).toBeUndefined()
+
+    // A different project is fine
+    useChatStore.setState((st) => ({ sessions: st.sessions.map((s) => (s.id === 's2' ? { ...s, projectPath: '/other' } : s)) }))
+    useChatStore.getState().setTargetMode('s2', true)
+    expect(useChatStore.getState().sessions.find((s) => s.id === 's2')!.targetMode).toBe(true)
+  })
+
+  it('switches auto_edit/plan to manual confirm when target mode is enabled', () => {
+    makeSession()
+    useChatStore.getState().setProjectEditMode('s1', 'auto_edit')
+    useChatStore.getState().setTargetMode('s1', true)
+    expect(useChatStore.getState().sessions[0].targetMode).toBe(true)
+    expect(useChatStore.getState().sessions[0].projectEditMode).toBe('confirm_before_change')
   })
 
   it('startAgentRun creates a run record, sets activeRun and resets the trace', () => {

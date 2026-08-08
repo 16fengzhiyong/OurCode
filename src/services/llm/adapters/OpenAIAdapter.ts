@@ -72,7 +72,7 @@ export class OpenAIAdapter implements LLMAdapter {
       headers,
       body: JSON.stringify(body),
       signal,
-    }, { stream: true })
+    }, { stream: true, skipTlsVerify: !!config.skipTlsVerify })
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '')
@@ -196,7 +196,7 @@ export class OpenAIAdapter implements LLMAdapter {
       ...config.customHeaders,
     }
 
-    const response = await llmFetch(url, { headers, signal })
+    const response = await llmFetch(url, { headers, signal }, { skipTlsVerify: !!config.skipTlsVerify })
     if (!response.ok) {
       throw new Error(`获取模型列表失败 (${response.status}): ${response.statusText}`)
     }

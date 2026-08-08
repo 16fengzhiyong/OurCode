@@ -12,6 +12,8 @@ export interface ApiConfigGroup {
   /** Override the API format regardless of provider. 'auto' uses the provider's native format. */
   apiFormat?: 'auto' | 'openai' | 'responses' | 'anthropic' | 'gemini' | 'ollama' | 'azure'
   customHeaders: Record<string, string>
+  /** Skip TLS certificate verification for this group's host (intranet / self-signed / private CA certs). */
+  skipTlsVerify?: boolean
   color?: string // Color label for the config group
   sortOrder?: number // smaller = higher priority
   createdAt: number

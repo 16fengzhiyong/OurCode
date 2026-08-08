@@ -253,40 +253,59 @@ export default function ChatPanel() {
 
               {/* Mode bar — chat / agent (planning is a read-only phase of agent mode) */}
               <div className="shrink-0 px-3 py-1.5 border-t border-nova-border flex items-center justify-between gap-1.5" style={{ background: 'var(--surface)' }}>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setAgentMode(activeSession.id, 'chat')}
-                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${effectiveAgentMode === 'chat' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
-                    title={t('chat.chatModeHint')}
-                  >
-                    {t('chat.modeChat')}
-                  </button>
-                  <button
-                    onClick={handleSwitchToAgent}
-                    disabled={!hasProject}
-                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${effectiveAgentMode === 'agent' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'} ${!hasProject ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    title={hasProject ? t('chat.modeAgentHint') : t('chat.agentNeedsProject')}
-                  >
-                    {t('chat.modeAgent')}
-                  </button>
-                </div>
-                {effectiveAgentMode === 'agent' && (
-                  <>
-                    <label
-                      className="flex items-center gap-1 cursor-pointer select-none text-[10px] text-nova-text-muted hover:text-nova-text-secondary transition-colors"
-                      title={t('chat.targetModeHint')}
+                {/* Chat / agent switch — hidden while target mode is running
+                    (the pill is the single control then) */}
+                {!targetMode && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setAgentMode(activeSession.id, 'chat')}
+                      className={`px-2.5 py-1 text-xs rounded-md transition-colors ${effectiveAgentMode === 'chat' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
+                      title={t('chat.chatModeHint')}
                     >
-                      <input
-                        type="checkbox"
-                        checked={targetMode}
-                        onChange={(e) => setTargetMode(activeSession.id, e.target.checked)}
-                        className="accent-nova-accent w-3 h-3"
-                      />
-                      {t('chat.targetMode')}
-                      {statusBadge(targetModeStatus) && (
-                        <span className="text-nova-accent font-medium">{statusBadge(targetModeStatus)}</span>
-                      )}
-                    </label>
+                      {t('chat.modeChat')}
+                    </button>
+                    <button
+                      onClick={handleSwitchToAgent}
+                      disabled={!hasProject}
+                      className={`px-2.5 py-1 text-xs rounded-md transition-colors ${effectiveAgentMode === 'agent' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'} ${!hasProject ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={hasProject ? t('chat.modeAgentHint') : t('chat.agentNeedsProject')}
+                    >
+                      {t('chat.modeAgent')}
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5">
+                  {/* Target-mode pill: oval toggle, green + pulsing while on */}
+                  <button
+                    onClick={() => {
+                      if (!targetMode) {
+                        // Target mode runs on top of agent mode — switch first
+                        // (needs a project; otherwise bail with a hint)
+                        if (!hasProject) {
+                          useUIStore.getState().showNotification(t('chat.agentNeedsProject'), 'warning')
+                          return
+                        }
+                        if (effectiveAgentMode !== 'agent') {
+                          setAgentMode(activeSession.id, 'agent')
+                        }
+                        setTargetMode(activeSession.id, true)
+                      } else {
+                        setTargetMode(activeSession.id, false)
+                      }
+                    }}
+                    className={`px-3 py-1 text-xs rounded-full border transition-all select-none whitespace-nowrap ${
+                      targetMode
+                        ? 'text-green-400 border-green-500/40 bg-green-500/15 animate-target-pulse'
+                        : 'text-nova-text-muted border-nova-border hover:text-nova-text-primary hover:border-nova-accent/50'
+                    }`}
+                    title={t('chat.targetModeHint')}
+                  >
+                    {targetMode ? t('chat.targetModeOn') : t('chat.targetModeOff')}
+                    {targetMode && statusBadge(targetModeStatus) && (
+                      <span className="ml-1 text-green-300 font-medium">{statusBadge(targetModeStatus)}</span>
+                    )}
+                  </button>
+                  {effectiveAgentMode === 'agent' && (
                     <select
                       value={projectEditMode}
                       onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}
@@ -295,12 +314,19 @@ export default function ChatPanel() {
                       style={{ backgroundImage: 'none' }}
                     >
                       <option value="confirm_before_change" title={t('chat.projectEditModeConfirmHint')}>{t('chat.projectEditModeConfirm')}</option>
-                      <option value="auto_edit" title={t('chat.projectEditModeAutoHint')}>{t('chat.projectEditModeAuto')}</option>
-                      <option value="plan" title={t('chat.projectEditModePlanHint')}>{t('chat.projectEditModePlan')}</option>
                       <option value="full_access" title={t('chat.projectEditModeFullHint')}>{t('chat.projectEditModeFull')}</option>
+                      {/* While target mode is on, its own workflow supersedes
+                          auto_edit / plan — only manual-confirm and full-access
+                          remain selectable. */}
+                      {!targetMode && (
+                        <>
+                          <option value="auto_edit" title={t('chat.projectEditModeAutoHint')}>{t('chat.projectEditModeAuto')}</option>
+                          <option value="plan" title={t('chat.projectEditModePlanHint')}>{t('chat.projectEditModePlan')}</option>
+                        </>
+                      )}
                     </select>
-                  </>
-                )}
+                  )}
+                </div>
               </div>
 
               <ChatInput />

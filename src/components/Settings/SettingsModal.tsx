@@ -463,6 +463,15 @@ export default function SettingsModal() {
                         placeholder={providerMeta?.defaultBaseUrl || 'https://api.example.com/v1'}
                         className="px-2.5 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-[13px] text-nova-text-primary outline-none focus:border-nova-accent/50 transition-colors font-mono" />
                       <UrlPreview group={editingGroup} />
+                      <label className="flex items-center gap-1.5 text-[11px] text-nova-text-secondary cursor-pointer select-none mt-0.5">
+                        <input
+                          type="checkbox"
+                          checked={!!editingGroup.skipTlsVerify}
+                          onChange={(e) => setEditingGroup({ ...editingGroup, skipTlsVerify: e.target.checked })}
+                          className="accent-nova-accent"
+                        />
+                        <span>跳过证书校验（内网自签名 / 私有 CA 证书的 HTTPS 地址可勾选）</span>
+                      </label>
                     </div>
 
                     {/* API request format — only the 3 supported wire formats */}

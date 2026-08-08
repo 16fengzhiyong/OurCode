@@ -92,7 +92,7 @@ export class GeminiAdapter implements LLMAdapter {
       headers,
       body: JSON.stringify(body),
       signal,
-    }, { stream: true })
+    }, { stream: true, skipTlsVerify: !!config.skipTlsVerify })
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '')
@@ -160,7 +160,7 @@ export class GeminiAdapter implements LLMAdapter {
   async fetchModels(config: ApiConfigGroup, signal?: AbortSignal): Promise<string[]> {
     try {
       const url = `${buildModelsUrl(config.baseUrl, 'gemini')}?key=${config.apiKey}`
-      const response = await llmFetch(url, { signal })
+      const response = await llmFetch(url, { signal }, { skipTlsVerify: !!config.skipTlsVerify })
       if (!response.ok) {
         throw new Error(`获取模型列表失败 (${response.status})`)
       }

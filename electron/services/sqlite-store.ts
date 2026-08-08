@@ -64,6 +64,10 @@ export class SQLiteStore {
     if (!columns.some((c: any) => c.name === 'sort_order')) {
       this.db.exec("ALTER TABLE api_config_groups ADD COLUMN sort_order INTEGER DEFAULT 0")
     }
+    // Add skip_tls_verify column if missing (per-group intranet cert bypass)
+    if (!columns.some((c: any) => c.name === 'skip_tls_verify')) {
+      this.db.exec("ALTER TABLE api_config_groups ADD COLUMN skip_tls_verify INTEGER DEFAULT 0")
+    }
     // Add edited_at column to chat_messages if missing
     const msgColumns = this.db.prepare("PRAGMA table_info(chat_messages)").all() as any[]
     const hasEditedAt = msgColumns.some((c: any) => c.name === 'edited_at')
@@ -236,11 +240,12 @@ export class SQLiteStore {
       systemPrompt: row.system_prompt,
       defaultModel: row.default_model,
       provider: row.provider,
-      customHeaders: JSON.parse(row.custom_headers || '{}'),
-      color: row.color || undefined,
-      sortOrder: row.sort_order || 0,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+        customHeaders: JSON.parse(row.custom_headers || '{}'),
+        color: row.color || undefined,
+        sortOrder: row.sort_order || 0,
+        skipTlsVerify: !!row.skip_tls_verify,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
     }))
   }
 
@@ -255,7 +260,8 @@ export class SQLiteStore {
       this.db.prepare(`
         UPDATE api_config_groups
         SET name = ?, base_url = ?, api_key_encrypted = ?, system_prompt = ?,
-            default_model = ?, provider = ?, custom_headers = ?, color = ?, sort_order = ?, updated_at = ?
+            default_model = ?, provider = ?, custom_headers = ?, color = ?, sort_order = ?,
+            skip_tls_verify = ?, updated_at = ?
         WHERE id = ?
       `).run(
         group.name,
@@ -267,14 +273,15 @@ export class SQLiteStore {
         JSON.stringify(group.customHeaders || {}),
         group.color || '',
         group.sortOrder || 0,
+        group.skipTlsVerify ? 1 : 0,
         now,
         id
       )
     } else {
       this.db.prepare(`
         INSERT INTO api_config_groups (id, name, base_url, api_key_encrypted, system_prompt,
-          default_model, provider, custom_headers, color, sort_order, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          default_model, provider, custom_headers, color, sort_order, skip_tls_verify, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         group.name,
@@ -286,6 +293,7 @@ export class SQLiteStore {
         JSON.stringify(group.customHeaders || {}),
         group.color || '',
         group.sortOrder || 0,
+        group.skipTlsVerify ? 1 : 0,
         now,
         now
       )

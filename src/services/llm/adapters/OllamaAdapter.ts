@@ -47,7 +47,7 @@ export class OllamaAdapter implements LLMAdapter {
       headers,
       body: JSON.stringify(body),
       signal,
-    }, { stream: true })
+    }, { stream: true, skipTlsVerify: !!config.skipTlsVerify })
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '')
@@ -114,7 +114,7 @@ export class OllamaAdapter implements LLMAdapter {
   async fetchModels(config: ApiConfigGroup, signal?: AbortSignal): Promise<string[]> {
     const url = buildModelsUrl(config.baseUrl, 'ollama')
     if (!url) return []
-    const response = await llmFetch(url, { signal })
+    const response = await llmFetch(url, { signal }, { skipTlsVerify: !!config.skipTlsVerify })
     if (!response.ok) {
       throw new Error(`获取 Ollama 模型列表失败 (${response.status})`)
     }

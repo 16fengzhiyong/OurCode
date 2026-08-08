@@ -40,6 +40,8 @@ export interface McpServerConfig {
   disabled?: boolean
   disabledTools?: string[]
   headers?: Record<string, string>
+  /** Skip TLS certificate verification (intranet / self-signed / private CA certs). */
+  skipTlsVerify?: boolean
 }
 
 export interface McpToolInfo {
@@ -188,6 +190,18 @@ class StdioTransport implements McpTransport {
 // ─────────────────────────── HTTP (Streamable) transport ───────────────────────────
 
 /**
+ * Rewrite raw Node TLS errors into a message that points at the fix: enable
+ * skipTlsVerify for intranet / self-signed / private-CA HTTPS endpoints.
+ */
+function friendlyCertError(err: Error): Error {
+  const msg = err?.message || ''
+  if (/certificate|cert_|tls|ssl|self[- ]signed/i.test(msg)) {
+    return new Error(`${msg} — HTTPS 证书校验失败：内网自签名 / 私有 CA 证书请为该服务器勾选「跳过证书校验」`)
+  }
+  return err
+}
+
+/**
  * MCP Streamable HTTP transport (2025-03-26):
  *  - every request is a POST of a JSON-RPC message to the configured endpoint;
  *  - the response is either `application/json` (single message) or
@@ -201,26 +215,35 @@ class HttpTransport implements McpTransport {
   readonly label: string
   private url: URL
   private extraHeaders: Record<string, string>
+  private skipTlsVerify: boolean
   private sessionId: string | null = null
   private messageCb: (msg: any) => void = () => {}
   private endCb: (err: Error) => void = () => {}
   private closed = false
   private streams = new Set<ClientRequest>()
 
-  constructor(serverUrl: string, headers: Record<string, string> = {}) {
+  constructor(serverUrl: string, headers: Record<string, string> = {}, skipTlsVerify = false) {
     const url = new URL(serverUrl)
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       throw new Error(`不支持的 MCP 传输协议: ${url.protocol}`)
     }
     this.url = url
     this.extraHeaders = headers
+    this.skipTlsVerify = skipTlsVerify
     this.label = serverUrl
   }
 
   send(msg: Record<string, any>): void {
     if (this.closed) return
     const requestFn = this.url.protocol === 'https:' ? httpsRequest : httpRequest
-    const req = requestFn(this.url, { method: 'POST', headers: this.buildHeaders() }, (res) => {
+    // HTTP/SSE requests run in the main process (Node), so they are not subject
+    // to browser CORS. rejectUnauthorized only matters for https — self-signed /
+    // intranet certs are bypassed when the server config has skipTlsVerify.
+    const req = requestFn(this.url, {
+      method: 'POST',
+      headers: this.buildHeaders(),
+      rejectUnauthorized: !this.skipTlsVerify,
+    }, (res) => {
       // Non-2xx means the connection/session is unusable — fail fast and let
       // the manager reconnect instead of waiting for the request timeout.
       if (res.statusCode != null && res.statusCode >= 400) {
@@ -239,7 +262,7 @@ class HttpTransport implements McpTransport {
         this.consumeJson(res)
       }
     })
-    req.on('error', (err) => this.handleEnd(err))
+    req.on('error', (err) => this.handleEnd(friendlyCertError(err)))
     req.end(JSON.stringify(msg))
   }
 
@@ -428,7 +451,7 @@ export class MCPManager extends EventEmitter {
     const url = server.serverUrl || server.url || ''
     let conn: ServerConnection | null = null
     try {
-      const transport = new HttpTransport(url, server.headers || {})
+      const transport = new HttpTransport(url, server.headers || {}, server.skipTlsVerify === true)
       conn = this.connectTransport(name, transport, retry)
       this.initialize(name, conn, retry).catch((error) => {
         this.emitError(new Error(`MCP 服务器 "${name}" 初始化失败: ${error.message}`))

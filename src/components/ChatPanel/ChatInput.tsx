@@ -83,6 +83,10 @@ export default function ChatInput() {
   const fileSearchRef = useRef<HTMLDivElement>(null)
 
   const { sendMessage, isLoading, stopGeneration, queueMessage } = useChatStore()
+  const targetMode = useChatStore((s) => {
+    const sess = s.sessions.find((x) => x.id === s.activeSessionId)
+    return sess?.targetMode === true
+  })
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
   const rootPath = useUIStore((s) => s.rootPath)
 
@@ -527,7 +531,7 @@ export default function ChatInput() {
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder={t('chat.inputPlaceholder')}
+            placeholder={targetMode ? t('chat.targetModePlaceholder') : t('chat.inputPlaceholder')}
             rows={1}
             disabled={!activeConfigGroupId}
             data-ai-input

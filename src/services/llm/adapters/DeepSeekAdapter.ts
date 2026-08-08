@@ -57,7 +57,7 @@ export class DeepSeekAdapter implements LLMAdapter {
       headers,
       body: JSON.stringify(body),
       signal,
-    }, { stream: true })
+    }, { stream: true, skipTlsVerify: !!config.skipTlsVerify })
 
     if (!response.ok) {
       const errorText = await response.text()
@@ -140,7 +140,7 @@ export class DeepSeekAdapter implements LLMAdapter {
           ...config.customHeaders,
         },
         signal,
-      })
+      }, { skipTlsVerify: !!config.skipTlsVerify })
 
       if (response.ok) {
         const data = await response.json()

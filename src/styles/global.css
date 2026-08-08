@@ -233,6 +233,16 @@ body.app-dragging .drag-region * {
   animation: pulseDot 1.5s infinite;
 }
 
+/* Target-mode pill: soft green breathing glow while the mode is running */
+@keyframes targetPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.30); }
+  50% { box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.10); }
+}
+
+.animate-target-pulse {
+  animation: targetPulse 2s ease-in-out infinite;
+}
+
 /* Markdown code blocks */
 .markdown-body pre {
   background-color: var(--surface);

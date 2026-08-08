@@ -153,6 +153,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     body?: string
     stream?: boolean
     timeoutMs?: number
+    /** Skip TLS certificate verification for this request (unsaved draft configs). */
+    skipTlsVerify?: boolean
   }) => ipcRenderer.invoke('llm:http', req),
   llmHttpAbort: (id: string) => ipcRenderer.send('llm:httpAbort', id),
   onLlmHttpHeaders: (callback: (payload: { id: string; ok: boolean; status: number; statusText: string; headers: Record<string, string> }) => void) => {

@@ -33,6 +33,8 @@ export interface LlmFetchInit {
 export interface LlmFetchOptions {
   /** True when the caller will read the SSE stream from response.body. */
   stream?: boolean
+  /** Skip TLS certificate verification for this request (intranet / self-signed certs). */
+  skipTlsVerify?: boolean
 }
 
 /** Map raw network errors (CORS, DNS, refused...) to a friendly message. */
@@ -49,6 +51,9 @@ export function friendlyNetworkError(message: string): string {
     lower.includes('socket hang up')
   ) {
     return '网络请求失败，请检查网络、代理或 API 地址'
+  }
+  if (lower.includes('certificate') || lower.includes('err_cert') || lower.includes('tls') || lower.includes('ssl')) {
+    return 'HTTPS 证书校验失败：内网自签名 / 私有 CA 证书请在该配置中勾选「跳过证书校验」'
   }
   return message
 }
@@ -125,6 +130,7 @@ export function llmFetch(url: string, init: LlmFetchInit = {}, options: LlmFetch
     body: init.body,
     stream: !!options.stream,
     timeoutMs: DEFAULT_TIMEOUT_MS,
+    skipTlsVerify: options.skipTlsVerify,
   }
 
   if (!options.stream) {
@@ -145,7 +151,7 @@ export function llmFetch(url: string, init: LlmFetchInit = {}, options: LlmFetch
     })
   }
 
-  return llmFetchStream(api, id, url, init)
+  return llmFetchStream(api, id, url, init, options)
 }
 
 /**
@@ -155,7 +161,7 @@ export function llmFetch(url: string, init: LlmFetchInit = {}, options: LlmFetch
  * body is a ReadableStream fed by those IPC events, so the adapters' existing
  * SSE parsing works unchanged.
  */
-function llmFetchStream(api: any, id: string, url: string, init: LlmFetchInit): Promise<LlmFetchResponse> {
+function llmFetchStream(api: any, id: string, url: string, init: LlmFetchInit, options: LlmFetchOptions): Promise<LlmFetchResponse> {
   return new Promise((resolve, reject) => {
     let started = false
     let controller: ReadableStreamDefaultController<Uint8Array> | null = null
@@ -263,7 +269,7 @@ function llmFetchStream(api: any, id: string, url: string, init: LlmFetchInit): 
 
     // Kick off the request in main. The invoke resolves only when streaming
     // finishes; failures before headers (invalid URL, DNS) arrive as { error }.
-    api.llmHttp({ id, url, method: init.method, headers: init.headers, body: init.body, stream: true, timeoutMs: DEFAULT_TIMEOUT_MS })
+    api.llmHttp({ id, url, method: init.method, headers: init.headers, body: init.body, stream: true, timeoutMs: DEFAULT_TIMEOUT_MS, skipTlsVerify: options.skipTlsVerify })
       .then((res: any) => {
         if (res && res.error) {
           cleanup()

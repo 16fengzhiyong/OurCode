@@ -5,9 +5,9 @@ import { useState, useEffect, useCallback } from 'react'
  *
  * Reads/writes <projectRoot>/mcp_config.json through the main process
  * (mcp:getConfig / mcp:saveConfig), matching the mcp-manager schema:
- *   { "mcpServers": { name: { command?, args?, env?, serverUrl?, headers?, disabled? } } }
+ *   { "mcpServers": { name: { command?, args?, env?, serverUrl?, headers?, disabled?, skipTlsVerify? } } }
  * Supports the two transports used by the manager: stdio (command+args+env)
- * and HTTP (serverUrl+headers).
+ * and HTTP (serverUrl+headers; skipTlsVerify for intranet self-signed certs).
  */
 
 interface McpServerDraft {
@@ -19,6 +19,7 @@ interface McpServerDraft {
   envText: string
   url: string
   headersText: string
+  skipTlsVerify: boolean
 }
 
 function parseArgs(text: string): string[] {
@@ -52,6 +53,7 @@ const emptyServer = (): McpServerDraft => ({
   envText: '',
   url: '',
   headersText: '',
+  skipTlsVerify: false,
 })
 
 export default function McpConfigSection({ rootPath }: { rootPath: string | null }) {
@@ -82,6 +84,7 @@ export default function McpConfigSection({ rootPath }: { rootPath: string | null
         envText: toKeyValueLines(s.env, '='),
         url: s.serverUrl || s.url || '',
         headersText: toKeyValueLines(s.headers, ':'),
+        skipTlsVerify: s.skipTlsVerify === true,
       })),
     )
   }, [rootPath])
@@ -116,6 +119,7 @@ export default function McpConfigSection({ rootPath }: { rootPath: string | null
         entry.serverUrl = url
         const headers = parseKeyValue(s.headersText, ':')
         if (Object.keys(headers).length > 0) entry.headers = headers
+        if (s.skipTlsVerify) entry.skipTlsVerify = true
       } else {
         const command = s.command.trim()
         if (!command) {
@@ -283,6 +287,15 @@ export default function McpConfigSection({ rootPath }: { rootPath: string | null
                     className={`${inputCls} font-mono resize-y`}
                   />
                 </div>
+                <label className="flex items-center gap-1.5 text-[11px] text-nova-text-secondary cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={s.skipTlsVerify}
+                    onChange={(e) => updateServer(i, { skipTlsVerify: e.target.checked })}
+                    className="accent-nova-accent"
+                  />
+                  跳过证书校验（内网自签名 / 私有 CA 证书的 HTTPS 地址可勾选）
+                </label>
               </>
             )}
           </div>

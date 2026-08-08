@@ -189,6 +189,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       apiFormat: groupData.apiFormat,
       customHeaders: groupData.customHeaders || {},
       color: groupData.color,
+      skipTlsVerify: groupData.skipTlsVerify ?? false,
       // Append after existing groups so the persisted order stays intuitive
       sortOrder: groupData.sortOrder ?? get().configGroups.length,
       createdAt: Date.now(),

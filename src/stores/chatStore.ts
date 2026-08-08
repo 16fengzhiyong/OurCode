@@ -8,6 +8,7 @@ import { useUIStore } from './uiStore'
 import { getLastModelForGroup } from './configStore'
 import { TARGET_MODE_INSTRUCTION } from './targetModeInstruction'
 import { ensureInitialized, readStatus, readStatusText, parseStatus, TargetModeStatus } from '@/services/targetMode/targetModeService'
+import { t } from '@/i18n'
 import { getFileContent } from '@/editor/modelRegistry'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { parseLLMError } from '@/services/llm/errors'
@@ -782,6 +783,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setTargetMode: (sessionId, enabled) => {
+    const session = get().sessions.find((s) => s.id === sessionId)
+    if (!session) return
+
+    if (enabled) {
+      // A session always belongs to one project: sessions created outside a
+      // project get bound to the currently opened one when target mode starts.
+      const myProject = session.projectPath || getWorkspaceRoot()
+      // One target-mode run per project: block when another session of the
+      // same project already has it enabled. The run ends when it's turned off.
+      const sameProjectRun = get().sessions.some(
+        (s) => s.id !== sessionId && s.targetMode === true && s.projectPath && s.projectPath === myProject,
+      )
+      if (sameProjectRun) {
+        useUIStore.getState().showNotification(t('chat.targetModeExclusive'), 'warning')
+        return
+      }
+      if (!session.projectPath && myProject) {
+        set((s) => ({
+          sessions: s.sessions.map((x) => (x.id === sessionId ? { ...x, projectPath: myProject } : x)),
+        }))
+      }
+      // 'auto_edit' / 'plan' are superseded by target mode's own workflow — the
+      // mode bar only exposes manual-confirm and full-access while it is on.
+      if (session.projectEditMode === 'auto_edit' || session.projectEditMode === 'plan') {
+        get().setProjectEditMode(sessionId, 'confirm_before_change')
+      }
+    }
+
     set((s) => ({
       sessions: s.sessions.map((sess) =>
         sess.id === sessionId ? { ...sess, targetMode: enabled, updatedAt: Date.now() } : sess
@@ -789,8 +818,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }))
     get().saveSession(sessionId)
     if (enabled) {
-      // Bootstrap the .ourcode/targemode/ skeleton right away (idempotent)
-      const root = getWorkspaceRoot()
+      // Experimental warning — the agent runs autonomously and burns tokens.
+      useUIStore.getState().showNotification(t('chat.targetModeFirstHint'), 'info')
+      // Bootstrap the skeleton in the session's own project (idempotent) —
+      // never the globally opened folder.
+      const root = session.projectPath || getWorkspaceRoot()
       if (root) {
         ensureInitialized(root).then(() => get().refreshTargetModeStatus())
       }
@@ -805,7 +837,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ targetModeStatus: null })
       return
     }
-    set({ targetModeStatus: await readStatus(getWorkspaceRoot()) })
+    // Always operate on the session's own project — never the globally opened
+    // folder, so sessions of different projects can't mix state.
+    set({ targetModeStatus: await readStatus(session.projectPath || getWorkspaceRoot()) })
   },
 
   approvePlan: async (sessionId) => {
@@ -1467,7 +1501,8 @@ async function runAgentLoop(
       systemPrompt += TARGET_MODE_INSTRUCTION
       // Bootstrap the state skeleton (idempotent) and inject the current
       // status so the agent resumes from the files instead of its memory.
-      const root = getWorkspaceRoot()
+      // Always the session's own project — not the globally opened folder.
+      const root = session.projectPath || getWorkspaceRoot()
       if (root) {
         await ensureInitialized(root)
         const statusMd = await readStatusText(root)
