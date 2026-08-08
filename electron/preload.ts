@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC_CHANNELS } from '../shared/constants'
 
 // Expose protected methods that allow the renderer process to use
@@ -94,6 +94,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FOLDER),
   openFile: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FILE),
   saveFile: (defaultPath?: string) => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SAVE_FILE, defaultPath),
+
+  // Drag & drop — resolve the absolute path of a file dropped from the OS
+  // (renderer can't read File.path directly; webUtils must run in preload)
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
 
   // Window
   minimize: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_MINIMIZE),

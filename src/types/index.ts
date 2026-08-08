@@ -67,6 +67,9 @@ export interface ElectronAPI {
   openFile: () => Promise<string | null>
   saveFile: (defaultPath?: string) => Promise<string | null>
 
+  // Drag & drop — absolute path for a file dropped from the OS file manager
+  getPathForFile: (file: File) => string
+
   // Window
   minimize: () => Promise<void>
   maximize: () => Promise<void>

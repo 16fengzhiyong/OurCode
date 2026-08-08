@@ -7,8 +7,8 @@ import { useI18n } from '@/i18n/useI18n'
 
 // Module-level clipboard for file copy/cut operations
 const fileClipboard: { path: string | null; action: 'copy' | 'cut' | null } = { path: null, action: null }
-// Module-level drag source
-const dragSource: { path: string | null; isDirectory: boolean } = { path: null, isDirectory: false }
+// Module-level drag source (exported so the chat input can recognize a tree drag)
+export const dragSource: { path: string | null; isDirectory: boolean } = { path: null, isDirectory: false }
 
 interface FileTreeNodeProps {
   entry: FileEntry

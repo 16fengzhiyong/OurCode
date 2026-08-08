@@ -66,6 +66,10 @@ export interface ChatSession {
   // 'plan' — read-only → submit plan → approve → execute
   // 'full_access' — auto-approve all tool calls
   projectEditMode?: 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access'
+  // Target mode (agent mode only): the agent runs autonomously — auto-approves
+  // tool calls and auto-continues after rounds are exhausted — until the user
+  // decides the goal is done and stops it.
+  targetMode?: boolean
   // Agent-managed todo list shown in the chat panel
   todos?: TodoItem[]
   // Plan awaiting approval (set by submit_plan)

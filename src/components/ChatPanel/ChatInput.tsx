@@ -4,13 +4,28 @@ import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
 import { filterSlashCommands, buildSlashPrompt, getEditorSlashContext, getAllSlashCommands, SLASH_COMMANDS, SlashCommand } from '@/services/commands/slashCommands'
 import { takePendingVibeReplace } from '@/services/vibeReplace'
-import { AUTO_CONTINUE_KEY } from '@shared/constants'
 import { useI18n } from '@/i18n/useI18n'
 import type { TranslationKey } from '@/i18n'
+import { dragSource } from '../Sidebar/FileTreeNode'
 
 /** Localized description for a slash command (falls back to the stored text). */
 const slashDescription = (cmd: SlashCommand, t: (key: TranslationKey, vars?: Record<string, string | number>) => string) =>
   t(('slashCommands.' + cmd.id) as TranslationKey)
+
+/**
+ * Whether `path` sits inside `root`. The main process only grants fs access to
+ * registered roots (project + dialog-picked files), so out-of-workspace drops
+ * must not become @context refs — they'd hit the path guard on every read.
+ * Windows drive letters are case-insensitive.
+ */
+function isPathInside(path: string, root: string): boolean {
+  if (!root) return false
+  const isWin = /^[A-Za-z]:[\\/]/.test(root) || root.startsWith('\\\\')
+  const p = isWin ? path.toLowerCase() : path
+  const r = isWin ? root.toLowerCase() : root
+  const base = r.replace(/[\\/]+$/, '')
+  return p === base || p.startsWith(base + (r.includes('\\') ? '\\' : '/'))
+}
 
 export default function ChatInput() {
   const [input, setInput] = useState('')
@@ -24,19 +39,10 @@ export default function ChatInput() {
   /** Static templates + skill-derived commands (skills loaded once on mount). */
   const [allSlashCommands, setAllSlashCommands] = useState<SlashCommand[]>(SLASH_COMMANDS)
   const [queuedHint, setQueuedHint] = useState(false)
-  const [autoContinue, setAutoContinue] = useState(() => localStorage.getItem(AUTO_CONTINUE_KEY) === '1')
-  const [autoRun, setAutoRun] = useState(false)
   const [listening, setListening] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
   const recognitionRef = useRef<{ stop: () => void } | null>(null)
   const t = useI18n()
-
-  const toggleAutoContinue = () => {
-    setAutoContinue((prev) => {
-      const next = !prev
-      localStorage.setItem(AUTO_CONTINUE_KEY, next ? '1' : '0')
-      return next
-    })
-  }
 
   // Voice input via the Web Speech API (Ctrl+Shift+M is taken by the Problems panel)
   const toggleVoiceInput = () => {
@@ -79,17 +85,6 @@ export default function ChatInput() {
   const { sendMessage, isLoading, stopGeneration, queueMessage } = useChatStore()
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
   const rootPath = useUIStore((s) => s.rootPath)
-  const agentMode = useChatStore((s) => {
-    const sess = s.sessions.find((x) => x.id === s.activeSessionId)
-    const mode = sess?.agentMode || 'chat'
-    // Without a selected project only chat is allowed — don't surface the
-    // agent-mode UI (autoRun toggle) for a stale agent session either.
-    if (mode !== 'agent') return mode
-    const hasProject = Boolean(
-      rootPath || document.getElementById('file-tree-root')?.getAttribute('data-root-path')
-    )
-    return hasProject ? 'agent' : 'chat'
-  })
 
   // Auto-resize textarea
   useEffect(() => {
@@ -205,6 +200,90 @@ export default function ChatInput() {
     setInput((prev) => prev.replace(new RegExp(`@${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'g'), ''))
   }, [])
 
+  // --- Drag & drop: OS files or file-tree nodes land here as @path refs ---
+
+  const handleDragOver = (e: React.DragEvent) => {
+    // Accept OS file drags (dataTransfer.files) and internal file-tree drags
+    // (the tree stores the dragged path in the module-level dragSource).
+    const hasOsFiles = Array.from(e.dataTransfer.types).includes('Files')
+    if (!hasOsFiles && !dragSource.path) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+    setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Only clear when leaving the container itself (children bubble dragleave)
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return
+    setIsDragOver(false)
+  }
+
+  /**
+   * Insert dropped files at the cursor: in-workspace paths become @refs (also
+   * added to contextFiles so the model can read them); external paths are
+   * inserted as plain text. One setInput call so a mixed drop can't clobber
+   * itself.
+   */
+  const insertDroppedFiles = useCallback((refs: string[], plain: string[]) => {
+    const textarea = textareaRef.current
+    const cursorPos = textarea?.selectionStart ?? input.length
+    const textBeforeCursor = input.slice(0, cursorPos)
+
+    // A dangling "@" (with an in-progress query) right before the cursor gets
+    // replaced by the dropped refs — same behavior as picking a suggestion.
+    const atMatch = textBeforeCursor.match(/@(\S*)$/)
+    const insertStart = atMatch ? cursorPos - atMatch[1].length - 1 : cursorPos
+
+    const refText = refs.map((p) => `@${p}`).join(' ')
+    const plainText = plain.join(' ')
+    const insert = [refText, plainText].filter(Boolean).join(' ')
+    const newInput = input.slice(0, insertStart) + insert + ' ' + input.slice(cursorPos)
+    setInput(newInput)
+    if (refs.length > 0) {
+      setContextFiles((prev) => [...new Set([...prev, ...refs])])
+    }
+    setShowFileSearch(false)
+    requestAnimationFrame(() => {
+      textarea?.focus()
+      const pos = insertStart + insert.length + 1
+      textarea?.setSelectionRange(pos, pos)
+    })
+  }, [input])
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+
+    const paths: string[] = []
+    // 1) External drag from the OS file manager — resolve real absolute paths
+    if (e.dataTransfer.files.length > 0) {
+      for (const file of Array.from(e.dataTransfer.files)) {
+        try {
+          const p = window.electronAPI.getPathForFile(file)
+          if (p) paths.push(p)
+        } catch { /* file type without a resolvable path — skip */ }
+      }
+    }
+    // 2) Internal drag from the file tree (path lives in the module dragSource)
+    if (paths.length === 0 && dragSource.path) {
+      paths.push(dragSource.path)
+    }
+    if (paths.length === 0) return
+
+    const unique = [...new Set(paths)]
+    // In-workspace drops become @refs + context files the model can read;
+    // external paths are inserted as plain text so they never hit the
+    // main-process path guard (allowedRoots).
+    const root = rootPath || document.getElementById('file-tree-root')?.getAttribute('data-root-path') || ''
+    const inside = unique.filter((p) => isPathInside(p, root))
+    const outside = unique.filter((p) => !isPathInside(p, root))
+
+    insertDroppedFiles(inside, outside)
+    if (outside.length > 0) {
+      useUIStore.getState().showNotification(t('chat.dropOutsideProject'), 'info')
+    }
+  }
+
   const handleSubmit = async () => {
     if (!input.trim()) return
 
@@ -227,7 +306,7 @@ export default function ChatInput() {
     setInput('')
     setContextFiles([])
 
-    await sendMessage(content, contextFiles, { autoRun })
+    await sendMessage(content, contextFiles)
   }
 
   // Apply markdown formatting to selected text
@@ -357,8 +436,13 @@ export default function ChatInput() {
         </div>
       )}
 
-      {/* Input Area */}
-      <div className="relative">
+      {/* Input Area — also a drop target for files (OS or file tree) */}
+      <div
+        className={`relative ${isDragOver ? 'ring-2 ring-nova-accent/70 rounded-lg' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {/* Slash-command menu ("/" at the start of a line) */}
         {showSlashMenu && filterSlashCommands(slashQuery, allSlashCommands).length > 0 && (
           <div
@@ -453,44 +537,6 @@ export default function ChatInput() {
           {/* Footer: hints left, voice + send/stop right */}
           <div className="flex items-center justify-between px-2 pb-2 pt-1">
             <div className="flex items-center gap-1.5 text-[10px] text-nova-text-muted">
-              {agentMode === 'agent' && (
-                <label
-                  className="flex items-center gap-1 cursor-pointer select-none hover:text-nova-text-secondary transition-colors"
-                  title={t('chat.autoRunHint')}
-                >
-                  <input
-                    type="checkbox"
-                    checked={autoRun}
-                    onChange={(e) => setAutoRun(e.target.checked)}
-                    className="accent-nova-accent w-3 h-3"
-                  />
-                  {t('chat.autoRun')}
-                </label>
-              )}
-              <label
-                className="flex items-center gap-1 cursor-pointer select-none hover:text-nova-text-secondary transition-colors"
-                title={t('chat.autoContinueHint')}
-              >
-                <input
-                  type="checkbox"
-                  checked={autoContinue}
-                  onChange={toggleAutoContinue}
-                  className="accent-nova-accent w-3 h-3"
-                />
-                {t('chat.autoContinue')}
-              </label>
-              <button
-                className="p-0.5 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
-                title={t('chat.autoContinueSettingsHint')}
-                onClick={() => {
-                  // Future: open auto-continue settings
-                }}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
-              </button>
               {queuedHint && (
                 <>
                   <span className="w-px h-3 bg-nova-border" />

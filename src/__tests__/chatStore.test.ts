@@ -274,12 +274,20 @@ describe('chatStore agent run state', () => {
     expect(useChatStore.getState().sessions[0].projectEditMode).toBeUndefined()
   })
 
+  it('setTargetMode persists the target mode on the session', () => {
+    makeSession()
+    useChatStore.getState().setTargetMode('s1', true)
+    expect(useChatStore.getState().sessions[0].targetMode).toBe(true)
+    useChatStore.getState().setTargetMode('s1', false)
+    expect(useChatStore.getState().sessions[0].targetMode).toBe(false)
+  })
+
   it('startAgentRun creates a run record, sets activeRun and resets the trace', () => {
     makeSession()
-    useChatStore.getState().startAgentRun('s1', '重构 auth 模块', { autoRun: true })
+    useChatStore.getState().startAgentRun('s1', '重构 auth 模块')
     const st = useChatStore.getState()
     expect(st.activeRun?.sessionId).toBe('s1')
-    expect(st.batchApproved).toBe(true)
+    expect(st.batchApproved).toBe(false)
     const session = st.sessions.find((s) => s.id === 's1')!
     expect(session.agentRuns).toHaveLength(1)
     expect(session.agentRuns![0].task).toBe('重构 auth 模块')
@@ -297,13 +305,13 @@ describe('chatStore agent run state', () => {
     makeSession()
     useChatStore.getState().startAgentRun('s1', '任务')
     const runId = useChatStore.getState().activeRun!.runId
-    // Plan approval resumes the same run (batch auto-run on)
-    useChatStore.getState().startAgentRun('s1', '任务', { resumeRunId: runId, autoRun: true })
+    // Plan approval resumes the same run
+    useChatStore.getState().startAgentRun('s1', '任务', { resumeRunId: runId })
     const st = useChatStore.getState()
     expect(st.sessions.find((s) => s.id === 's1')!.agentRuns).toHaveLength(1)
     expect(st.activeRun?.runId).toBe(runId)
-    expect(st.batchApproved).toBe(true)
-    expect(st.sessions.find((s) => s.id === 's1')!.agentRuns![0].status).toBe('approved_running')
+    expect(st.batchApproved).toBe(false)
+    expect(st.sessions.find((s) => s.id === 's1')!.agentRuns![0].status).toBe('running')
   })
 
   it('finishAgentRun records counts/status and caps agentRuns at 20', () => {

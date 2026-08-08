@@ -1,11 +1,13 @@
 import { create } from 'zustand'
 import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, UsageEvent, lookupModelMetadata } from '@/types'
-import { EXHAUSTED_MARKER, AUTO_CONTINUE_KEY, TOOL_ALLOWLIST_PREFIX } from '@shared/constants'
+import { TOOL_ALLOWLIST_PREFIX } from '@shared/constants'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
 import { useMemoryStore } from './memoryStore'
 import { useUIStore } from './uiStore'
 import { getLastModelForGroup } from './configStore'
+import { TARGET_MODE_INSTRUCTION } from './targetModeInstruction'
+import { ensureInitialized, readStatus, readStatusText, parseStatus, TargetModeStatus } from '@/services/targetMode/targetModeService'
 import { getFileContent } from '@/editor/modelRegistry'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { parseLLMError } from '@/services/llm/errors'
@@ -274,7 +276,7 @@ interface ChatState {
   batchApproval: { runId: string; tools: ToolCall[] } | null
 
   // Agent run actions
-  startAgentRun: (sessionId: string, task: string, opts?: { resumeRunId?: string; autoRun?: boolean }) => void
+  startAgentRun: (sessionId: string, task: string, opts?: { resumeRunId?: string }) => void
   setRunStatus: (runId: string, status: AgentRun['status'], patch?: Partial<AgentRun>) => void
   appendTrace: (entry: AgentTraceEntry) => void
   setTraceStatus: (toolCallId: string, status: AgentTraceEntry['status']) => void
@@ -307,6 +309,12 @@ interface ChatState {
   // Agent mode (chat / agent) + plan approval
   setAgentMode: (sessionId: string, mode: 'chat' | 'agent') => void
   setProjectEditMode: (sessionId: string, mode: 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access') => void
+  // Target mode: the agent keeps working autonomously (auto-approve tool calls,
+  // auto-continue after rounds are exhausted) until the user stops it.
+  setTargetMode: (sessionId: string, enabled: boolean) => void
+  /** Current parsed target-mode status (.ourcode/targemode/implementationStatus.md) */
+  targetModeStatus: TargetModeStatus | null
+  refreshTargetModeStatus: () => Promise<void>
   approvePlan: (sessionId: string) => Promise<void>
   dismissPlan: (sessionId: string) => void
   setTodos: (sessionId: string, todos: TodoItem[]) => void
@@ -323,7 +331,7 @@ interface ChatState {
   clearMessages: (sessionId: string) => void
 
   // Core functionality
-  sendMessage: (content: string, contextFiles?: string[], opts?: { autoRun?: boolean }) => Promise<void>
+  sendMessage: (content: string, contextFiles?: string[]) => Promise<void>
   regenerateFromMessage: (sessionId: string, msgId: string) => Promise<void>
   stopGeneration: () => void
 
@@ -452,6 +460,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   batchApproved: false,
   toolAllowlist: {},
   batchApproval: null,
+  targetModeStatus: null,
 
   approveToolCall: () => {
     const { pendingApproval } = get()
@@ -493,7 +502,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           return {
             ...sess,
             agentRuns: existing.map((r) =>
-              r.id === runId ? { ...r, status: opts?.autoRun ? 'approved_running' : 'running' } : r
+              r.id === runId ? { ...r, status: 'running' } : r
             ),
             updatedAt: now,
           }
@@ -512,7 +521,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }),
     }))
     if (runId) {
-      set({ activeRun: { runId, sessionId }, agentTrace: [], batchApproved: !!opts?.autoRun })
+      set({ activeRun: { runId, sessionId }, agentTrace: [], batchApproved: false })
     }
   },
 
@@ -772,6 +781,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().saveSession(sessionId)
   },
 
+  setTargetMode: (sessionId, enabled) => {
+    set((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === sessionId ? { ...sess, targetMode: enabled, updatedAt: Date.now() } : sess
+      ),
+    }))
+    get().saveSession(sessionId)
+    if (enabled) {
+      // Bootstrap the .ourcode/targemode/ skeleton right away (idempotent)
+      const root = getWorkspaceRoot()
+      if (root) {
+        ensureInitialized(root).then(() => get().refreshTargetModeStatus())
+      }
+    } else {
+      set({ targetModeStatus: null })
+    }
+  },
+
+  refreshTargetModeStatus: async () => {
+    const session = get().sessions.find((s) => s.id === get().activeSessionId)
+    if (!session?.targetMode) {
+      set({ targetModeStatus: null })
+      return
+    }
+    set({ targetModeStatus: await readStatus(getWorkspaceRoot()) })
+  },
+
   approvePlan: async (sessionId) => {
     const session = get().sessions.find((s) => s.id === sessionId)
     if (!session || !session.planContent || session.planStatus !== 'pending_approval') return
@@ -787,12 +823,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const isAgent = session.agentMode === 'agent'
     const activeRun = get().activeRun
     await runAgentLoop(sessionId, {
-      // Agent-mode sessions keep executing in agent mode (with batch approval);
-      // the read-only planning phase is lifted via planApproved.
+      // Agent-mode sessions keep executing in agent mode; the read-only
+      // planning phase is lifted via planApproved. Tool approval follows the
+      // project edit mode (confirm / auto_edit / full_access) + target mode.
       agentModeOverride: isAgent ? 'agent' : 'chat',
       extraSystemText: PLAN_APPROVED_PREFIX + planText,
       resumeRunId: activeRun?.sessionId === sessionId ? activeRun.runId : undefined,
-      autoRun: isAgent,
       planApproved: isAgent,
     })
   },
@@ -991,7 +1027,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().saveSession(sessionId)
   },
 
-  sendMessage: async (content, contextFiles = [], opts?: { autoRun?: boolean }) => {
+  sendMessage: async (content, contextFiles = []) => {
     const { activeSessionId } = get()
     if (!activeSessionId) return
 
@@ -1009,7 +1045,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       get().renameSession(activeSessionId, title)
     }
 
-    await runAgentLoop(activeSessionId, { autoRun: opts?.autoRun })
+    await runAgentLoop(activeSessionId)
   },
 
   regenerateFromMessage: async (sessionId, msgId) => {
@@ -1381,7 +1417,7 @@ function flushUsageEvents(events: UsageEvent[]): void {
  */
 async function runAgentLoop(
   sessionId: string,
-  opts?: { agentModeOverride?: 'chat' | 'agent'; extraSystemText?: string; autoRun?: boolean; resumeRunId?: string; planApproved?: boolean },
+  opts?: { agentModeOverride?: 'chat' | 'agent'; extraSystemText?: string; resumeRunId?: string; planApproved?: boolean },
 ): Promise<void> {
   const chatStore = useChatStore.getState()
   const session = chatStore.sessions.find((s) => s.id === sessionId)
@@ -1391,6 +1427,8 @@ async function runAgentLoop(
   if (!configGroup) return
 
   const agentMode = opts?.agentModeOverride || (session.agentMode === 'agent' ? 'agent' : 'chat')
+  // Target mode: the agent runs the autonomous .ourcode/targemode/ workflow
+  const targetMode = session.targetMode === true
 
   // Agent mode operates on the workspace, so a *currently selected* project
   // must be open. A session's historical projectPath does NOT count — without a
@@ -1422,10 +1460,26 @@ async function runAgentLoop(
   // PLAN_TOOLS below) — the model must submit a plan before any mutation.
   // After the plan is approved (opts.planApproved), the read-only instruction
   // and tool gating are lifted and the agent executes the plan. Other edit
-  // modes let the model plan or act directly.
+  // modes let the model plan or act directly. Target mode replaces this whole
+  // flow with its own autonomous spec (.ourcode/targemode/ workflow).
   if (agentMode === 'agent') {
-    const planningPhase = (session.projectEditMode || 'plan') === 'plan' && !opts?.planApproved
-    systemPrompt += planningPhase ? PLAN_MODE_INSTRUCTION : AGENT_MODE_INSTRUCTION
+    if (targetMode) {
+      systemPrompt += TARGET_MODE_INSTRUCTION
+      // Bootstrap the state skeleton (idempotent) and inject the current
+      // status so the agent resumes from the files instead of its memory.
+      const root = getWorkspaceRoot()
+      if (root) {
+        await ensureInitialized(root)
+        const statusMd = await readStatusText(root)
+        useChatStore.setState({ targetModeStatus: statusMd ? parseStatus(statusMd) : null })
+        if (statusMd) {
+          systemPrompt += `\n\n<target_mode_status>\n${statusMd}\n</target_mode_status>`
+        }
+      }
+    } else {
+      const planningPhase = (session.projectEditMode || 'plan') === 'plan' && !opts?.planApproved
+      systemPrompt += planningPhase ? PLAN_MODE_INSTRUCTION : AGENT_MODE_INSTRUCTION
+    }
   }
   if (opts?.extraSystemText) {
     systemPrompt += '\n\n' + opts.extraSystemText
@@ -1449,8 +1503,9 @@ async function runAgentLoop(
   // Agent mode with the default 'plan' edit mode exposes only read-only +
   // agent-control tools until a plan is approved (the planning phase is
   // read-only by design). Other edit modes expose all tools but vary approval.
+  // Target mode always needs the full tool set (it writes its own workflow docs).
   const projectEditMode = session.projectEditMode || 'plan'
-  const usePlanTools = agentMode === 'agent' && projectEditMode === 'plan' && !opts?.planApproved
+  const usePlanTools = agentMode === 'agent' && projectEditMode === 'plan' && !opts?.planApproved && !targetMode
   let toolDefinitions = usePlanTools
     ? toolExecutor.getToolDefinitions((name) => PLAN_TOOLS.has(name))
     : toolExecutor.getToolDefinitions()
@@ -1470,8 +1525,10 @@ async function runAgentLoop(
     st.loadToolAllowlist(projectPath)
     st.startAgentRun(sessionId, lastUserMessage?.content || 'Agent 任务', {
       resumeRunId: opts?.resumeRunId,
-      autoRun: !!opts?.autoRun,
     })
+    // Target mode: the agent runs autonomously — all tool calls for this run
+    // are auto-approved (supersedes the removed per-run "auto-run" toggle).
+    if (targetMode) useChatStore.setState({ batchApproved: true })
     runId = useChatStore.getState().activeRun?.runId
   }
 
@@ -1856,17 +1913,11 @@ async function runAgentLoop(
         role: 'assistant',
         content: '[已达到最大工具调用轮数 (20)。点击下方"继续"按钮可继续执行。]',
       })
-      // Auto-continue — but only once per conversation turn, so
-      // a model that keeps exhausting cannot loop forever. The exhausted message
-      // just added is counted below.
-      const autoContinue = localStorage.getItem(AUTO_CONTINUE_KEY) === '1'
+      // Target mode keeps the agent going after rounds are exhausted — it only
+      // stops when the user judges the goal done (or queues their own message,
+      // whose intent wins over resuming the old trajectory).
       const queuedPending = useChatStore.getState().queuedMessages.length > 0
-      const exhaustedCount = useChatStore.getState().sessions
-        .find((s) => s.id === sessionId)?.messages
-        .filter((m) => m.role === 'assistant' && m.content.startsWith(EXHAUSTED_MARKER)).length || 0
-      // Skip auto-continue if the user already queued a new message (their intent
-      // wins over resuming the old trajectory) or if we already auto-continued once.
-      if (autoContinue && !queuedPending && exhaustedCount <= 1) {
+      if (targetMode && !queuedPending) {
         setTimeout(() => { useChatStore.getState().continueGeneration() }, 150)
       }
     }

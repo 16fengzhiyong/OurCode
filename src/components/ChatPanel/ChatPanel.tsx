@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import ChatMessages from './ChatMessages'
 import ChatInput from './ChatInput'
 import ChatSidebar from './ChatSidebar'
@@ -10,6 +10,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
+import { statusBadge } from '@/services/targetMode/targetModeService'
 
 function IconButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -28,6 +29,9 @@ export default function ChatPanel() {
   const createSession = useChatStore((s) => s.createSession)
   const setAgentMode = useChatStore((s) => s.setAgentMode)
   const setProjectEditMode = useChatStore((s) => s.setProjectEditMode)
+  const setTargetMode = useChatStore((s) => s.setTargetMode)
+  const targetModeStatus = useChatStore((s) => s.targetModeStatus)
+  const refreshTargetModeStatus = useChatStore((s) => s.refreshTargetModeStatus)
   const { activeConfigGroupId, models } = useConfigStore()
   const activeConfigGroup = useConfigStore((s) => s.configGroups.find((g) => g.id === s.activeConfigGroupId))
   const { openSettings, rootPath, openMemoryManager } = useUIStore()
@@ -41,6 +45,7 @@ export default function ChatPanel() {
 
   const agentMode = activeSession?.agentMode || 'chat'
   const projectEditMode = activeSession?.projectEditMode || 'plan'
+  const targetMode = activeSession?.targetMode === true
   const activeModel = activeSession?.model || ''
 
   // Agent mode operates on the workspace, so it needs a project folder open.
@@ -66,6 +71,15 @@ export default function ChatPanel() {
       openSettings()
     }
   }
+
+  // While target mode is active, poll implementationStatus.md so the badge in
+  // the mode bar stays in sync with the agent's own progress writes.
+  useEffect(() => {
+    if (effectiveAgentMode !== 'agent' || !targetMode) return
+    refreshTargetModeStatus()
+    const timer = setInterval(refreshTargetModeStatus, 5000)
+    return () => clearInterval(timer)
+  }, [effectiveAgentMode, targetMode, refreshTargetModeStatus])
 
   return (
     <div className="h-full flex" style={{ background: 'var(--surface)' }}>
@@ -257,18 +271,35 @@ export default function ChatPanel() {
                   </button>
                 </div>
                 {effectiveAgentMode === 'agent' && (
-                  <select
-                    value={projectEditMode}
-                    onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}
-                    className="text-xs rounded-md px-2 py-1 border border-nova-border bg-nova-input-bg text-nova-text-primary outline-none cursor-pointer hover:border-nova-accent focus:border-nova-accent transition-colors"
-                    title={t('chat.projectEditModeLabel')}
-                    style={{ backgroundImage: 'none' }}
-                  >
-                    <option value="confirm_before_change" title={t('chat.projectEditModeConfirmHint')}>{t('chat.projectEditModeConfirm')}</option>
-                    <option value="auto_edit" title={t('chat.projectEditModeAutoHint')}>{t('chat.projectEditModeAuto')}</option>
-                    <option value="plan" title={t('chat.projectEditModePlanHint')}>{t('chat.projectEditModePlan')}</option>
-                    <option value="full_access" title={t('chat.projectEditModeFullHint')}>{t('chat.projectEditModeFull')}</option>
-                  </select>
+                  <>
+                    <label
+                      className="flex items-center gap-1 cursor-pointer select-none text-[10px] text-nova-text-muted hover:text-nova-text-secondary transition-colors"
+                      title={t('chat.targetModeHint')}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={targetMode}
+                        onChange={(e) => setTargetMode(activeSession.id, e.target.checked)}
+                        className="accent-nova-accent w-3 h-3"
+                      />
+                      {t('chat.targetMode')}
+                      {statusBadge(targetModeStatus) && (
+                        <span className="text-nova-accent font-medium">{statusBadge(targetModeStatus)}</span>
+                      )}
+                    </label>
+                    <select
+                      value={projectEditMode}
+                      onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}
+                      className="text-xs rounded-md px-2 py-1 border border-nova-border bg-nova-input-bg text-nova-text-primary outline-none cursor-pointer hover:border-nova-accent focus:border-nova-accent transition-colors"
+                      title={t('chat.projectEditModeLabel')}
+                      style={{ backgroundImage: 'none' }}
+                    >
+                      <option value="confirm_before_change" title={t('chat.projectEditModeConfirmHint')}>{t('chat.projectEditModeConfirm')}</option>
+                      <option value="auto_edit" title={t('chat.projectEditModeAutoHint')}>{t('chat.projectEditModeAuto')}</option>
+                      <option value="plan" title={t('chat.projectEditModePlanHint')}>{t('chat.projectEditModePlan')}</option>
+                      <option value="full_access" title={t('chat.projectEditModeFullHint')}>{t('chat.projectEditModeFull')}</option>
+                    </select>
+                  </>
                 )}
               </div>
 

@@ -130,9 +130,6 @@ export const FREE_MODEL_KEYWORDS = ['free', 'gpt-3.5', 'llama', 'mistral', 'gemm
 // tool-call budget; the UI renders a "继续" button for messages starting with it.
 export const EXHAUSTED_MARKER = '[已达到最大工具调用轮数'
 
-// localStorage key for the "auto continue on exhaustion" toggle
-export const AUTO_CONTINUE_KEY = 'ourcode-auto-continue'
-
 // localStorage prefix for the per-project "always allow this tool" allowlist.
 // Key = TOOL_ALLOWLIST_PREFIX + projectPath, value = JSON array of tool names.
 export const TOOL_ALLOWLIST_PREFIX = 'ourcode-tool-allowlist:'
