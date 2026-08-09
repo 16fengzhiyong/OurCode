@@ -12,28 +12,107 @@ const ANTHROPIC_MODELS = [
 ]
 
 /**
- * Rough input-token estimate (chars ÷ 3.5). Used only to guard prompt caching:
- * Anthropic requires every cached segment to be ≥ 1024 tokens (2048 on some
- * models) and returns a 400 when a cache_control breakpoint sits on a smaller
- * prompt, so we skip breakpoints below a safe margin.
+ * Rough per-character token estimate split by script family. CJK characters
+ * cost roughly one token each in Claude's tokenizer while ASCII runs average
+ * ~0.3 (≈4 chars/token); the old flat chars÷3.5 divisor undercounted CJK by
+ * ~3x, which emitted breakpoints on prompts the provider rejects with a 400.
+ * Kept slightly conservative (over-estimate) so breakpoints only appear when
+ * safely above the per-segment minimum.
+ */
+function estimateTextTokens(text: string): number {
+  let cjk = 0
+  let other = 0
+  for (const ch of text) {
+    // CJK ideographs + full-width punctuation + kana + hangul
+    if (/[\u3000-\u9fff\uf900-\ufaff\uac00-\ud7af]/.test(ch)) cjk++
+    else other++
+  }
+  return Math.ceil(cjk * 1.1 + other * 0.3)
+}
+
+/** Estimate a content value (string, or Anthropic-style block array). */
+function estimateContentTokens(content: unknown): number {
+  if (typeof content === 'string') return estimateTextTokens(content)
+  if (Array.isArray(content)) {
+    let tokens = 0
+    for (const block of content) {
+      if (typeof block === 'string') tokens += estimateTextTokens(block)
+      else if (block && typeof block.text === 'string') tokens += estimateTextTokens(block.text)
+      else if (block?.type === 'tool_use') {
+        tokens += estimateTextTokens(block.name || '')
+        tokens += estimateTextTokens(JSON.stringify(block.input || {}))
+      } else if (block?.type === 'tool_result') {
+        tokens += estimateTextTokens(typeof block.content === 'string' ? block.content : '')
+      }
+    }
+    return tokens
+  }
+  return 0
+}
+
+/** Estimate the system + tools prefix (converted Anthropic shapes). */
+function estimateBodyTokens(system: unknown, tools: any[] | undefined): number {
+  let tokens = 0
+  if (typeof system === 'string') tokens += estimateTextTokens(system)
+  else if (Array.isArray(system)) {
+    for (const block of system) tokens += estimateTextTokens(block?.text || '')
+  }
+  for (const tool of tools || []) {
+    tokens += estimateTextTokens(tool?.name || '')
+    tokens += estimateTextTokens(tool?.description || '')
+    tokens += estimateTextTokens(JSON.stringify(tool?.input_schema || {}))
+  }
+  return tokens
+}
+
+/**
+ * Rough input-token estimate. Used only to guard prompt caching: Anthropic
+ * requires every cached segment to be ≥ 1024 tokens (2048 on some models) and
+ * returns a 400 when a cache_control breakpoint sits on a smaller prompt, so
+ * we skip breakpoints below a safe margin.
  */
 function estimateRequestTokens(req: LLMRequest): number {
-  let chars = 0
+  let tokens = 0
   for (const m of req.messages) {
-    chars += (m.content || '').length
+    tokens += estimateContentTokens(m.content)
     for (const tc of m.toolCalls || []) {
-      chars += tc.function.name.length + tc.function.arguments.length
+      tokens += estimateTextTokens(tc.function.name) + estimateTextTokens(tc.function.arguments)
     }
   }
   for (const t of req.tools || []) {
-    chars += t.function.name.length + t.function.description.length
-    chars += JSON.stringify(t.function.parameters || {}).length
+    tokens += estimateTextTokens(t.function.name) + estimateTextTokens(t.function.description)
+    tokens += estimateTextTokens(JSON.stringify(t.function.parameters || {}))
   }
-  return Math.ceil(chars / 3.5)
+  return tokens
 }
 
-/** Minimum estimated input tokens before cache_control breakpoints are emitted. */
+/**
+ * Add a cache_control breakpoint to a message's LAST content block when that
+ * block can carry one (text, or tool_use — tool_result blocks can't). Returns
+ * true when a breakpoint was placed. The block array is copied so the
+ * caller's request objects are never mutated.
+ */
+function addHistoryBreakpoint(m: any): boolean {
+  const content = m.content
+  if (typeof content === 'string') {
+    if (!content) return false
+    m.content = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }]
+    return true
+  }
+  if (Array.isArray(content) && content.length > 0) {
+    const last = content[content.length - 1]
+    if (last && (last.type === 'text' || last.type === 'tool_use')) {
+      m.content = [...content.slice(0, -1), { ...last, cache_control: { type: 'ephemeral' } }]
+      return true
+    }
+  }
+  return false
+}
+
+/** Minimum estimated tokens before cache_control breakpoints are emitted. */
 const PROMPT_CACHE_MIN_TOKENS = 2048
+/** Minimum estimated tokens for a single cached segment (provider-enforced). */
+const MIN_CACHE_SEGMENT_TOKENS = 1024
 
 export class AnthropicAdapter implements LLMAdapter {
   async *sendRequest(req: LLMRequest, config: ApiConfigGroup, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
@@ -145,27 +224,67 @@ export class AnthropicAdapter implements LLMAdapter {
       // prefix (system + tools + conversation history) is billed at the cached
       // read rate instead of full price on every turn.
       if (cache) {
-        if (typeof body.system === 'string' && body.system) {
-          body.system = [{ type: 'text', text: body.system, cache_control: { type: 'ephemeral' } }]
+        // The system+tools segment must clear the per-segment minimum on its
+        // own, or the provider rejects the whole request with a 400. When the
+        // prompt is large only because of the history, skip system/tools
+        // breakpoints and let the history breakpoints carry the caching.
+        const sysToolsTokens = estimateBodyTokens(body.system, body.tools)
+        if (sysToolsTokens >= MIN_CACHE_SEGMENT_TOKENS) {
+          if (typeof body.system === 'string' && body.system) {
+            body.system = [{ type: 'text', text: body.system, cache_control: { type: 'ephemeral' } }]
+          }
+          // Cache the tools segment: the breakpoint goes on the LAST tool.
+          if (Array.isArray(body.tools) && body.tools.length > 0) {
+            const last = body.tools[body.tools.length - 1]
+            body.tools[body.tools.length - 1] = { ...last, cache_control: { type: 'ephemeral' } }
+          }
         }
-        // Cache the tools segment: the breakpoint goes on the LAST tool.
-        if (Array.isArray(body.tools) && body.tools.length > 0) {
-          const last = body.tools[body.tools.length - 1]
-          body.tools[body.tools.length - 1] = { ...last, cache_control: { type: 'ephemeral' } }
+        // Recent-history breakpoint: walk back from the second-to-last message
+        // (the final message can't carry cache_control) and place the
+        // breakpoint on the last block that can hold one — plain text, or
+        // tool_use on assistant messages. Agent-loop turns end on tool_use
+        // blocks, so this is what makes the history prefix roll: turn N's
+        // request ends on a tool_use block and turn N+1's request shares that
+        // byte-identical prefix. tool_result blocks can't carry cache_control
+        // and are skipped. A candidate segment below the per-segment minimum
+        // would trip a provider 400, so it's skipped in favor of an earlier,
+        // longer prefix.
+        const msgTokens = messages.map((m) => estimateContentTokens(m.content))
+        let acc = estimateBodyTokens(body.system, body.tools)
+        // prefixTokens[i] = estimated tokens up to (not including) message i
+        const prefixTokens: number[] = []
+        for (let i = 0; i < messages.length; i++) {
+          prefixTokens.push(acc)
+          acc += msgTokens[i]
         }
-        // Mid-conversation breakpoint: walk back from the second-to-last message
-        // (the final message can't carry cache_control) for a plain-text message
-        // — skip tool_result / tool_use blocks — and cache the history up to it.
-        // The next turn's request then shares that byte-identical prefix.
         const start = Math.max(0, messages.length - 6)
+        let recentIdx = -1
         for (let i = messages.length - 2; i >= start; i--) {
-          const m = messages[i]
-          if (typeof m.content === 'string' && m.content) {
-            messages[i] = {
-              ...m,
-              content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }],
-            }
+          if (prefixTokens[i] + msgTokens[i] < MIN_CACHE_SEGMENT_TOKENS) continue
+          if (addHistoryBreakpoint(messages[i])) {
+            recentIdx = i
             break
+          }
+        }
+        // Early-history breakpoint: the first plain-text message is byte-stable
+        // across turns, so its segment keeps hitting even while the recent
+        // segment rolls forward past the provider's ~5min cache window. Only
+        // emitted when the prefix up to it clears the per-segment minimum, and
+        // never on the message the recent breakpoint already marked.
+        if (recentIdx !== 0) {
+          for (let i = 0; i < messages.length - 1; i++) {
+            if (i === recentIdx) continue
+            const m = messages[i]
+            if (
+              typeof m.content === 'string' && m.content &&
+              prefixTokens[i] + msgTokens[i] >= MIN_CACHE_SEGMENT_TOKENS
+            ) {
+              messages[i] = {
+                ...m,
+                content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }],
+              }
+              break
+            }
           }
         }
       }

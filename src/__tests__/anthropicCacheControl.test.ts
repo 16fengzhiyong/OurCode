@@ -171,7 +171,7 @@ describe('AnthropicAdapter — prompt caching (cache_control)', () => {
     expect(last.content).toBe('final turn')
   })
 
-  it('handles tool-only histories without crashing the breakpoint search', async () => {
+  it('marks tool-loop turns: recent breakpoint on the last tool_use block', async () => {
     const req = largeRequest({ providerCache: true })
     req.messages = [
       { role: 'system', content: 'x'.repeat(9000) },
@@ -186,7 +186,144 @@ describe('AnthropicAdapter — prompt caching (cache_control)', () => {
     await drain(new AnthropicAdapter(), req)
 
     const body = JSON.parse(llmFetchMock.mock.calls[0][1].body)
-    // walk back: tool result (array) → assistant tool call (array) → 'go' (string)
+    // early-history breakpoint: the first plain-text message 'go'
     expect(body.messages[0].content).toEqual([{ type: 'text', text: 'go', cache_control: { type: 'ephemeral' } }])
+    // recent breakpoint sits on the assistant tool_use block — the tool_result
+    // that follows it can't carry cache_control — so the next turn's request
+    // shares this exact prefix and hits the provider cache
+    const toolUse = body.messages[1].content[0]
+    expect(toolUse.type).toBe('tool_use')
+    expect(toolUse.cache_control).toEqual({ type: 'ephemeral' })
+    // the tool_result message stays untouched
+    expect(body.messages[2].content[0].cache_control).toBeUndefined()
+  })
+
+  it('rolls the recent breakpoint forward across multi-turn tool loops', async () => {
+    const req = largeRequest({ providerCache: true })
+    req.messages = [
+      { role: 'system', content: 'x'.repeat(9000) },
+      { role: 'user', content: 'go' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'tc_1', type: 'function', function: { name: 'f', arguments: '{}' } }] },
+      { role: 'tool', content: 'r'.repeat(3000), toolCallId: 'tc_1' },
+      { role: 'user', content: 'continue' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'tc_2', type: 'function', function: { name: 'g', arguments: '{}' } }] },
+      { role: 'tool', content: 'r'.repeat(3000), toolCallId: 'tc_2' },
+      { role: 'user', content: 'final turn' },
+    ]
+    await drain(new AnthropicAdapter(), req)
+
+    const body = JSON.parse(llmFetchMock.mock.calls[0][1].body)
+    // early-history breakpoint on the first plain-text message
+    expect(body.messages[0].content).toEqual([{ type: 'text', text: 'go', cache_control: { type: 'ephemeral' } }])
+    // recent breakpoint rolled forward onto the LAST assistant tool_use block,
+    // skipping the tool_result that follows it
+    const a2 = body.messages[4]
+    expect(a2.role).toBe('assistant')
+    expect(a2.content[0].type).toBe('tool_use')
+    expect(a2.content[0].cache_control).toEqual({ type: 'ephemeral' })
+    // intermediate plain-text turn and the final message stay breakpoint-free
+    expect(body.messages[3].content).toBe('continue')
+    expect(body.messages[body.messages.length - 1].content).toBe('final turn')
+  })
+
+  it('skips the early breakpoint when its prefix is below the segment minimum', async () => {
+    const req = largeRequest({ providerCache: true })
+    req.messages = [
+      { role: 'system', content: 'S'.repeat(400) },
+      { role: 'user', content: 'go' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'tc_1', type: 'function', function: { name: 'f', arguments: '{}' } }] },
+      { role: 'tool', content: 'r'.repeat(5000), toolCallId: 'tc_1' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'tc_2', type: 'function', function: { name: 'g', arguments: '{}' } }] },
+      { role: 'tool', content: 'r'.repeat(5000), toolCallId: 'tc_2' },
+      { role: 'user', content: 'final turn' },
+    ]
+    await drain(new AnthropicAdapter(), req)
+
+    const body = JSON.parse(llmFetchMock.mock.calls[0][1].body)
+    // exactly ONE history breakpoint: the recent one on the last tool_use block
+    const marked = body.messages.filter((m: any) =>
+      Array.isArray(m.content) && m.content.some((b: any) => b.cache_control)
+    )
+    expect(marked).toHaveLength(1)
+    expect(marked[0].content[0].type).toBe('tool_use')
+    // the early 'go' message's prefix (~150 tokens) is below the per-segment
+    // minimum — a breakpoint there would trip a provider 400
+    expect(body.messages[0].content).toBe('go')
+  })
+
+  it('emits breakpoints for a CJK-heavy prompt (per-char CJK estimate)', async () => {
+    const req = smallRequest({ providerCache: true })
+    req.messages = [
+      { role: 'system', content: '中'.repeat(3000) },
+      { role: 'user', content: '继续分析这个问题' },
+    ]
+    await drain(new AnthropicAdapter(), req)
+
+    const body = JSON.parse(llmFetchMock.mock.calls[0][1].body)
+    // 3000 CJK chars ≈ 3300 estimated tokens — the old chars÷3.5 divisor
+    // (~857) would have skipped breakpoints on a cacheable prompt
+    expect(body.system).toEqual([{ type: 'text', text: '中'.repeat(3000), cache_control: { type: 'ephemeral' } }])
+  })
+
+  it('places the recent breakpoint on the LAST block of a mixed assistant message', async () => {
+    const req = largeRequest({ providerCache: true })
+    req.messages = [
+      { role: 'system', content: 'x'.repeat(9000) },
+      { role: 'user', content: 'go' },
+      {
+        role: 'assistant',
+        content: '中间说明文本',
+        toolCalls: [{ id: 'tc_1', type: 'function', function: { name: 'f', arguments: '{}' } }],
+      },
+      { role: 'tool', content: 'ok', toolCallId: 'tc_1' },
+      { role: 'user', content: 'final' },
+    ]
+    await drain(new AnthropicAdapter(), req)
+
+    const body = JSON.parse(llmFetchMock.mock.calls[0][1].body)
+    // assistant message → [text, tool_use]; the breakpoint must land on the
+    // LAST block (tool_use), the text block stays untouched
+    const a1 = body.messages[1]
+    expect(a1.content).toHaveLength(2)
+    expect(a1.content[0]).toEqual({ type: 'text', text: '中间说明文本' })
+    expect(a1.content[1].type).toBe('tool_use')
+    expect(a1.content[1].cache_control).toEqual({ type: 'ephemeral' })
+  })
+
+  it('does not mutate the caller request objects', async () => {
+    const req = largeRequest({ providerCache: true })
+    req.messages = [
+      { role: 'system', content: 'x'.repeat(9000) },
+      { role: 'user', content: 'go' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'tc_9', type: 'function', function: { name: 'f', arguments: '{}' } }] },
+      { role: 'tool', content: 'ok', toolCallId: 'tc_9' },
+      { role: 'user', content: 'final' },
+    ]
+    const snapshot = JSON.stringify(req.messages)
+    await drain(new AnthropicAdapter(), req)
+
+    // breakpoint injection happens on internal copies — the caller's messages
+    // (strings, toolCalls arrays) must be byte-identical afterwards
+    expect(JSON.stringify(req.messages)).toBe(snapshot)
+  })
+
+  it('skips system/tools breakpoints when their segment is below the minimum', async () => {
+    // Prompt is large only because of the history (tool results); the
+    // system+tools prefix is below 1024, so system/tools breakpoints would
+    // trip a provider 400 and are skipped entirely.
+    const req = smallRequest({ providerCache: true })
+    req.messages = [
+      { role: 'system', content: 'S'.repeat(400) },
+      { role: 'user', content: 'go' },
+      { role: 'assistant', content: '', toolCalls: [{ id: 'tc_1', type: 'function', function: { name: 'f', arguments: '{}' } }] },
+      { role: 'tool', content: 'r'.repeat(7000), toolCallId: 'tc_1' },
+      { role: 'user', content: 'final turn' },
+    ]
+    await drain(new AnthropicAdapter(), req)
+
+    const body = JSON.parse(llmFetchMock.mock.calls[0][1].body)
+    // no cache_control anywhere — no 400-triggering breakpoints
+    expect(JSON.stringify(body)).not.toContain('cache_control')
+    expect(typeof body.system).toBe('string')
   })
 })
