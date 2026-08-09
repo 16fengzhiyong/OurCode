@@ -23,6 +23,8 @@ vi.stubGlobal('window', { electronAPI: mockApi })
 
 import { useChatStore, stopGitBranchPolling, trimHistoryForContext } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useEditorStore } from '@/stores/editorStore'
+import { createToolRegistry } from '@/services/tools/ToolRegistry'
 
 // Capture the pristine initial state so each test starts clean
 const initialState = useChatStore.getState()
@@ -426,5 +428,120 @@ describe('chatStore agent run state', () => {
     const st = useChatStore.getState()
     expect(st.sessions.find((s) => s.id === 's1')!.agentRuns).toHaveLength(0)
     expect(st.activeRun).toBeNull()
+  })
+})
+
+describe('chatStore cross-session messaging', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    useChatStore.setState({
+      ...initialState,
+      sessions: [],
+      activeSessionId: null,
+      runningSessionId: null,
+      undoStack: [],
+      queuedMessages: [],
+      inboundQueue: [],
+      activeRun: null,
+      agentTrace: [],
+      batchApproved: false,
+      toolAllowlist: {},
+      batchApproval: null,
+    })
+    // Sandbox the inbound policy so tests are independent of user preferences
+    useEditorStore.setState((st) => ({ preferences: { ...st.preferences, crossSessionInbound: 'accept' } }))
+  })
+
+  it('receiveInboundMessage delivers a marked user message and persists', () => {
+    makeSession('s1')
+    makeSession('s2')
+    const status = useChatStore.getState().receiveInboundMessage('会话一', 's2', '帮我看看 auth 模块')
+    expect(status).toContain('已投递并触发')
+    const target = useChatStore.getState().sessions.find((s) => s.id === 's2')!
+    expect(target.messages).toHaveLength(1)
+    expect(target.messages[0].role).toBe('user')
+    expect(target.messages[0].content).toContain('[来自会话「会话一」的会话间消息]')
+    expect(target.messages[0].content).toContain('帮我看看 auth 模块')
+    expect(mockApi.saveSession).toHaveBeenCalled()
+  })
+
+  it('receiveInboundMessage queues the message while the target is generating', () => {
+    makeSession('s1')
+    makeSession('s2')
+    // Simulate the target's agent loop being active
+    useChatStore.setState({ runningSessionId: 's2' })
+    const status = useChatStore.getState().receiveInboundMessage('会话一', 's2', '忙完后告诉我')
+    expect(status).toContain('已排队')
+    const target = useChatStore.getState().sessions.find((s) => s.id === 's2')!
+    expect(target.messages).toHaveLength(0) // not delivered yet
+    expect(useChatStore.getState().inboundQueue).toHaveLength(1)
+    expect(useChatStore.getState().inboundQueue[0].targetSessionId).toBe('s2')
+  })
+
+  it('receiveInboundMessage with hold=true appends without auto-processing', () => {
+    makeSession('s1')
+    makeSession('s2')
+    const status = useChatStore.getState().receiveInboundMessage('会话一', 's2', '先放着', true)
+    expect(status).toContain('hold')
+    const target = useChatStore.getState().sessions.find((s) => s.id === 's2')!
+    expect(target.messages).toHaveLength(1)
+    expect(useChatStore.getState().inboundQueue).toHaveLength(0)
+    expect(mockApi.saveSession).toHaveBeenCalled()
+  })
+
+  it('send_message tool rejects self-messaging and unknown targets', async () => {
+    makeSession('s1')
+    makeSession('s2')
+    const tools = createToolRegistry()
+    const sendMessage = tools.find((t) => t.name === 'send_message')!
+
+    const self = await sendMessage.execute({ targetSessionId: 's1', message: 'hi' }, { sessionId: 's1' })
+    expect(self).toContain('不能给自己发消息')
+
+    const missing = await sendMessage.execute({ targetSessionId: 'ghost', message: 'hi' }, { sessionId: 's1' })
+    expect(missing).toContain('不存在')
+
+    // Nothing was delivered to s2 by the failed calls
+    expect(useChatStore.getState().sessions.find((s) => s.id === 's2')!.messages).toHaveLength(0)
+  })
+
+  it('send_message tool honors the refuse policy', async () => {
+    makeSession('s1')
+    makeSession('s2')
+    useEditorStore.setState((st) => ({ preferences: { ...st.preferences, crossSessionInbound: 'refuse' } }))
+    const tools = createToolRegistry()
+    const sendMessage = tools.find((t) => t.name === 'send_message')!
+    const res = await sendMessage.execute({ targetSessionId: 's2', message: 'hi' }, { sessionId: 's1' })
+    expect(res).toContain('拒绝')
+    expect(useChatStore.getState().sessions.find((s) => s.id === 's2')!.messages).toHaveLength(0)
+  })
+
+  it('send_message tool resolves the target by title and reports delivery', async () => {
+    makeSession('s1')
+    makeSession('s2')
+    useChatStore.getState().renameSession('s2', '收件人')
+    const target = useChatStore.getState().sessions.find((s) => s.id === 's2')!
+    const tools = createToolRegistry()
+    const sendMessage = tools.find((t) => t.name === 'send_message')!
+    const res = await sendMessage.execute({ targetTitle: '收件人', message: '请回复' }, { sessionId: 's1' })
+    expect(res).toContain(target.title)
+    expect(res).toContain('已发送')
+    const targetMsgs = useChatStore.getState().sessions.find((s) => s.id === 's2')!.messages
+    expect(targetMsgs).toHaveLength(1)
+    expect(targetMsgs[0].content).toContain('请回复')
+  })
+
+  it('list_agents tool lists peer sessions and hides the caller', async () => {
+    makeSession('s1')
+    makeSession('s2')
+    useChatStore.getState().renameSession('s2', '第二个会话')
+    const tools = createToolRegistry()
+    const listAgents = tools.find((t) => t.name === 'list_agents')!
+    const res = await listAgents.execute({}, { sessionId: 's1' })
+    expect(res).toContain('第二个会话')
+    expect(res).toContain('s2')
+    // The caller itself must not appear as a peer row
+    expect(res).not.toContain('| s1 |')
   })
 })

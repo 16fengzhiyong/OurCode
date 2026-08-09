@@ -282,6 +282,11 @@ export interface UserPreferences {
   anthropicPromptCache: boolean
   /** LSP servers by Monaco language id, e.g. { python: "pylsp", go: "gopls -mode stdio" } */
   lspServers?: Record<string, string>
+  /** How this app treats inbound cross-session messages (send_message tool):
+   *  'accept' = deliver and auto-trigger the receiving session's agent loop,
+   *  'hold' = deliver into history but don't auto-process,
+   *  'refuse' = reject delivery (senders get an error). */
+  crossSessionInbound?: 'accept' | 'hold' | 'refuse'
 }
 
 // Model Info

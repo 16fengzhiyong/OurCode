@@ -304,6 +304,108 @@ export function createToolRegistry(): Tool[] {
       requiresApproval: true,
     },
 
+    // ──────────────── Cross-session messaging tools ────────────────
+    // Peer-to-peer messaging between chat sessions (Claude Code's
+    // ListAgents / SendMessage equivalent). All sessions live in the same
+    // renderer store, so the "registry" is just useChatStore.sessions.
+    {
+      name: 'list_agents',
+      description:
+        'List the other chat sessions (agents) currently available, with their id, title, ' +
+        'model and run status. Use it to discover a target before calling send_message. ' +
+        'Equivalent to Claude Code\'s ListAgents.',
+      parameters: {
+        type: 'object',
+        properties: {
+          search: { type: 'string', description: 'Optional keyword to filter by session title' },
+        },
+        required: [],
+      },
+      execute: async (args, context) => {
+        const { useChatStore } = await import('@/stores/chatStore')
+        const { sessions, runningSessionId } = useChatStore.getState()
+        const selfId = context?.sessionId
+        const kw = String(args.search || '').trim().toLowerCase()
+        const baseName = (p: string | undefined): string => {
+          if (!p) return '—'
+          return p.split(/[\\/]/).filter(Boolean).pop() || p
+        }
+        const peers = sessions
+          .filter((s) => s.id !== selfId && !s.archivedAt)
+          .filter((s) => !kw || s.title.toLowerCase().includes(kw))
+        if (peers.length === 0) {
+          return kw
+            ? `没有找到标题包含「${args.search}」的其他会话。`
+            : '当前没有其他可用的会话。先新建一个会话，再让对方通过 send_message 联系你。'
+        }
+        const rows = peers.map((s) => {
+          const project = baseName(s.projectPath)
+          const status = s.id === runningSessionId ? '运行中' : '空闲'
+          return `| ${s.id} | ${s.title.replace(/\|/g, '\\|')} | ${s.model || '未配置'} | ${project} | ${s.messages.length} | ${status} |`
+        })
+        return (
+          `发现 ${peers.length} 个会话（同进程内可直接互通）：\n\n` +
+          '| 会话ID | 标题 | 模型 | 项目 | 消息数 | 状态 |\n' +
+          '|---|---|---|---|---|---|\n' +
+          rows.join('\n') +
+          '\n\n调用 send_message 时传入 targetSessionId（推荐）或 targetTitle。'
+        )
+      },
+    },
+    {
+      name: 'send_message',
+      description:
+        'Send a plain-text message to another chat session, which the receiving session\'s ' +
+        'agent processes (it appears in the target\'s history and, when idle, triggers its ' +
+        'agent loop to reply). Use it to coordinate parallel sessions, hand off findings or ' +
+        'ask another session for status. Messages are plain text only — never conversation ' +
+        'history or files. Equivalent to Claude Code\'s SendMessage.',
+      parameters: {
+        type: 'object',
+        properties: {
+          targetSessionId: { type: 'string', description: '目标会话 ID（来自 list_agents）' },
+          targetTitle: { type: 'string', description: '或按标题精确匹配目标会话（targetSessionId 优先）' },
+          message: { type: 'string', description: '要发送的纯文本消息内容' },
+        },
+        required: ['message'],
+      },
+      execute: async (args, context) => {
+        const { useChatStore } = await import('@/stores/chatStore')
+        const { useEditorStore } = await import('@/stores/editorStore')
+        const { sessions } = useChatStore.getState()
+        const selfId = context?.sessionId
+        const sender = sessions.find((s) => s.id === selfId)
+
+        const message = String(args.message || '').trim()
+        if (!message) return 'Error: 消息内容不能为空'
+
+        let targetId = String(args.targetSessionId || '')
+        if (!targetId && args.targetTitle) {
+          const byTitle = sessions.find((s) => s.title === String(args.targetTitle))
+          targetId = byTitle?.id || ''
+        }
+        if (!targetId) {
+          return 'Error: 找不到目标会话。请先调用 list_agents 获取会话 ID，再传入 targetSessionId 或 targetTitle。'
+        }
+        if (targetId === selfId) {
+          return 'Error: 不能给自己发消息，请选择其他会话。'
+        }
+        const target = sessions.find((s) => s.id === targetId)
+        if (!target) {
+          return `Error: 目标会话 ${targetId} 不存在（可能已被删除）。请重新调用 list_agents 确认。`
+        }
+
+        const policy = useEditorStore.getState().preferences.crossSessionInbound || 'accept'
+        if (policy === 'refuse') {
+          return `Error: 会话「${target.title}」已设置为拒绝接收会话间消息（crossSessionInbound: refuse），消息未发送。`
+        }
+
+        const senderTitle = sender?.title || '未知会话'
+        const status = useChatStore.getState().receiveInboundMessage(senderTitle, targetId, message, policy === 'hold')
+        return `已发送给会话「${target.title}」。${status}`
+      },
+    },
+
     // ──────────────── Web tools (read-only network access) ────────────────
     {
       name: 'web_search',

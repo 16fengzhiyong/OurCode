@@ -787,6 +787,14 @@ export default function SettingsModal() {
                 <SettingRow label="Anthropic 提示词缓存" desc="发送 cache_control 断点，重复的历史前缀按缓存价计费（Claude 约 1/10）" right={
                   <ToggleButton on={preferences.anthropicPromptCache} onClick={() => savePreferences({ anthropicPromptCache: !preferences.anthropicPromptCache })} />
                 } />
+                <SettingRow label="接收会话间消息" desc="其他会话通过 send_message 发来的消息如何处理（接受=投递并自动处理；暂存=只投递不自动处理；拒绝=对方发送时报错）" right={
+                  <select value={preferences.crossSessionInbound ?? 'accept'} onChange={(e) => savePreferences({ crossSessionInbound: e.target.value as 'accept' | 'hold' | 'refuse' })}
+                    className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none w-[160px]">
+                    <option value="accept">✅ 接受并自动处理</option>
+                    <option value="hold">📥 暂存（仅投递）</option>
+                    <option value="refuse">🚫 拒绝接收</option>
+                  </select>
+                } />
               </div>
 
               <div className="flex flex-col gap-3">

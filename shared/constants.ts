@@ -128,6 +128,7 @@ export const DEFAULT_PREFERENCES = {
   aiAutoMemory: true,
   llmResponseCache: true,
   anthropicPromptCache: true,
+  crossSessionInbound: 'accept' as const,
 }
 
 // Free model keywords

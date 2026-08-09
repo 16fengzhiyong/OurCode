@@ -21,7 +21,12 @@
 const AGENT_DIRS = ['.ourcode/agents']
 
 /** Tools that never get executed by a subagent, regardless of allowlist. */
-export const CONTROL_TOOLS = new Set(['submit_plan', 'ask_user_question', 'manage_todo', 'run_subagent'])
+export const CONTROL_TOOLS = new Set([
+  'submit_plan', 'ask_user_question', 'manage_todo', 'run_subagent',
+  // Delegating work across sessions from a subagent could create unbounded
+  // agent ping-pong; subagents may still use list_agents (read-only discovery).
+  'send_message',
+])
 
 /** Tools whose `path` argument must stay inside allowedPaths (when configured). */
 const PATH_TOOLS = new Set([

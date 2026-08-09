@@ -240,13 +240,15 @@ function summarizeToolCall(tc: ToolCall): string {
   if (tc.name === 'manage_todo') return String(a.action || a.content || '')
   if (tc.name === 'submit_plan') return String(a.title || '')
   if (tc.name === 'ask_user_question') return String(a.question || '')
+  if (tc.name === 'send_message') return String(a.targetSessionId || a.targetTitle || '')
+  if (tc.name === 'list_agents') return String(a.search || '')
   return tc.name
 }
 
 // Tools allowed in plan mode (read-only + agent-control)
 const PLAN_TOOLS = new Set([
   'read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files',
-  'web_search', 'read_url', 'manage_todo', 'submit_plan', 'ask_user_question',
+  'web_search', 'read_url', 'manage_todo', 'submit_plan', 'ask_user_question', 'list_agents',
 ])
 
 // Write tools get a checkpoint snapshot before they run
@@ -322,6 +324,15 @@ interface ChatState {
   queuedMessages: string[]
   queueMessage: (content: string) => void
   clearQueue: () => void
+
+  // Inbound cross-session messages (send_message tool) awaiting the target
+  // session's agent loop; drained in runAgentLoop's finally.
+  inboundQueue: Array<{ targetSessionId: string; senderTitle: string; content: string; hold: boolean }>
+  /** Deliver a cross-session message into another session's history. hold=true
+   *  appends without auto-processing; otherwise the target's agent loop is
+   *  triggered when idle (messages arriving mid-run are queued). Returns a
+   *  human-readable delivery status for the send_message tool. */
+  receiveInboundMessage: (senderTitle: string, targetSessionId: string, message: string, hold?: boolean) => string
 
   // Checkpoints (AI edit snapshots) for the active session
   checkpoints: Checkpoint[]
@@ -472,6 +483,25 @@ let _batchResolve: ((decision: 'confirm' | 'all' | 'reject') => void) | null = n
 // Pending ask-user-question resolve
 let _questionResolve: ((answer: string) => void) | null = null
 
+// Inbound-delivery guard: reference count of agent-loop chains (re)launched
+// per session by receiveInboundMessage / the finally-drain. Each launch
+// increments before running, each settled chain decrements. Using a count
+// (not a boolean Set) closes the handoff race where a drained loop settles
+// (count-- ) while the next loop it just launched is still mid-startup
+// (runningSessionId not yet set) — a boolean would briefly report "idle" and
+// let a third loop start concurrently.
+const _inboundLaunches = new Map<string, number>()
+
+function markInboundLaunch(sessionId: string): void {
+  _inboundLaunches.set(sessionId, (_inboundLaunches.get(sessionId) || 0) + 1)
+}
+
+function markInboundSettled(sessionId: string): void {
+  const next = (_inboundLaunches.get(sessionId) || 1) - 1
+  if (next <= 0) _inboundLaunches.delete(sessionId)
+  else _inboundLaunches.set(sessionId, next)
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
@@ -484,6 +514,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   pendingApproval: null,
   pendingQuestion: null,
   queuedMessages: [],
+  inboundQueue: [],
   checkpoints: [],
   activeRun: null,
   agentTrace: [],
@@ -680,6 +711,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   clearQueue: () => set({ queuedMessages: [] }),
+
+  receiveInboundMessage: (senderTitle, targetSessionId, message, hold = false) => {
+    const chatStore = useChatStore.getState()
+    const target = chatStore.sessions.find((s) => s.id === targetSessionId)
+    if (!target) return '目标会话不存在。'
+    const content = `[来自会话「${senderTitle}」的会话间消息]\n\n${message}`
+    const busy = chatStore.runningSessionId === targetSessionId || (_inboundLaunches.get(targetSessionId) || 0) > 0
+    if (busy) {
+      set((s) => ({
+        inboundQueue: [...s.inboundQueue, { targetSessionId, senderTitle, content, hold }],
+      }))
+      return hold
+        ? '目标会话忙，消息已排队（hold 模式不自动处理）。'
+        : '目标会话正在生成，消息已排队，结束后自动处理。'
+    }
+    chatStore.addMessage(targetSessionId, { role: 'user', content })
+    void chatStore.saveSession(targetSessionId)
+    if (hold) {
+      return '已投递到目标会话历史（hold 模式，未触发处理）。'
+    }
+    markInboundLaunch(targetSessionId)
+    void runAgentLoop(targetSessionId).finally(() => { markInboundSettled(targetSessionId) })
+    return '已投递并触发目标会话处理。'
+  },
 
   loadCheckpoints: async (sessionId) => {
     try {
@@ -1422,6 +1477,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       pendingApproval: null,
       pendingQuestion: null,
       queuedMessages: [],
+      inboundQueue: [],
       checkpoints: [],
       undoStack: [],
       activeRun: null,
@@ -2070,6 +2126,24 @@ async function runAgentLoop(
       const next = queued[0]
       useChatStore.setState({ queuedMessages: queued.slice(1) })
       setTimeout(() => { useChatStore.getState().sendMessage(next) }, 50)
+    }
+
+    // Deliver inbound cross-session messages (send_message from other sessions)
+    // that were queued while this session was generating. One per loop end —
+    // the relaunched loop's own finally drains the next, so messages for the
+    // same session are processed strictly one at a time.
+    const inbound = useChatStore.getState().inboundQueue
+    const inboundIdx = inbound.findIndex((m) => m.targetSessionId === sessionId)
+    if (inboundIdx !== -1) {
+      const item = inbound[inboundIdx]
+      useChatStore.setState({ inboundQueue: inbound.filter((_, i) => i !== inboundIdx) })
+      chatStore.addMessage(sessionId, { role: 'user', content: item.content })
+      if (item.hold) {
+        void chatStore.saveSession(sessionId)
+      } else {
+        markInboundLaunch(sessionId)
+        void runAgentLoop(sessionId).finally(() => { markInboundSettled(sessionId) })
+      }
     }
   }
 }

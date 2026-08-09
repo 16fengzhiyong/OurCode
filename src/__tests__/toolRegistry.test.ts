@@ -58,6 +58,22 @@ describe('ToolRegistry', () => {
       expect(def.function.parameters).toBeTruthy()
     }
   })
+
+  it('registers cross-session messaging tools without requiring approval', () => {
+    const tools = createToolRegistry()
+    const listAgents = tools.find((t) => t.name === 'list_agents')
+    const sendMessage = tools.find((t) => t.name === 'send_message')
+
+    expect(listAgents).toBeTruthy()
+    expect(sendMessage).toBeTruthy()
+    expect(listAgents!.requiresApproval).toBeFalsy()
+    expect(sendMessage!.requiresApproval).toBeFalsy()
+    // send_message must declare the message payload as required
+    expect(sendMessage!.parameters.required).toEqual(['message'])
+    // target resolution accepts either id or title
+    expect(sendMessage!.parameters.properties).toHaveProperty('targetSessionId')
+    expect(sendMessage!.parameters.properties).toHaveProperty('targetTitle')
+  })
 })
 
 describe('ToolExecutor', () => {
