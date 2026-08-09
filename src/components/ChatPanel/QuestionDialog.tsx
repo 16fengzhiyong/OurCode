@@ -9,10 +9,13 @@ import { useI18n } from '@/i18n/useI18n'
 export default function QuestionDialog() {
   const pendingQuestion = useChatStore((s) => s.pendingQuestion)
   const answerQuestion = useChatStore((s) => s.answerQuestion)
+  // Parallel conversations: only the active session's question is shown —
+  // switching to the owning session reveals it again.
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
   const [customAnswer, setCustomAnswer] = useState('')
   const t = useI18n()
 
-  if (!pendingQuestion) return null
+  if (!pendingQuestion || pendingQuestion.sessionId !== activeSessionId) return null
 
   const options = pendingQuestion.options || []
 

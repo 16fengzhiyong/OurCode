@@ -83,7 +83,7 @@ export default function WorkflowModal({ onClose }: { onClose: () => void }) {
         return
       }
     }
-    await chatStore.sendMessage(p)
+    if (chatStore.activeSessionId) await chatStore.sendMessage(chatStore.activeSessionId, p)
     onClose()
   }
 

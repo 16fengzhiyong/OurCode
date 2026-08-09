@@ -11,10 +11,13 @@ import type { ToolCall } from '@/services/tools/types'
  */
 export default function BatchApprovalDialog() {
   const { batchApproval, decideBatchApproval, allowToolPermanently } = useChatStore()
+  // Parallel conversations: the dialog only renders for the active session —
+  // switching to the owning session reveals it again.
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
   const [alwaysAllow, setAlwaysAllow] = useState<Set<string>>(new Set())
   const t = useI18n()
 
-  if (!batchApproval) return null
+  if (!batchApproval || batchApproval.sessionId !== activeSessionId) return null
   const { tools } = batchApproval
 
   const toggleAlwaysAllow = (tc: ToolCall) => {

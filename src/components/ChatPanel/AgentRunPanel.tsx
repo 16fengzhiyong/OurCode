@@ -47,7 +47,8 @@ function parsePlan(run: AgentRun): PlanSteps {
 }
 
 export default function AgentRunPanel({ sessionId }: { sessionId: string }) {
-  const activeRun = useChatStore((s) => s.activeRun)
+  // Per-session active run — parallel conversations each show their own run
+  const activeRun = useChatStore((s) => s.activeRuns[sessionId])
   const session = useChatStore((s) => s.sessions.find((x) => x.id === sessionId))
   const stopGeneration = useChatStore((s) => s.stopGeneration)
   const t = useI18n()
@@ -55,12 +56,12 @@ export default function AgentRunPanel({ sessionId }: { sessionId: string }) {
   // Tick once a second so the elapsed time stays live while the run is active
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
-    if (!activeRun || activeRun.sessionId !== sessionId) return
+    if (!activeRun) return
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
   }, [activeRun, sessionId])
 
-  if (!activeRun || activeRun.sessionId !== sessionId) return null
+  if (!activeRun) return null
   const run = session?.agentRuns?.find((r) => r.id === activeRun.runId)
   if (!run) return null
 
@@ -86,7 +87,7 @@ export default function AgentRunPanel({ sessionId }: { sessionId: string }) {
           <span>{t('agent.fileChanges', { count: run.fileChangeCount })}</span>
           {isRunning && (
             <button
-              onClick={stopGeneration}
+              onClick={() => stopGeneration(sessionId)}
               className="px-2 py-0.5 rounded text-white text-[10px] transition-opacity hover:opacity-90"
               style={{ background: 'rgba(244,135,113,0.85)' }}
             >

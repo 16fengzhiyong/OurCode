@@ -134,7 +134,8 @@ export function registerCoreCommands(): void {
       const selection = window.getSelection()?.toString()
       if (!selection) return
       ensureChatSession()
-      useChatStore.getState().sendMessage(`解释这段代码:\n\n\`\`\`\n${selection}\n\`\`\``)
+      const chat = useChatStore.getState()
+      if (chat.activeSessionId) chat.sendMessage(chat.activeSessionId, `解释这段代码:\n\n\`\`\`\n${selection}\n\`\`\``)
       if (!useUIStore.getState().isChatVisible) useUIStore.getState().toggleChat()
     },
   })

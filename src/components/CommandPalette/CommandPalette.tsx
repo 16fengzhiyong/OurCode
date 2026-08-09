@@ -77,7 +77,7 @@ export default function CommandPalette() {
           const configId = useConfigStore.getState().activeConfigGroupId
           if (configId) chatStore.createSession(configId)
         }
-        chatStore.sendMessage(prompt)
+        if (chatStore.activeSessionId) chatStore.sendMessage(chatStore.activeSessionId, prompt)
         useUIStore.getState().toggleChat()
         closeCommandPalette()
       },

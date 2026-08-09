@@ -21,7 +21,7 @@ const mockApi = {
 }
 vi.stubGlobal('window', { electronAPI: mockApi })
 
-import { useChatStore, stopGitBranchPolling, trimHistoryForContext } from '@/stores/chatStore'
+import { useChatStore, stopGitBranchPolling, trimHistoryForContext, generateSessionTitle, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { createToolRegistry } from '@/services/tools/ToolRegistry'
@@ -57,7 +57,7 @@ describe('chatStore message management', () => {
       sessions: [],
       activeSessionId: null,
       undoStack: [],
-      queuedMessages: [],
+      queuedMessagesBySession: {},
     })
   })
 
@@ -204,6 +204,33 @@ describe('chatStore message management', () => {
   })
 })
 
+describe('chatStore generateSessionTitle', () => {
+  it('uses the first non-empty line of the message', () => {
+    expect(generateSessionTitle('\n\n修复登录页的按钮样式\n\n详见如下')).toBe('修复登录页的按钮样式')
+  })
+
+  it('strips markdown-ish prefixes', () => {
+    expect(generateSessionTitle('# 重构数据库查询')).toBe('重构数据库查询')
+    expect(generateSessionTitle('- 添加单元测试')).toBe('添加单元测试')
+    expect(generateSessionTitle('> 引用内容')).toBe('引用内容')
+  })
+
+  it('caps long titles at 30 chars with an ellipsis', () => {
+    const long = '这'.repeat(40)
+    expect(generateSessionTitle(long)).toBe('这'.repeat(30) + '…')
+  })
+
+  it('returns the raw first line when stripping leaves nothing', () => {
+    expect(generateSessionTitle('---')).toBe('---')
+  })
+
+  it('new sessions start with the default title', () => {
+    expect(DEFAULT_SESSION_TITLE).toBe('新对话')
+    makeSession()
+    expect(useChatStore.getState().sessions[0].title).toBe(DEFAULT_SESSION_TITLE)
+  })
+})
+
 describe('chatStore trimHistoryForContext', () => {
   it('keeps everything when within the model budget', () => {
     const messages = [
@@ -261,10 +288,10 @@ describe('chatStore agent run state', () => {
       sessions: [],
       activeSessionId: null,
       undoStack: [],
-      queuedMessages: [],
-      activeRun: null,
-      agentTrace: [],
-      batchApproved: false,
+      queuedMessagesBySession: {},
+      activeRuns: {},
+      agentTraces: {},
+      batchApprovedBySession: {},
       toolAllowlist: {},
       batchApproval: null,
     })
@@ -326,12 +353,12 @@ describe('chatStore agent run state', () => {
     expect(useChatStore.getState().sessions[0].projectEditMode).toBe('confirm_before_change')
   })
 
-  it('startAgentRun creates a run record, sets activeRun and resets the trace', () => {
+  it('startAgentRun creates a run record, sets activeRuns and resets the trace', () => {
     makeSession()
     useChatStore.getState().startAgentRun('s1', '重构 auth 模块')
     const st = useChatStore.getState()
-    expect(st.activeRun?.sessionId).toBe('s1')
-    expect(st.batchApproved).toBe(false)
+    expect(st.activeRuns['s1']?.sessionId).toBe('s1')
+    expect(st.batchApprovedBySession['s1']).toBe(false)
     const session = st.sessions.find((s) => s.id === 's1')!
     expect(session.agentRuns).toHaveLength(1)
     expect(session.agentRuns![0].task).toBe('重构 auth 模块')
@@ -341,20 +368,20 @@ describe('chatStore agent run state', () => {
     useChatStore.getState().startAgentRun('s1', '新任务')
     const st2 = useChatStore.getState()
     expect(st2.sessions.find((s) => s.id === 's1')!.agentRuns).toHaveLength(2)
-    expect(st2.activeRun?.runId).not.toBe(st.activeRun?.runId)
-    expect(st2.batchApproved).toBe(false)
+    expect(st2.activeRuns['s1']?.runId).not.toBe(st.activeRuns['s1']?.runId)
+    expect(st2.batchApprovedBySession['s1']).toBe(false)
   })
 
   it('startAgentRun with resumeRunId reuses the existing run record', () => {
     makeSession()
     useChatStore.getState().startAgentRun('s1', '任务')
-    const runId = useChatStore.getState().activeRun!.runId
+    const runId = useChatStore.getState().activeRuns['s1']!.runId
     // Plan approval resumes the same run
     useChatStore.getState().startAgentRun('s1', '任务', { resumeRunId: runId })
     const st = useChatStore.getState()
     expect(st.sessions.find((s) => s.id === 's1')!.agentRuns).toHaveLength(1)
-    expect(st.activeRun?.runId).toBe(runId)
-    expect(st.batchApproved).toBe(false)
+    expect(st.activeRuns['s1']?.runId).toBe(runId)
+    expect(st.batchApprovedBySession['s1']).toBe(false)
     expect(st.sessions.find((s) => s.id === 's1')!.agentRuns![0].status).toBe('running')
   })
 
@@ -366,11 +393,11 @@ describe('chatStore agent run state', () => {
     }
     const st = useChatStore.getState()
     expect(st.sessions.find((s) => s.id === 's1')!.agentRuns).toHaveLength(20)
-    const runId = st.activeRun!.runId
+    const runId = st.activeRuns['s1']!.runId
 
     useChatStore.getState().setRunStatus(runId, 'approved_running')
-    useChatStore.getState().appendTrace({ id: 't1', toolCallId: 'c1', name: 'read_file', kind: 'search', status: 'success', summary: 'auth.ts' })
-    useChatStore.getState().appendTrace({ id: 't2', toolCallId: 'c2', name: 'edit_file', kind: 'edit', status: 'success', summary: 'auth.ts' })
+    useChatStore.getState().appendTrace('s1', { id: 't1', toolCallId: 'c1', name: 'read_file', kind: 'search', status: 'success', summary: 'auth.ts' })
+    useChatStore.getState().appendTrace('s1', { id: 't2', toolCallId: 'c2', name: 'edit_file', kind: 'edit', status: 'success', summary: 'auth.ts' })
     useChatStore.getState().finishAgentRun('s1', runId, 'done')
 
     // Re-read state — zustand's set() produces a new sessions array
@@ -380,18 +407,19 @@ describe('chatStore agent run state', () => {
     expect(run.finishedAt).toBeGreaterThan(0)
     expect(run.toolCallCount).toBe(2)
     expect(run.fileChangeCount).toBe(1) // only the edit kind
-    expect(st2.batchApproved).toBe(false)
+    expect(st2.batchApprovedBySession['s1']).toBe(false)
   })
 
   it('decideBatchApproval clears the dialog and approveBatchRun sets the flag', () => {
     makeSession()
-    useChatStore.setState({ batchApproval: { runId: 'r1', tools: [{ id: 'c1', name: 'write_file', arguments: { path: '/tmp/a.ts' } }] } })
+    useChatStore.setState({ batchApproval: { sessionId: 's1', runId: 'r1', tools: [{ id: 'c1', name: 'write_file', arguments: { path: '/tmp/a.ts' } }] } })
     // The loop resolves the dialog, then (for "all") flips the run to batch-approved
     useChatStore.getState().decideBatchApproval('all')
     expect(useChatStore.getState().batchApproval).toBeNull()
-    expect(useChatStore.getState().batchApproved).toBe(false)
-    useChatStore.getState().approveBatchRun()
-    expect(useChatStore.getState().batchApproved).toBe(true)
+    // No run started → no per-session batch flag exists yet
+    expect(useChatStore.getState().batchApprovedBySession['s1']).toBeUndefined()
+    useChatStore.getState().approveBatchRun('s1')
+    expect(useChatStore.getState().batchApprovedBySession['s1']).toBe(true)
   })
 
   it('allowToolPermanently persists to localStorage and clearToolAllowlist removes it', () => {
@@ -420,14 +448,51 @@ describe('chatStore agent run state', () => {
     expect(mem.get('ourcode-tool-allowlist:C:/proj')).toBeUndefined()
   })
 
-  it('deleteAgentRun removes the record and clears activeRun when active', () => {
+  it('deleteAgentRun removes the record and clears activeRuns when active', () => {
     makeSession()
     useChatStore.getState().startAgentRun('s1', '任务')
-    const runId = useChatStore.getState().activeRun!.runId
+    const runId = useChatStore.getState().activeRuns['s1']!.runId
     useChatStore.getState().deleteAgentRun('s1', runId)
     const st = useChatStore.getState()
     expect(st.sessions.find((s) => s.id === 's1')!.agentRuns).toHaveLength(0)
-    expect(st.activeRun).toBeNull()
+    expect(st.activeRuns['s1']).toBeUndefined()
+  })
+
+  it('supports parallel running sessions — stopGeneration only aborts its own controller', () => {
+    makeSession('s1')
+    makeSession('s2')
+    const ac1 = new AbortController()
+    const ac2 = new AbortController()
+    useChatStore.setState({
+      runningSessionIds: ['s1', 's2'],
+      abortControllers: { s1: ac1, s2: ac2 },
+    })
+    const spy1 = vi.spyOn(ac1, 'abort')
+    const spy2 = vi.spyOn(ac2, 'abort')
+    useChatStore.getState().stopGeneration('s1')
+    expect(spy1).toHaveBeenCalledTimes(1)
+    expect(spy2).not.toHaveBeenCalled()
+    expect(useChatStore.getState().abortControllers['s1']).toBeUndefined()
+    expect(useChatStore.getState().abortControllers['s2']).toBe(ac2)
+  })
+
+  it('queueMessage is scoped per session and clearQueue only clears its own', () => {
+    useChatStore.getState().queueMessage('s1', '第一条')
+    useChatStore.getState().queueMessage('s1', '第二条')
+    useChatStore.getState().queueMessage('s2', '另一条')
+    const q = useChatStore.getState().queuedMessagesBySession
+    expect(q['s1']).toEqual(['第一条', '第二条'])
+    expect(q['s2']).toEqual(['另一条'])
+    useChatStore.getState().clearQueue('s1')
+    expect(useChatStore.getState().queuedMessagesBySession['s1']).toBeUndefined()
+    expect(useChatStore.getState().queuedMessagesBySession['s2']).toEqual(['另一条'])
+  })
+
+  it('createSession binds to an explicitly passed projectPath', () => {
+    useChatStore.getState().createSession('cfg-1', '/explicit/proj')
+    const s = useChatStore.getState().sessions[0]
+    expect(s.projectPath).toBe('/explicit/proj')
+    expect(s.agentMode).toBe('agent')
   })
 })
 
@@ -439,13 +504,13 @@ describe('chatStore cross-session messaging', () => {
       ...initialState,
       sessions: [],
       activeSessionId: null,
-      runningSessionId: null,
+      runningSessionIds: [],
       undoStack: [],
-      queuedMessages: [],
+      queuedMessagesBySession: {},
       inboundQueue: [],
-      activeRun: null,
-      agentTrace: [],
-      batchApproved: false,
+      activeRuns: {},
+      agentTraces: {},
+      batchApprovedBySession: {},
       toolAllowlist: {},
       batchApproval: null,
     })
@@ -470,7 +535,7 @@ describe('chatStore cross-session messaging', () => {
     makeSession('s1')
     makeSession('s2')
     // Simulate the target's agent loop being active
-    useChatStore.setState({ runningSessionId: 's2' })
+    useChatStore.setState({ runningSessionIds: ['s2'] })
     const status = useChatStore.getState().receiveInboundMessage('会话一', 's2', '忙完后告诉我')
     expect(status).toContain('已排队')
     const target = useChatStore.getState().sessions.find((s) => s.id === 's2')!

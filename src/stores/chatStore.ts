@@ -42,6 +42,20 @@ let _gitBranchFetchedAt = 0
 /** localStorage key for the last active chat session (restored on next launch) */
 const LAST_SESSION_KEY = 'lastActiveSessionId'
 
+/** Default title of a brand-new session — replaced by an auto-generated title
+ *  after the first message, and never overwritten once the user renames. */
+export const DEFAULT_SESSION_TITLE = '新对话'
+
+/** Derive a concise conversation title from the first user message: first
+ *  non-empty line, stripped of markdown-ish prefixes, capped at 30 chars.
+ *  Exported for unit tests. */
+export function generateSessionTitle(content: string): string {
+  const firstLine = content.split('\n').map((l) => l.trim()).find(Boolean) || content.trim()
+  const cleaned = firstLine.replace(/^[#>*-`~]+/, '').trim() || firstLine
+  const MAX_TITLE_LEN = 30
+  return cleaned.length > MAX_TITLE_LEN ? cleaned.slice(0, MAX_TITLE_LEN) + '…' : cleaned
+}
+
 export async function refreshGitBranch(): Promise<void> {
   const rootPath = getWorkspaceRoot()
   if (!rootPath) return
@@ -89,7 +103,10 @@ export function stopGitBranchPolling(): void {
 }
 
 function getWorkspaceRoot(): string {
-  return document.getElementById('file-tree-root')?.getAttribute('data-root-path') || ''
+  // The file tree only mounts in tree view — fall back to the currently
+  // selected project so agent mode keeps working when the sidebar is on the
+  // project list (or hidden) without a mounted tree.
+  return document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
 }
 
 /** Build enhanced system prompt with workspace context */
@@ -319,54 +336,58 @@ function reindexMessages(messages: ChatMessage[]): ChatMessage[] {
 interface ChatState {
   sessions: ChatSession[]
   activeSessionId: string | null
-  /** Which session is currently generating (agent loop active). Used by the
-   *  sidebar for status icons and by ChatMessages to prevent cross-session
-   *  streaming when the user switches sessions mid-generation. */
-  runningSessionId: string | null
-  isLoading: boolean
-  streamingContent: string
-  streamingThinking: string
-  abortController: AbortController | null
+  /** Sessions currently generating (agent loop active) — one entry per running
+   *  session so multiple conversations can run in parallel. Used by the sidebar
+   *  for status icons and by ChatMessages/ChatInput to scope streaming state
+   *  and the stop button to the session the user is actually viewing. */
+  runningSessionIds: string[]
+  /** Per-session live streaming text (sessionId → { content, thinking }) */
+  streamingBySession: Record<string, { content: string; thinking: string }>
+  /** Per-session AbortController — stopping one conversation must never touch
+   *  another (previously a single global controller: switching sessions made
+   *  the stop button abort the *other* conversation). */
+  abortControllers: Record<string, AbortController>
   undoStack: UndoEntry[]
 
-  // Tool call state
-  pendingApproval: { toolCall: ToolCall; preview: string } | null
+  // Tool call state — scoped to the owning session; dialogs only render for
+  // the session the user is currently viewing
+  pendingApproval: { sessionId: string; toolCall: ToolCall; preview: string } | null
   approveToolCall: () => void
   rejectToolCall: () => void
 
   // Ask-user-question state
-  pendingQuestion: UserQuestion | null
+  pendingQuestion: (UserQuestion & { sessionId: string }) | null
   answerQuestion: (answer: string) => void
 
-  // ── Agent run (transient) state ──────────────────────────────────────
-  /** The currently active (or most recent) agent run across sessions */
-  activeRun: { runId: string; sessionId: string } | null
-  /** Live tool-execution trace of the active run */
-  agentTrace: AgentTraceEntry[]
-  /** True when the current run's remaining tool calls are pre-approved (batch) */
-  batchApproved: boolean
+  // ── Agent run (transient) state — per session (parallel runs) ─────────
+  /** Active (or most recent) agent run per session (sessionId → run ref) */
+  activeRuns: Record<string, { runId: string; sessionId: string }>
+  /** Live tool-execution trace per session */
+  agentTraces: Record<string, AgentTraceEntry[]>
+  /** Per-session batch-approval flag (true = remaining tools auto-approved) */
+  batchApprovedBySession: Record<string, boolean>
   /** Per-project "always allow this tool" allowlist (projectPath → tool names) */
   toolAllowlist: Record<string, string[]>
   /** Pending batch-approval dialog (agent mode: first round with write tools) */
-  batchApproval: { runId: string; tools: ToolCall[] } | null
+  batchApproval: { sessionId: string; runId: string; tools: ToolCall[] } | null
 
   // Agent run actions
   startAgentRun: (sessionId: string, task: string, opts?: { resumeRunId?: string }) => void
   setRunStatus: (runId: string, status: AgentRun['status'], patch?: Partial<AgentRun>) => void
-  appendTrace: (entry: AgentTraceEntry) => void
-  setTraceStatus: (toolCallId: string, status: AgentTraceEntry['status']) => void
+  appendTrace: (sessionId: string, entry: AgentTraceEntry) => void
+  setTraceStatus: (sessionId: string, toolCallId: string, status: AgentTraceEntry['status']) => void
   finishAgentRun: (sessionId: string, runId: string, status: AgentRun['status'], extra?: { error?: string }) => void
-  approveBatchRun: () => void
+  approveBatchRun: (sessionId: string) => void
   decideBatchApproval: (decision: 'confirm' | 'all' | 'reject') => void
   allowToolPermanently: (toolName: string) => void
   loadToolAllowlist: (projectPath: string) => void
   clearToolAllowlist: (projectPath: string) => void
   deleteAgentRun: (sessionId: string, runId: string) => void
 
-  // Queued messages (type while the agent is working)
-  queuedMessages: string[]
-  queueMessage: (content: string) => void
-  clearQueue: () => void
+  // Queued messages (type while the agent is working) — per session
+  queuedMessagesBySession: Record<string, string[]>
+  queueMessage: (sessionId: string, content: string) => void
+  clearQueue: (sessionId: string) => void
 
   // Inbound cross-session messages (send_message tool) awaiting the target
   // session's agent loop; drained in runAgentLoop's finally.
@@ -384,7 +405,7 @@ interface ChatState {
 
   // Session management
   loadSessions: () => Promise<void>
-  createSession: (configGroupId: string) => string
+  createSession: (configGroupId: string, projectPath?: string) => string
   deleteSession: (sessionId: string) => void
   renameSession: (sessionId: string, title: string) => void
   setActiveSession: (sessionId: string) => void
@@ -402,7 +423,7 @@ interface ChatState {
   approvePlan: (sessionId: string) => Promise<void>
   dismissPlan: (sessionId: string) => void
   setTodos: (sessionId: string, todos: TodoItem[]) => void
-  continueGeneration: () => Promise<void>
+  continueGeneration: (sessionId: string) => Promise<void>
 
   // Message operations
   addMessage: (sessionId: string, msg: Partial<ChatMessage>) => void
@@ -415,9 +436,9 @@ interface ChatState {
   clearMessages: (sessionId: string) => void
 
   // Core functionality
-  sendMessage: (content: string, contextFiles?: string[]) => Promise<void>
+  sendMessage: (sessionId: string, content: string, contextFiles?: string[]) => Promise<void>
   regenerateFromMessage: (sessionId: string, msgId: string) => Promise<void>
-  stopGeneration: () => void
+  stopGeneration: (sessionId: string) => void
 
   // Branch operations
   createBranchFromMessage: (sessionId: string, messageId: string) => void
@@ -519,19 +540,20 @@ function formatPlanText(planContent: string): string {
 // Singleton tool executor
 const toolExecutor = new ToolExecutor()
 
-// Pending approval resolve
-let _approvalResolve: ((approved: boolean) => void) | null = null
-// Pending batch-approval resolve (agent mode)
-let _batchResolve: ((decision: 'confirm' | 'all' | 'reject') => void) | null = null
-// Pending ask-user-question resolve
-let _questionResolve: ((answer: string) => void) | null = null
+// Pending approval resolves — keyed by session so parallel conversations can
+// each wait on their own dialog without clobbering each other.
+const _approvalResolves = new Map<string, (approved: boolean) => void>()
+// Pending batch-approval resolves (agent mode)
+const _batchResolves = new Map<string, (decision: 'confirm' | 'all' | 'reject') => void>()
+// Pending ask-user-question resolves
+const _questionResolves = new Map<string, (answer: string) => void>()
 
 // Inbound-delivery guard: reference count of agent-loop chains (re)launched
 // per session by receiveInboundMessage / the finally-drain. Each launch
 // increments before running, each settled chain decrements. Using a count
 // (not a boolean Set) closes the handoff race where a drained loop settles
 // (count-- ) while the next loop it just launched is still mid-startup
-// (runningSessionId not yet set) — a boolean would briefly report "idle" and
+// (running flag not yet set) — a boolean would briefly report "idle" and
 // let a third loop start concurrently.
 const _inboundLaunches = new Map<string, number>()
 
@@ -548,46 +570,45 @@ function markInboundSettled(sessionId: string): void {
 export const useChatStore = create<ChatState>((set, get) => ({
   sessions: [],
   activeSessionId: null,
-  runningSessionId: null,
-  isLoading: false,
-  streamingContent: '',
-  streamingThinking: '',
-  abortController: null,
+  runningSessionIds: [],
+  streamingBySession: {},
+  abortControllers: {},
   undoStack: [],
   pendingApproval: null,
   pendingQuestion: null,
-  queuedMessages: [],
+  queuedMessagesBySession: {},
   inboundQueue: [],
   checkpoints: [],
-  activeRun: null,
-  agentTrace: [],
-  batchApproved: false,
+  activeRuns: {},
+  agentTraces: {},
+  batchApprovedBySession: {},
   toolAllowlist: {},
   batchApproval: null,
   targetModeStatus: null,
 
   approveToolCall: () => {
     const { pendingApproval } = get()
-    if (pendingApproval && _approvalResolve) {
-      _approvalResolve(true)
-      _approvalResolve = null
+    if (pendingApproval) {
+      _approvalResolves.get(pendingApproval.sessionId)?.(true)
+      _approvalResolves.delete(pendingApproval.sessionId)
       set({ pendingApproval: null })
     }
   },
 
   rejectToolCall: () => {
     const { pendingApproval } = get()
-    if (pendingApproval && _approvalResolve) {
-      _approvalResolve(false)
-      _approvalResolve = null
+    if (pendingApproval) {
+      _approvalResolves.get(pendingApproval.sessionId)?.(false)
+      _approvalResolves.delete(pendingApproval.sessionId)
       set({ pendingApproval: null })
     }
   },
 
   answerQuestion: (answer) => {
-    if (_questionResolve) {
-      _questionResolve(answer)
-      _questionResolve = null
+    const { pendingQuestion } = get()
+    if (pendingQuestion) {
+      _questionResolves.get(pendingQuestion.sessionId)?.(answer)
+      _questionResolves.delete(pendingQuestion.sessionId)
     }
     set({ pendingQuestion: null })
   },
@@ -624,15 +645,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return { ...sess, agentRuns: [run, ...existing].slice(0, 20), updatedAt: now }
       }),
     }))
-    if (runId) {
-      set({ activeRun: { runId, sessionId }, agentTrace: [], batchApproved: false })
+    const finalRunId = runId
+    if (finalRunId) {
+      set((s) => ({
+        activeRuns: { ...s.activeRuns, [sessionId]: { runId: finalRunId, sessionId } },
+        agentTraces: { ...s.agentTraces, [sessionId]: [] },
+        batchApprovedBySession: { ...s.batchApprovedBySession, [sessionId]: false },
+      }))
     }
   },
 
   setRunStatus: (runId, status, patch) => {
-    const active = get().activeRun
-    if (!active || active.runId !== runId) return
-    const { sessionId } = active
+    const activeRuns = get().activeRuns
+    const entry = Object.values(activeRuns).find((e) => e.runId === runId)
+    if (!entry) return
+    const { sessionId } = entry
     set((s) => ({
       sessions: s.sessions.map((sess) =>
         sess.id === sessionId && sess.agentRuns
@@ -646,18 +673,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }))
   },
 
-  appendTrace: (entry) => {
-    set((s) => ({ agentTrace: [...s.agentTrace, entry].slice(-200) }))
+  appendTrace: (sessionId, entry) => {
+    set((s) => ({
+      agentTraces: { ...s.agentTraces, [sessionId]: [...(s.agentTraces[sessionId] || []), entry].slice(-200) },
+    }))
   },
 
-  setTraceStatus: (toolCallId, status) => {
+  setTraceStatus: (sessionId, toolCallId, status) => {
     set((s) => ({
-      agentTrace: s.agentTrace.map((t) => (t.toolCallId === toolCallId ? { ...t, status } : t)),
+      agentTraces: {
+        ...s.agentTraces,
+        [sessionId]: (s.agentTraces[sessionId] || []).map((t) => (t.toolCallId === toolCallId ? { ...t, status } : t)),
+      },
     }))
   },
 
   finishAgentRun: (sessionId, runId, status, extra) => {
-    const trace = get().agentTrace
+    const trace = get().agentTraces[sessionId] || []
     const session = get().sessions.find((s) => s.id === sessionId)
     const stepCount = session?.todos?.length || 0
     set((s) => ({
@@ -683,25 +715,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
           : sess
       ),
     }))
-    set({ batchApproved: false })
+    set((s) => ({ batchApprovedBySession: { ...s.batchApprovedBySession, [sessionId]: false } }))
     get().saveSession(sessionId)
   },
 
-  approveBatchRun: () => set({ batchApproved: true, batchApproval: null }),
+  approveBatchRun: (sessionId) => set((s) => ({
+    batchApprovedBySession: { ...s.batchApprovedBySession, [sessionId]: true },
+    batchApproval: s.batchApproval?.sessionId === sessionId ? null : s.batchApproval,
+  })),
 
   decideBatchApproval: (decision) => {
-    if (_batchResolve) {
-      _batchResolve(decision)
-      _batchResolve = null
+    const { batchApproval } = get()
+    if (batchApproval) {
+      _batchResolves.get(batchApproval.sessionId)?.(decision)
+      _batchResolves.delete(batchApproval.sessionId)
     }
     set({ batchApproval: null })
   },
 
   allowToolPermanently: (toolName) => {
-    const active = get().activeRun
+    const activeId = get().activeSessionId
+    // Prefer the running session of the currently viewed conversation, then the
+    // active session itself — the allowlist is scoped to that session's project.
+    const active = activeId ? get().activeRuns[activeId] : undefined
     const session = active
       ? get().sessions.find((s) => s.id === active.sessionId)
-      : get().sessions.find((s) => s.id === get().activeSessionId)
+      : get().sessions.find((s) => s.id === activeId)
     const rootPath = session?.projectPath || getWorkspaceRoot()
     if (!rootPath) return
     const key = TOOL_ALLOWLIST_PREFIX + rootPath
@@ -733,34 +772,52 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   deleteAgentRun: (sessionId, runId) => {
     set((s) => {
-      const clearActive = s.activeRun?.runId === runId
+      const clearActive = s.activeRuns[sessionId]?.runId === runId
+      const activeRuns = { ...s.activeRuns }
+      const agentTraces = { ...s.agentTraces }
+      if (clearActive) {
+        delete activeRuns[sessionId]
+        delete agentTraces[sessionId]
+      }
       return {
         sessions: s.sessions.map((sess) =>
           sess.id === sessionId && sess.agentRuns
             ? { ...sess, agentRuns: sess.agentRuns.filter((r) => r.id !== runId), updatedAt: Date.now() }
             : sess
         ),
-        activeRun: clearActive ? null : s.activeRun,
-        agentTrace: clearActive ? [] : s.agentTrace,
+        activeRuns,
+        agentTraces,
       }
     })
     get().saveSession(sessionId)
   },
 
-  queueMessage: (content) => {
+  queueMessage: (sessionId, content) => {
     const trimmed = content.trim()
-    if (!trimmed) return
-    set((s) => ({ queuedMessages: [...s.queuedMessages, trimmed] }))
+    if (!trimmed || !sessionId) return
+    set((s) => ({
+      queuedMessagesBySession: {
+        ...s.queuedMessagesBySession,
+        [sessionId]: [...(s.queuedMessagesBySession[sessionId] || []), trimmed],
+      },
+    }))
   },
 
-  clearQueue: () => set({ queuedMessages: [] }),
+  clearQueue: (sessionId) => {
+    if (!sessionId) return
+    set((s) => {
+      const next = { ...s.queuedMessagesBySession }
+      delete next[sessionId]
+      return { queuedMessagesBySession: next }
+    })
+  },
 
   receiveInboundMessage: (senderTitle, targetSessionId, message, hold = false) => {
     const chatStore = useChatStore.getState()
     const target = chatStore.sessions.find((s) => s.id === targetSessionId)
     if (!target) return '目标会话不存在。'
     const content = `[来自会话「${senderTitle}」的会话间消息]\n\n${message}`
-    const busy = chatStore.runningSessionId === targetSessionId || (_inboundLaunches.get(targetSessionId) || 0) > 0
+    const busy = chatStore.runningSessionIds.includes(targetSessionId) || (_inboundLaunches.get(targetSessionId) || 0) > 0
     if (busy) {
       set((s) => ({
         inboundQueue: [...s.inboundQueue, { targetSessionId, senderTitle, content, hold }],
@@ -803,19 +860,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (sessions.length > 0 && !get().activeSessionId) {
         const lastId = localStorage.getItem(LAST_SESSION_KEY)
         const restored = sessions.find((s) => s.id === lastId)
-        set({ activeSessionId: restored ? restored.id : sessions[0].id })
+        const target = restored || sessions[0]
+        set({ activeSessionId: target.id })
+        // Sync the provider group (header badge / model pill / status bar) to
+        // the restored session's OWN group — the chat loop always resolves the
+        // model from session.configGroupId, so without this the model display
+        // can show nothing (or the wrong default) right after startup while a
+        // model is actually in use.
+        if (target.configGroupId) {
+          useConfigStore.getState().setActiveConfigGroup(target.configGroupId)
+        }
       }
     } catch (error) {
       console.error('加载会话失败:', error)
     }
   },
 
-  createSession: (configGroupId) => {
+  createSession: (configGroupId, projectPath) => {
     const id = uuidv4()
-    const rootPath = document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
+    // The project binding is captured at creation so the session shows up under
+    // its project in the left sidebar. Callers may pass an explicit project
+    // (e.g. the "新建对话" button on a project list item) — otherwise fall back
+    // to the currently open workspace.
+    const rootPath = projectPath || document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
     const session: ChatSession = {
       id,
-      title: '新对话',
+      title: DEFAULT_SESSION_TITLE,
       configGroupId,
       // Seed with the model the user last picked for this config group, so the
       // choice (e.g. Longcat) carries over to new chats instead of resetting.
@@ -874,10 +944,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (session?.configGroupId) {
       useConfigStore.getState().setActiveConfigGroup(session.configGroupId)
     }
-    // Selecting a conversation also switches the current project to the one
-    // the conversation belongs to (sessions captured their project at creation).
-    if (session?.projectPath && session.projectPath !== useUIStore.getState().rootPath) {
-      useUIStore.getState().enterProject(session.projectPath)
+    // Selecting a conversation also syncs the workspace to the one the
+    // conversation belongs to (sessions captured their project at creation) —
+    // WITHOUT switching the sidebar's project-list ↔ file-tree view. Forcing
+    // the tree view here used to hide the session list the moment a
+    // conversation was opened, which read as "conversations vanished".
+    if (session?.projectPath) {
+      const ui = useUIStore.getState()
+      if (ui.projectListView === 'tree') {
+        ui.enterProject(session.projectPath)
+      } else {
+        ui.setRootPath(session.projectPath)
+      }
     }
     localStorage.setItem(LAST_SESSION_KEY, sessionId)
     set({ activeSessionId: sessionId })
@@ -982,7 +1060,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const planText = formatPlanText(session.planContent)
     const isAgent = session.agentMode === 'agent'
-    const activeRun = get().activeRun
+    const activeRun = get().activeRuns[sessionId]
     await runAgentLoop(sessionId, {
       // Agent-mode sessions keep executing in agent mode; the read-only
       // planning phase is lifted via planApproved. Tool approval follows the
@@ -1014,11 +1092,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().saveSession(sessionId)
   },
 
-  continueGeneration: async () => {
-    const { activeSessionId, isLoading, activeRun } = get()
-    if (!activeSessionId || isLoading) return
-    const resumeRunId = activeRun?.sessionId === activeSessionId ? activeRun.runId : undefined
-    await runAgentLoop(activeSessionId, { resumeRunId })
+  continueGeneration: async (sessionId) => {
+    // One loop per session — refuse to double-start a session that is running
+    if (!sessionId || get().runningSessionIds.includes(sessionId)) return
+    const resumeRunId = get().activeRuns[sessionId]?.runId
+    await runAgentLoop(sessionId, { resumeRunId })
   },
 
   addMessage: (sessionId, msg) => {
@@ -1188,25 +1266,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().saveSession(sessionId)
   },
 
-  sendMessage: async (content, contextFiles = []) => {
-    const { activeSessionId } = get()
-    if (!activeSessionId) return
+  sendMessage: async (sessionId, content, contextFiles = []) => {
+    if (!sessionId) return
+
+    // One agent loop per session: while it is generating, type-ahead messages
+    // queue instead of starting a second loop (ChatInput already queues via
+    // the button state; this guard covers API/plugin callers).
+    if (get().runningSessionIds.includes(sessionId)) {
+      get().queueMessage(sessionId, content)
+      return
+    }
 
     // Add user message
-    get().addMessage(activeSessionId, {
+    get().addMessage(sessionId, {
       role: 'user',
       content,
       contextFiles,
     })
 
-    // Auto-title on first message
-    const session = get().sessions.find((s) => s.id === activeSessionId)
-    if (session && session.messages.length === 1) {
-      const title = content.slice(0, 50) + (content.length > 50 ? '...' : '')
-      get().renameSession(activeSessionId, title)
+    // Auto-title on the first message — and only then: a title the user renamed
+    // (or that was already generated) is never overwritten, and regenerating
+    // the first message must not re-truncate the title.
+    const session = get().sessions.find((s) => s.id === sessionId)
+    if (session && session.messages.length === 1 && (!session.title || session.title === DEFAULT_SESSION_TITLE)) {
+      const autoTitle = generateSessionTitle(content)
+      if (autoTitle) get().renameSession(sessionId, autoTitle)
     }
 
-    await runAgentLoop(activeSessionId)
+    await runAgentLoop(sessionId)
   },
 
   regenerateFromMessage: async (sessionId, msgId) => {
@@ -1244,24 +1331,38 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }))
 
     if (userMsg) {
-      await get().sendMessage(userMsg.content, userMsg.contextFiles)
+      await get().sendMessage(sessionId, userMsg.content, userMsg.contextFiles)
     }
   },
 
-  stopGeneration: () => {
-    get().abortController?.abort()
-    // If the agent is blocked on an ask_user_question, aborting would leave the
-    // loop hanging forever — resolve the question so the loop can unwind.
-    if (_questionResolve) {
-      _questionResolve('（生成已停止，用户取消了提问）')
-      _questionResolve = null
+  stopGeneration: (sessionId) => {
+    // Stop ONLY the given session's generation — parallel conversations must
+    // never be stopped by acting on a different session's button.
+    get().abortControllers[sessionId]?.abort()
+    // If the agent is blocked on a dialog for this session, resolve it so the
+    // loop can unwind (each session has its own resolve slot).
+    if (_questionResolves.has(sessionId)) {
+      _questionResolves.get(sessionId)!('（生成已停止，用户取消了提问）')
+      _questionResolves.delete(sessionId)
     }
-    // Same for a pending batch-approval dialog — reject the batch so the loop unwinds.
-    if (_batchResolve) {
-      _batchResolve('reject')
-      _batchResolve = null
+    if (_batchResolves.has(sessionId)) {
+      _batchResolves.get(sessionId)!('reject')
+      _batchResolves.delete(sessionId)
     }
-    set({ pendingQuestion: null, batchApproval: null })
+    if (_approvalResolves.has(sessionId)) {
+      _approvalResolves.get(sessionId)!(false)
+      _approvalResolves.delete(sessionId)
+    }
+    set((s) => {
+      const abortControllers = { ...s.abortControllers }
+      delete abortControllers[sessionId]
+      return {
+        abortControllers,
+        pendingQuestion: s.pendingQuestion?.sessionId === sessionId ? null : s.pendingQuestion,
+        batchApproval: s.batchApproval?.sessionId === sessionId ? null : s.batchApproval,
+        pendingApproval: s.pendingApproval?.sessionId === sessionId ? null : s.pendingApproval,
+      }
+    })
   },
 
   // Branch: create a new branch from a specific message
@@ -1515,17 +1616,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       sessions: [],
       activeSessionId: null,
-      isLoading: false,
-      streamingContent: '',
+      runningSessionIds: [],
+      streamingBySession: {},
+      abortControllers: {},
       pendingApproval: null,
       pendingQuestion: null,
-      queuedMessages: [],
+      queuedMessagesBySession: {},
       inboundQueue: [],
       checkpoints: [],
       undoStack: [],
-      activeRun: null,
-      agentTrace: [],
-      batchApproved: false,
+      activeRuns: {},
+      agentTraces: {},
+      batchApprovedBySession: {},
       toolAllowlist: {},
       batchApproval: null,
     })
@@ -1614,9 +1716,29 @@ async function runAgentLoop(
     }
   }
 
-  // Refresh dynamic tools (MCP servers + workspace skills) before building the tool list
-  await toolExecutor.refreshMcpTools()
-  await toolExecutor.refreshSkillTools()
+  // ── Mark the session as running SYNCHRONOUSLY ──
+  // All validations above are sync; from here on everything is wrapped in
+  // try/finally. Marking before the first await closes the double-send race
+  // (a second sendMessage for the same session queues instead of starting a
+  // second loop), and the finally always cleans this up.
+  const set = useChatStore.setState.bind(useChatStore)
+  set((s) => ({
+    runningSessionIds: s.runningSessionIds.includes(sessionId)
+      ? s.runningSessionIds
+      : [...s.runningSessionIds, sessionId],
+    streamingBySession: { ...s.streamingBySession, [sessionId]: { content: '', thinking: '' } },
+  }))
+
+  const abortController = new AbortController()
+  set((s) => ({ abortControllers: { ...s.abortControllers, [sessionId]: abortController } }))
+
+  let runId: string | undefined
+  const usageEvents: UsageEvent[] = []
+
+  try {
+    // Refresh dynamic tools (MCP servers + workspace skills) before building the tool list
+    await toolExecutor.refreshMcpTools()
+    await toolExecutor.refreshSkillTools()
 
   // Build the system prompt with memories / rules / skills / retrieved context
   const lastUserMessage = [...session.messages].reverse().find((m) => m.role === 'user')
@@ -1706,7 +1828,6 @@ async function runAgentLoop(
   const projectPath = session.projectPath || getWorkspaceRoot()
   // Attribute tool usage (MCP / skills / subagents) to this session
   toolExecutor.setSessionContext(sessionId, projectPath)
-  let runId: string | undefined
   if (agentMode === 'agent') {
     const st = useChatStore.getState()
     st.loadToolAllowlist(projectPath)
@@ -1715,8 +1836,10 @@ async function runAgentLoop(
     })
     // Target mode: the agent runs autonomously — all tool calls for this run
     // are auto-approved (supersedes the removed per-run "auto-run" toggle).
-    if (targetMode) useChatStore.setState({ batchApproved: true })
-    runId = useChatStore.getState().activeRun?.runId
+    if (targetMode) useChatStore.setState((s) => ({
+      batchApprovedBySession: { ...s.batchApprovedBySession, [sessionId]: true },
+    }))
+    runId = useChatStore.getState().activeRuns[sessionId]?.runId
   }
 
   // Whether a tool needs manual approval in this run. Order of exemptions:
@@ -1728,24 +1851,15 @@ async function runAgentLoop(
       if (projectEditMode === 'full_access') needs = false
       else if (projectEditMode === 'auto_edit' && FILE_EDIT_TOOLS.has(name)) needs = false
     }
-    if (needs && useChatStore.getState().batchApproved) needs = false
+    if (needs && useChatStore.getState().batchApprovedBySession[sessionId]) needs = false
     if (needs && (useChatStore.getState().toolAllowlist[projectPath] || []).includes(name)) needs = false
     return needs
   }
 
-  const set = useChatStore.setState.bind(useChatStore)
-  set({ isLoading: true, streamingContent: '', streamingThinking: '', runningSessionId: sessionId })
+  const model = session.model || configGroup.defaultModel
+  let iterationsLeft = MAX_AGENT_ITERATIONS
 
-  const abortController = new AbortController()
-  set({ abortController })
-
-  const usageEvents: UsageEvent[] = []
-
-  try {
-    const model = session.model || configGroup.defaultModel
-    let iterationsLeft = MAX_AGENT_ITERATIONS
-
-    while (iterationsLeft-- > 0) {
+  while (iterationsLeft-- > 0) {
       if (abortController.signal.aborted) break
       const req = {
         model,
@@ -1780,12 +1894,22 @@ async function runAgentLoop(
 
           if (chunk.thinking) {
             fullThinking += chunk.thinking
-            set({ streamingThinking: fullThinking })
+            set((s) => ({
+              streamingBySession: {
+                ...s.streamingBySession,
+                [sessionId]: { ...s.streamingBySession[sessionId], thinking: fullThinking },
+              },
+            }))
           }
 
           if (chunk.content) {
             fullContent += chunk.content
-            set({ streamingContent: fullContent })
+            set((s) => ({
+              streamingBySession: {
+                ...s.streamingBySession,
+                [sessionId]: { ...s.streamingBySession[sessionId], content: fullContent },
+              },
+            }))
           }
 
           if (chunk.toolCalls) {
@@ -1857,8 +1981,10 @@ async function runAgentLoop(
         toolCallId: undefined,
       })
 
-      // The message id of the just-added assistant message (used for checkpoints)
-      const assistantMsgId = chatStore.getActiveSession()?.messages.slice(-1)[0]?.id || ''
+      // The message id of the just-added assistant message (used for checkpoints).
+      // Read from THIS session — with parallel conversations getActiveSession()
+      // may point at a different session the user switched to.
+      const assistantMsgId = useChatStore.getState().sessions.find((x) => x.id === sessionId)?.messages.slice(-1)[0]?.id || ''
 
       let planSubmitted = false
 
@@ -1867,25 +1993,27 @@ async function runAgentLoop(
       // sets batchApproved for the rest of this run; "全部拒绝" marks this
       // round's tools as rejected; "逐个确认" falls through to per-tool dialogs.
       let batchRejectedIds = new Set<string>()
-      if (agentMode === 'agent' && !useChatStore.getState().batchApproved) {
+      if (agentMode === 'agent' && !useChatStore.getState().batchApprovedBySession[sessionId]) {
         const batchTools = parsedToolCalls.filter((tc) => needsApproval(tc.name))
         if (batchTools.length > 0) {
           const decision = await new Promise<'confirm' | 'all' | 'reject'>((resolve) => {
-            if (_batchResolve) { _batchResolve('reject'); _batchResolve = null }
-            _batchResolve = resolve
-            useChatStore.setState({ batchApproval: { runId: runId || '', tools: batchTools } })
+            if (_batchResolves.has(sessionId)) { _batchResolves.get(sessionId)!('reject'); _batchResolves.delete(sessionId) }
+            _batchResolves.set(sessionId, resolve)
+            useChatStore.setState({ batchApproval: { sessionId, runId: runId || '', tools: batchTools } })
             // Auto-reject if the user never responds (60s), so the agent loop
             // doesn't hang forever on a dangling batch dialog
             setTimeout(() => {
-              if (_batchResolve === resolve) {
-                _batchResolve = null
+              if (_batchResolves.get(sessionId) === resolve) {
+                _batchResolves.delete(sessionId)
                 resolve('reject')
               }
             }, 60000)
           })
-          useChatStore.setState({ batchApproval: null })
+          useChatStore.setState((s) => ({
+            batchApproval: s.batchApproval?.sessionId === sessionId ? null : s.batchApproval,
+          }))
           if (decision === 'all') {
-            useChatStore.getState().approveBatchRun()
+            useChatStore.getState().approveBatchRun(sessionId)
           } else if (decision === 'reject') {
             batchRejectedIds = new Set(batchTools.map((t) => t.id))
           }
@@ -1902,7 +2030,7 @@ async function runAgentLoop(
       const deferredSubagents: Array<{ tc: ToolCall; promise: Promise<ToolResult> }> = []
 
       const finalizeToolResult = (tc: ToolCall, result: ToolResult): void => {
-        useChatStore.getState().setTraceStatus(tc.id, result.isError ? 'error' : 'success')
+        useChatStore.getState().setTraceStatus(sessionId, tc.id, result.isError ? 'error' : 'success')
         // Append result inline to the assistant message (no separate tool message)
         chatStore.appendToolResult(sessionId, assistantMsgId, result)
         messages.push({
@@ -1921,7 +2049,7 @@ async function runAgentLoop(
         if (abortController.signal.aborted) break
 
         // Live execution trace entry (AgentRunPanel)
-        useChatStore.getState().appendTrace({
+        useChatStore.getState().appendTrace(sessionId, {
           id: uuidv4(),
           toolCallId: tc.id,
           name: tc.name,
@@ -1943,7 +2071,7 @@ async function runAgentLoop(
           const result = `任务列表已更新 (${todos.length} 项)`
           chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
           messages.push({ role: 'tool', content: result, toolCallId: tc.id })
-          useChatStore.getState().setTraceStatus(tc.id, 'success')
+          useChatStore.getState().setTraceStatus(sessionId, tc.id, 'success')
           continue
         }
 
@@ -1962,7 +2090,7 @@ async function runAgentLoop(
           }))
           if (runId) {
             useChatStore.getState().setRunStatus(runId, 'waiting_plan', { plan: JSON.stringify(plan) })
-            useChatStore.getState().setTraceStatus(tc.id, 'success')
+            useChatStore.getState().setTraceStatus(sessionId, tc.id, 'success')
           }
           const result = '计划已提交，等待用户批准。'
           chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
@@ -1974,10 +2102,11 @@ async function runAgentLoop(
         // ── ask_user_question: prompt the user, feed the answer back ──
         if (tc.name === 'ask_user_question') {
           const answer = await new Promise<string>((resolve) => {
-            if (_questionResolve) { _questionResolve('（用户取消了上一次提问）'); _questionResolve = null }
-            _questionResolve = resolve
+            if (_questionResolves.has(sessionId)) { _questionResolves.get(sessionId)!('（用户取消了上一次提问）'); _questionResolves.delete(sessionId) }
+            _questionResolves.set(sessionId, resolve)
             useChatStore.setState({
               pendingQuestion: {
+                sessionId,
                 id: tc.id,
                 question: String(tc.arguments.question || '请确认'),
                 options: Array.isArray(tc.arguments.options) ? tc.arguments.options.map(String) : undefined,
@@ -1987,7 +2116,7 @@ async function runAgentLoop(
           const result = `用户回答: ${answer}`
           chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
           messages.push({ role: 'tool', content: result, toolCallId: tc.id })
-          useChatStore.getState().setTraceStatus(tc.id, 'success')
+          useChatStore.getState().setTraceStatus(sessionId, tc.id, 'success')
           continue
         }
 
@@ -2001,7 +2130,7 @@ async function runAgentLoop(
           }
           chatStore.appendToolResult(sessionId, assistantMsgId, result)
           messages.push({ role: 'tool', content: result.result, toolCallId: tc.id })
-          useChatStore.getState().setTraceStatus(tc.id, 'rejected')
+          useChatStore.getState().setTraceStatus(sessionId, tc.id, 'rejected')
           continue
         }
 
@@ -2014,28 +2143,29 @@ async function runAgentLoop(
         // are all folded into the needsApproval() helper defined above.
         if (needsApproval(tc.name)) {
           const preview = toolExecutor.getPreview(tc)
-          useChatStore.setState({ pendingApproval: { toolCall: tc, preview } })
+          useChatStore.setState({ pendingApproval: { sessionId, toolCall: tc, preview } })
 
-          // Reject any previous pending approval to prevent dangling promises
-          if (_approvalResolve) {
-            _approvalResolve(false)
-            _approvalResolve = null
+          // Reject any previous pending approval for this session to prevent
+          // dangling promises (each session waits on its own resolve slot)
+          if (_approvalResolves.has(sessionId)) {
+            _approvalResolves.get(sessionId)!(false)
+            _approvalResolves.delete(sessionId)
           }
 
           const approved = await new Promise<boolean>((resolve) => {
-            _approvalResolve = resolve
+            _approvalResolves.set(sessionId, resolve)
             // Auto-reject if the user never responds (60s), so the agent loop
             // doesn't hang forever on a dangling approval dialog
             setTimeout(() => {
-              if (_approvalResolve === resolve) {
-                _approvalResolve = null
+              if (_approvalResolves.get(sessionId) === resolve) {
+                _approvalResolves.delete(sessionId)
                 resolve(false)
               }
             }, 60000)
           })
 
           if (!approved) {
-            useChatStore.getState().setTraceStatus(tc.id, 'rejected')
+            useChatStore.getState().setTraceStatus(sessionId, tc.id, 'rejected')
             const result: ToolResult = {
               toolCallId: tc.id,
               name: tc.name,
@@ -2053,11 +2183,15 @@ async function runAgentLoop(
           }
         }
 
-        // Execute the tool — run_subagent calls are deferred for parallel execution
+        // Execute the tool — run_subagent calls are deferred for parallel execution.
+        // The explicit per-call session context keeps usage attribution correct
+        // when multiple sessions run agent loops at the same time (the executor's
+        // single setSessionContext slot is shared).
+        const runContext = { sessionId, projectPath }
         if (tc.name === 'run_subagent') {
           deferredSubagents.push({
             tc,
-            promise: toolExecutor.execute(tc).catch((error: any) => ({
+            promise: toolExecutor.execute(tc, runContext).catch((error: any) => ({
               toolCallId: tc.id,
               name: tc.name,
               result: `Error: ${error?.message || String(error)}`,
@@ -2067,7 +2201,7 @@ async function runAgentLoop(
           continue
         }
 
-        const result = await toolExecutor.execute(tc)
+        const result = await toolExecutor.execute(tc, runContext)
         finalizeToolResult(tc, result)
       }
 
@@ -2098,7 +2232,9 @@ async function runAgentLoop(
       if (planSubmitted) break
 
       // Reset streaming state for next iteration
-      set({ streamingContent: '', streamingThinking: '' })
+      set((s) => ({
+        streamingBySession: { ...s.streamingBySession, [sessionId]: { content: '', thinking: '' } },
+      }))
     }
 
     // Agent loop exhausted without finishing (last iteration still had tool calls).
@@ -2111,18 +2247,19 @@ async function runAgentLoop(
       // Target mode keeps the agent going after rounds are exhausted — it only
       // stops when the user judges the goal done (or queues their own message,
       // whose intent wins over resuming the old trajectory).
-      const queuedPending = useChatStore.getState().queuedMessages.length > 0
+      const queuedPending = (useChatStore.getState().queuedMessagesBySession[sessionId] || []).length > 0
       if (targetMode && !queuedPending) {
-        setTimeout(() => { useChatStore.getState().continueGeneration() }, 150)
+        setTimeout(() => { useChatStore.getState().continueGeneration(sessionId) }, 150)
       }
     }
   } catch (error: any) {
+    const stream = useChatStore.getState().streamingBySession[sessionId]
     if (error.name === 'AbortError') {
-      if (useChatStore.getState().streamingContent) {
+      if (stream?.content) {
         chatStore.addMessage(sessionId, {
           role: 'assistant',
-          content: useChatStore.getState().streamingContent + '\n\n[生成已停止]',
-          thinking: useChatStore.getState().streamingThinking || undefined,
+          content: stream.content + '\n\n[生成已停止]',
+          thinking: stream.thinking || undefined,
         })
       }
     } else {
@@ -2149,26 +2286,44 @@ async function runAgentLoop(
           : 'done'
       useChatStore.getState().finishAgentRun(sessionId, runId, finalStatus)
     }
-    set({ isLoading: false, streamingContent: '', streamingThinking: '', abortController: null, pendingApproval: null, batchApproved: false, batchApproval: null })
-    // Only clear runningSessionId if we're still the active runner —
-    // another session may have started generating before this finally ran.
-    if (useChatStore.getState().runningSessionId === sessionId) {
-      set({ runningSessionId: null })
-    }
-    _approvalResolve = null
-    _batchResolve = null
-    _questionResolve = null
+    // Clear ONLY this session's run state — parallel conversations keep their
+    // own running flags / controllers / dialogs untouched.
+    set((s) => {
+      const runningSessionIds = s.runningSessionIds.filter((id) => id !== sessionId)
+      const streamingBySession = { ...s.streamingBySession }
+      delete streamingBySession[sessionId]
+      const abortControllers = { ...s.abortControllers }
+      delete abortControllers[sessionId]
+      const batchApprovedBySession = { ...s.batchApprovedBySession }
+      delete batchApprovedBySession[sessionId]
+      return {
+        runningSessionIds,
+        streamingBySession,
+        abortControllers,
+        batchApprovedBySession,
+        pendingApproval: s.pendingApproval?.sessionId === sessionId ? null : s.pendingApproval,
+        pendingQuestion: s.pendingQuestion?.sessionId === sessionId ? null : s.pendingQuestion,
+        batchApproval: s.batchApproval?.sessionId === sessionId ? null : s.batchApproval,
+      }
+    })
+    _approvalResolves.delete(sessionId)
+    _batchResolves.delete(sessionId)
+    _questionResolves.delete(sessionId)
     chatStore.saveSession(sessionId)
 
     // Persist this run's token/timing events into the usage dashboard
     flushUsageEvents(usageEvents)
 
-    // Process queued messages (type-ahead while the agent was working)
-    const queued = useChatStore.getState().queuedMessages
+    // Process queued messages (type-ahead while the agent was working) — the
+    // queue is per session, so a queue drain can never send into the session
+    // the user switched to meanwhile.
+    const queued = useChatStore.getState().queuedMessagesBySession[sessionId] || []
     if (queued.length > 0) {
       const next = queued[0]
-      useChatStore.setState({ queuedMessages: queued.slice(1) })
-      setTimeout(() => { useChatStore.getState().sendMessage(next) }, 50)
+      useChatStore.setState((s) => ({
+        queuedMessagesBySession: { ...s.queuedMessagesBySession, [sessionId]: queued.slice(1) },
+      }))
+      setTimeout(() => { useChatStore.getState().sendMessage(sessionId, next) }, 50)
     }
 
     // Deliver inbound cross-session messages (send_message from other sessions)

@@ -11,6 +11,7 @@
  */
 import type { ToolDefinition } from '@/services/tools/types'
 import { isSkillEnabled } from '@/services/skills/skillRegistry'
+import { useUIStore } from '@/stores/uiStore'
 
 export interface SkillInfo {
   name: string
@@ -24,9 +25,10 @@ export interface SkillInfo {
 
 const SKILL_DIRS = ['.claude/skills', '.ourcode/skills', 'skills']
 
-/** Renderer-side workspace root (the file tree's data attribute) */
+/** Renderer-side workspace root (the file tree's data attribute, falling back
+ *  to the selected project — the tree only mounts in tree view) */
 export function getWorkspaceRoot(): string {
-  return document.getElementById('file-tree-root')?.getAttribute('data-root-path') || ''
+  return document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
 }
 
 function joinPath(dir: string, name: string): string {

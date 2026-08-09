@@ -7,6 +7,12 @@ import { createToolRegistry, toToolDefinitions } from './ToolRegistry'
 import { toSkillToolDefinitions, loadSkillContent, getWorkspaceRoot } from '@/services/skills/skillManager'
 import type { UsageEvent, UsageEventCategory } from '@/types'
 
+/** Execution context for one tool call (falls back to the shared session context) */
+export interface ToolExecuteContext {
+  sessionId?: string
+  projectPath?: string
+}
+
 export class ToolExecutor {
   private tools: Tool[]
   private toolMap: Map<string, Tool>
@@ -77,14 +83,20 @@ export class ToolExecutor {
   }
 
   /** Persist one usage event (skills / subagents / MCP) into the dashboard */
-  private recordUsage(category: UsageEventCategory, name: string, startedAt: number, opts: { sub?: string; ok: boolean; error?: string }): void {
+  private recordUsage(
+    category: UsageEventCategory,
+    name: string,
+    startedAt: number,
+    opts: { sub?: string; ok: boolean; error?: string; context?: { sessionId?: string; projectPath?: string } },
+  ): void {
+    const ctx = opts.context || this.sessionContext || {}
     const event: UsageEvent = {
       id: uuidv4(),
       category,
       name,
       sub: opts.sub,
-      sessionId: this.sessionContext?.sessionId,
-      projectPath: this.sessionContext?.projectPath,
+      sessionId: ctx.sessionId,
+      projectPath: ctx.projectPath,
       startedAt,
       durationMs: Date.now() - startedAt,
       ok: opts.ok,
@@ -94,8 +106,11 @@ export class ToolExecutor {
     window.dispatchEvent(new CustomEvent('ourcode:usage-recorded'))
   }
 
-  /** Execute a tool call */
-  async execute(toolCall: ToolCall): Promise<ToolResult> {
+  /** Execute a tool call. `context` attributes usage to a specific session —
+   *  with parallel agent loops the shared setSessionContext slot is racy, so
+   *  the agent loop passes the per-call context explicitly. */
+  async execute(toolCall: ToolCall, context?: ToolExecuteContext): Promise<ToolResult> {
+    const ctx = context || this.sessionContext || {}
     // Skill dynamic tool: skill__<name> — loads the skill's instructions
     if (toolCall.name.startsWith('skill__')) {
       const skillName = toolCall.name.slice('skill__'.length)
@@ -103,13 +118,13 @@ export class ToolExecutor {
       try {
         const content = await loadSkillContent(skillName, getWorkspaceRoot())
         if (content == null) {
-          this.recordUsage('skill', skillName, startedAt, { ok: false, error: '技能不存在' })
+          this.recordUsage('skill', skillName, startedAt, { ok: false, error: '技能不存在', context: ctx })
           return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: 技能 "${skillName}" 不存在`, isError: true }
         }
-        this.recordUsage('skill', skillName, startedAt, { ok: true })
+        this.recordUsage('skill', skillName, startedAt, { ok: true, context: ctx })
         return { toolCallId: toolCall.id, name: toolCall.name, result: content }
       } catch (error: any) {
-        this.recordUsage('skill', skillName, startedAt, { ok: false, error: error.message })
+        this.recordUsage('skill', skillName, startedAt, { ok: false, error: error.message, context: ctx })
         return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: ${error.message}`, isError: true }
       }
     }
@@ -127,13 +142,13 @@ export class ToolExecutor {
       try {
         const res = await window.electronAPI.mcpCallTool(server, toolName, toolCall.arguments || {})
         if (res.ok) {
-          this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: true })
+          this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: true, context: ctx })
           return { toolCallId: toolCall.id, name: toolCall.name, result: res.result || '(空结果)' }
         }
-        this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: false, error: res.error })
+        this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: false, error: res.error, context: ctx })
         return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: ${res.error}`, isError: true }
       } catch (error: any) {
-        this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: false, error: error.message })
+        this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: false, error: error.message, context: ctx })
         return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: ${error.message}`, isError: true }
       }
     }
@@ -150,8 +165,8 @@ export class ToolExecutor {
 
     try {
       const result = await tool.execute(toolCall.arguments, {
-        sessionId: this.sessionContext?.sessionId,
-        projectPath: this.sessionContext?.projectPath,
+        sessionId: ctx.sessionId,
+        projectPath: ctx.projectPath,
       })
       return {
         toolCallId: toolCall.id,

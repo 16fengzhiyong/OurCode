@@ -38,11 +38,14 @@ export default function ProblemsPanel() {
       }
     }
     const label = t(SEVERITY_LABEL_KEY[target.severity])
-    chatStore.sendMessage(
-      `（解释并修复）文件 ${target.filePath} 第 ${target.line} 行有${label}:\n\n` +
-      `> ${target.message}\n\n` +
-      `请解释原因并给出修复方案。如果有修复后的代码，请用代码块输出。`
-    )
+    if (chatStore.activeSessionId) {
+      chatStore.sendMessage(
+        chatStore.activeSessionId,
+        `（解释并修复）文件 ${target.filePath} 第 ${target.line} 行有${label}:\n\n` +
+        `> ${target.message}\n\n` +
+        `请解释原因并给出修复方案。如果有修复后的代码，请用代码块输出。`
+      )
+    }
     useUIStore.getState().toggleChat()
   }
 

@@ -1,8 +1,10 @@
 import { useState, useMemo } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
+import { useConfigStore } from '@/stores/configStore'
 import FileTree from './FileTree'
 import projectLogo from '@/assets/ourcode-logo.png'
+import { useI18n } from '@/i18n/useI18n'
 
 /** Color palette for project icons */
 const PROJECT_COLORS = [
@@ -34,6 +36,8 @@ export default function ProjectListPanel() {
   } = useUIStore()
   const sessions = useChatStore((s) => s.sessions)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
+  const createSession = useChatStore((s) => s.createSession)
+  const t = useI18n()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [showMoreSessions, setShowMoreSessions] = useState<Set<string>>(new Set())
@@ -107,6 +111,18 @@ export default function ProjectListPanel() {
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
+  // Sessions created without a project binding (no folder was open at creation
+  // time). They used to be invisible here — "conversations got lost" — so they
+  // get their own group at the bottom of the list instead.
+  const orphanSessions = useMemo(() => {
+    let list = sessions.filter((s) => !s.projectPath)
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      list = list.filter((s) => s.title.toLowerCase().includes(q))
+    }
+    return list.sort((a, b) => b.updatedAt - a.updatedAt)
+  }, [sessions, searchQuery])
+
   const handleOpenFolder = async () => {
     const path = await window.electronAPI.openFolder()
     if (path) {
@@ -118,6 +134,20 @@ export default function ProjectListPanel() {
   const handleEnterProject = (projectPath: string) => {
     setRootPath(projectPath)
     enterProject(projectPath)
+  }
+
+  /** "新建对话" on a project list item: the new conversation is bound to that
+   *  project and becomes active, the workspace syncs to it — but the sidebar
+   *  STAYS on the project list (the conversation list must not vanish). */
+  const handleNewSessionForProject = (projectPath: string) => {
+    const configId = useConfigStore.getState().activeConfigGroupId
+    if (!configId) {
+      useUIStore.getState().openSettings()
+      return
+    }
+    createSession(configId, projectPath)
+    setRootPath(projectPath)
+    if (!useUIStore.getState().isChatVisible) useUIStore.getState().toggleChat()
   }
 
   const handleSessionClick = (sessionId: string) => {
@@ -192,7 +222,7 @@ export default function ProjectListPanel() {
             <div key={project.path}>
               {/* Project item — click enters file tree */}
               <div
-                className={`flex items-center gap-2.5 px-3 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-all border ${
+                className={`group flex items-center gap-2.5 px-3 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-all border ${
                   isCurrent
                     ? 'bg-nova-accent/10 border-nova-accent/40'
                     : 'border-transparent hover:bg-nova-hover hover:border-nova-border'
@@ -212,6 +242,20 @@ export default function ProjectListPanel() {
                     {project.path}
                   </div>
                 </div>
+                {/* 新建对话 — the right-panel new-chat button now lives on each
+                    project item (hover reveals it) */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleNewSessionForProject(project.path)
+                  }}
+                  className="p-1 rounded text-nova-text-muted hover:text-nova-accent hover:bg-nova-accent/10 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                  title={t('chat.newChat')}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
                 {isCurrent ? (
                   <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-nova-accent/15 text-nova-accent shrink-0">
                     当前
@@ -269,6 +313,31 @@ export default function ProjectListPanel() {
             </div>
           )
         })}
+
+        {/* Sessions without a project binding — keep them visible so history
+            never "disappears" from the left panel */}
+        {orphanSessions.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-nova-border mx-1.5">
+            <div className="px-2 pb-1 text-[10px] font-medium text-nova-text-muted uppercase tracking-wider">
+              {t('chat.orphanSessions')} ({orphanSessions.length})
+            </div>
+            {orphanSessions.map((session) => (
+              <div
+                key={session.id}
+                className="flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded cursor-pointer hover:bg-nova-hover transition-colors text-[11px]"
+                onClick={() => handleSessionClick(session.id)}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-nova-text-muted/50 shrink-0" />
+                <span className="flex-1 truncate text-nova-text-secondary">
+                  {session.title}
+                </span>
+                <span className="text-[9px] text-nova-text-muted shrink-0">
+                  {formatTime(session.updatedAt)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

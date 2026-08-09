@@ -60,7 +60,7 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
   const session = useChatStore((s) => s.sessions.find((x) => x.id === sessionId))
   const approvePlan = useChatStore((s) => s.approvePlan)
   const dismissPlan = useChatStore((s) => s.dismissPlan)
-  const isLoading = useChatStore((s) => s.isLoading)
+  const isRunning = useChatStore((s) => s.runningSessionIds.includes(sessionId))
   const t = useI18n()
 
   if (!session || session.planStatus !== 'pending_approval' || !session.planContent) return null
@@ -101,7 +101,7 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
         <div className="flex items-center gap-2 mt-3">
           <button
             onClick={() => approvePlan(sessionId)}
-            disabled={isLoading}
+            disabled={isRunning}
             className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-40 hover:opacity-90 transition-opacity"
             style={{ background: 'var(--grad-brand)' }}
           >

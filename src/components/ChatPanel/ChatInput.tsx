@@ -82,7 +82,12 @@ export default function ChatInput() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileSearchRef = useRef<HTMLDivElement>(null)
 
-  const { sendMessage, isLoading, stopGeneration, queueMessage } = useChatStore()
+  const { sendMessage, stopGeneration, queueMessage } = useChatStore()
+  // Loading/stop state is per session: while THIS conversation generates the
+  // send button turns into stop; other conversations running in parallel keep
+  // their own buttons (and stopping here must never abort them).
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const isThisSessionLoading = useChatStore((s) => !!s.activeSessionId && s.runningSessionIds.includes(s.activeSessionId))
   const targetMode = useChatStore((s) => {
     const sess = s.sessions.find((x) => x.id === s.activeSessionId)
     return sess?.targetMode === true
@@ -297,9 +302,10 @@ export default function ChatInput() {
       ? `（Vibe 替换）请按我的要求改写下面的代码，直接输出替换后的完整新代码（单个代码块，不要解释）：\n\n要求: ${input.trim()}\n\n--- 当前选中代码 (${vibe.filePath}) ---\n\`\`\`${vibe.language}\n${vibe.text}\n\`\`\``
       : input.trim()
 
-    // While the agent is working, Enter queues the message (type-ahead)
-    if (isLoading) {
-      queueMessage(content)
+    // While the agent is working, Enter queues the message (type-ahead) —
+    // scoped to the active session, so parallel conversations are unaffected.
+    if (isThisSessionLoading && activeSessionId) {
+      queueMessage(activeSessionId, content)
       setInput('')
       setContextFiles([])
       setQueuedHint(true)
@@ -310,7 +316,9 @@ export default function ChatInput() {
     setInput('')
     setContextFiles([])
 
-    await sendMessage(content, contextFiles)
+    if (activeSessionId) {
+      await sendMessage(activeSessionId, content, contextFiles)
+    }
   }
 
   // Apply markdown formatting to selected text
@@ -561,9 +569,9 @@ export default function ChatInput() {
                   <line x1="8" y1="23" x2="16" y2="23" />
                 </svg>
               </button>
-              {isLoading ? (
+              {isThisSessionLoading ? (
                 <button
-                  onClick={stopGeneration}
+                  onClick={() => activeSessionId && stopGeneration(activeSessionId)}
                   className="px-3.5 py-1.5 text-xs text-white font-medium rounded-lg transition-colors"
                   style={{ background: 'rgba(244,135,113,0.85)' }}
                 >

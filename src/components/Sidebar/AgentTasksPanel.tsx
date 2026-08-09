@@ -43,7 +43,7 @@ function formatElapsed(run: AgentRun, t: (key: TranslationKey, vars?: Record<str
 
 export default function AgentTasksPanel() {
   const sessions = useChatStore((s) => s.sessions)
-  const activeRun = useChatStore((s) => s.activeRun)
+  const activeRuns = useChatStore((s) => s.activeRuns)
   const stopGeneration = useChatStore((s) => s.stopGeneration)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
   const deleteAgentRun = useChatStore((s) => s.deleteAgentRun)
@@ -52,23 +52,29 @@ export default function AgentTasksPanel() {
   const rootPath = useUIStore((s) => s.rootPath)
   const t = useI18n()
 
-  const currentRun = useMemo(() => {
-    if (!activeRun) return null
-    const session = sessions.find((s) => s.id === activeRun.sessionId)
-    const run = session?.agentRuns?.find((r) => r.id === activeRun.runId)
-    return run ? { session, run } : null
-  }, [activeRun, sessions])
+  // With parallel conversations several runs can be live at once — list them all
+  const currentRuns = useMemo(() => {
+    const items: Array<{ session: (typeof sessions)[number]; run: AgentRun }> = []
+    for (const active of Object.values(activeRuns)) {
+      const session = sessions.find((s) => s.id === active.sessionId)
+      const run = session?.agentRuns?.find((r) => r.id === active.runId)
+      if (session && run) items.push({ session, run })
+    }
+    return items
+  }, [activeRuns, sessions])
+
+  const activeRunIds = useMemo(() => new Set(Object.values(activeRuns).map((a) => a.runId)), [activeRuns])
 
   const history = useMemo(() => {
     const items: Array<{ session: (typeof sessions)[number]; run: AgentRun }> = []
     for (const session of sessions) {
       for (const run of session.agentRuns || []) {
-        if (run.id === activeRun?.runId) continue
+        if (activeRunIds.has(run.id)) continue
         items.push({ session, run })
       }
     }
     return items.sort((a, b) => b.run.startedAt - a.run.startedAt).slice(0, 50)
-  }, [sessions, activeRun])
+  }, [sessions, activeRunIds])
 
   const openSession = (sessionId: string) => {
     setActiveSession(sessionId)
@@ -81,21 +87,26 @@ export default function AgentTasksPanel() {
   return (
     <div className="h-full flex flex-col overflow-y-auto">
       <div className="p-3 space-y-4">
-        {/* Current run */}
+        {/* Current run(s) — parallel conversations each show their live run */}
         <section>
           <div className="text-[11px] font-medium text-nova-text-muted uppercase tracking-wider mb-1.5">
             {t('agent.currentRun')}
           </div>
-          {currentRun ? (
-            <TaskCard
-              sessionTitle={currentRun.session?.title}
-              run={currentRun.run}
-              isActive
-              onOpen={() => openSession(currentRun.session!.id)}
-              onStop={stopGeneration}
-              onDelete={() => deleteAgentRun(currentRun.session!.id, currentRun.run.id)}
-              t={t}
-            />
+          {currentRuns.length > 0 ? (
+            <div className="space-y-1.5">
+              {currentRuns.map(({ session, run }) => (
+                <TaskCard
+                  key={run.id}
+                  sessionTitle={session?.title}
+                  run={run}
+                  isActive
+                  onOpen={() => openSession(session!.id)}
+                  onStop={() => stopGeneration(session!.id)}
+                  onDelete={() => deleteAgentRun(session!.id, run.id)}
+                  t={t}
+                />
+              ))}
+            </div>
           ) : (
             <div className="text-xs text-nova-text-muted">{t('agent.emptyTasks')}</div>
           )}
@@ -114,7 +125,7 @@ export default function AgentTasksPanel() {
                   sessionTitle={session?.title}
                   run={run}
                   onOpen={() => openSession(session!.id)}
-                  onStop={stopGeneration}
+                  onStop={() => stopGeneration(session!.id)}
                   onDelete={() => deleteAgentRun(session!.id, run.id)}
                   t={t}
                 />

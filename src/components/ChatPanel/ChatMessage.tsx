@@ -62,10 +62,12 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   const condenseMemory = useMemoryStore((s) => s.condenseMemory)
 
   // ── Agent status for assistant header ──
-  const activeRun = useChatStore((s) => s.activeRun)
+  // Per-session active run: with parallel conversations each session owns its
+  // own run; a non-running session falls back to its latest run record.
+  const activeRun = useChatStore((s) => s.activeRuns[sessionId])
   const session = useChatStore((s) => s.sessions.find((x) => x.id === sessionId))
   const lastRun = session?.agentRuns?.slice(-1)[0]
-  const run = activeRun?.sessionId === sessionId
+  const run = activeRun
     ? session?.agentRuns?.find((r) => r.id === activeRun.runId)
     : lastRun
   const isLive = run && (run.status === 'running' || run.status === 'creating_plan' || run.status === 'approved_running' || run.status === 'waiting_plan')
@@ -155,8 +157,10 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   // Process summary (thinking + tool calls) → rendered via AgentTimeline
   const hasProcess = (isAssistant && !!message.thinking) || (isAssistant && !!message.toolCalls?.length)
 
-  // Checkpoints tied to this assistant message → "回滚修改"
-  const msgCheckpoints = checkpoints.filter((c) => c.messageId === message.id)
+  // Checkpoints tied to this assistant message → "回滚修改".
+  // The store's checkpoint list is per active session — scope defensively by
+  // session so parallel sessions can't show each other's checkpoints.
+  const msgCheckpoints = checkpoints.filter((c) => c.sessionId === sessionId && c.messageId === message.id)
 
   const handleRevertMessage = async () => {
     for (const cp of msgCheckpoints) {
@@ -301,7 +305,7 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
             {!isEditing && (
               <div className={`flex flex-wrap items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'justify-end' : 'justify-start'}`}>
                 {isExhausted && (
-                  <GhostButton onClick={() => continueGeneration()} title={t('chat.continueRun')} accent>
+                  <GhostButton onClick={() => continueGeneration(sessionId)} title={t('chat.continueRun')} accent>
                     ▶ {t('chat.continueRun')}
                   </GhostButton>
                 )}

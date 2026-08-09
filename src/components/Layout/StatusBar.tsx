@@ -152,7 +152,14 @@ export default function StatusBar() {
 
   // Calculate total tokens for active session
   const totalTokens = activeSession?.messages.reduce((sum, m) => sum + (m.tokenCount || 0), 0) || 0
-  const model = activeSession?.model || activeConfigGroup?.defaultModel || ''
+  // The chat loop resolves the runtime model from the session's OWN config
+  // group (session.model || sessionGroup.defaultModel) — the global active
+  // group can diverge from it (startup restore, manual group switch), which
+  // made the indicator show nothing while a model was actually in use.
+  const sessionGroup = useConfigStore((s) =>
+    activeSession ? s.configGroups.find((g) => g.id === activeSession.configGroupId) : undefined
+  )
+  const model = activeSession?.model || sessionGroup?.defaultModel || activeConfigGroup?.defaultModel || ''
   const modelInfo = models.find((m) => m.id === model)
 
   // Live diagnostics counts (replaces the previously hardcoded 0 / 0)

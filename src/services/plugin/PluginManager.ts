@@ -261,10 +261,16 @@ export class PluginManager {
           if (!hasPerm('ai.chat')) throw new Error('Permission denied: ai.chat required')
           const chatStore = useChatStore.getState()
           if (!chatStore) throw new Error('Chat store not available')
+          const sessionId = chatStore.activeSessionId
+          if (!sessionId) throw new Error('No active conversation')
           return new Promise<string>((resolve) => {
             const unsub = useChatStore.subscribe((state: any) => {
-              if (!state.isLoading && state.streamingContent === '') {
-                const session = state.sessions.find((s: any) => s.id === state.activeSessionId)
+              // Resolve when the ACTIVE session is no longer generating
+              const activeId = state.activeSessionId
+              const stillRunning = !!activeId && (state.runningSessionIds || []).includes(activeId)
+              const streaming = state.streamingBySession?.[activeId]?.content
+              if (!stillRunning && !streaming) {
+                const session = state.sessions.find((s: any) => s.id === activeId)
                 const lastAssistant = [...(session?.messages || [])].reverse().find((m: any) => m.role === 'assistant')
                 messageListeners.delete(unsub)
                 unsub()
@@ -272,14 +278,15 @@ export class PluginManager {
               }
             })
             messageListeners.add(unsub as any)
-            chatStore.sendMessage(content)
+            chatStore.sendMessage(sessionId, content)
           })
         },
         onMessage: (callback: (message: { role: string; content: string }) => void) => {
           if (!hasPerm('ai.chat')) return () => {}
           const unsub = useChatStore.subscribe((state: any) => {
-            if (state.streamingContent) {
-              callback({ role: 'assistant', content: state.streamingContent })
+            const stream = state.streamingBySession?.[state.activeSessionId]
+            if (stream?.content) {
+              callback({ role: 'assistant', content: stream.content })
             }
           })
           messageListeners.add(unsub)

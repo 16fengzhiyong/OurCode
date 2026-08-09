@@ -5,16 +5,22 @@ import AgentTasksPanel from './AgentTasksPanel'
 import UsagePanel from './UsagePanel'
 import GitPanel from '../Git/GitPanel'
 import { useUIStore } from '@/stores/uiStore'
+import { useChatStore } from '@/stores/chatStore'
+import { useConfigStore } from '@/stores/configStore'
 import { useI18n } from '@/i18n/useI18n'
 
 export default function Sidebar() {
-  const { activeSidebarTab, toggleSidebar, rootPath, setRootPath, projectListView } = useUIStore()
+  const { activeSidebarTab, toggleSidebar, rootPath, projectListView } = useUIStore()
   const t = useI18n()
 
-  const handleOpenFolder = async () => {
-    const path = await window.electronAPI.openFolder()
-    if (path) {
-      setRootPath(path)
+  // New chat lives here now (per project item in the list view, header button
+  // in the tree view) — the old "打开文件夹" quick icon is gone.
+  const handleNewSession = () => {
+    const configId = useConfigStore.getState().activeConfigGroupId
+    if (configId) {
+      useChatStore.getState().createSession(configId)
+    } else {
+      useUIStore.getState().openSettings()
     }
   }
 
@@ -116,15 +122,14 @@ export default function Sidebar() {
           </span>
         </div>
         <div className="flex items-center gap-0.5">
-          {activeSidebarTab === 'files' && (
+          {activeSidebarTab === 'files' && projectListView === 'tree' && (
             <button
-              onClick={handleOpenFolder}
+              onClick={handleNewSession}
               className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
-              title={t('sidebar.openFolder')}
+              title={t('chat.newChat')}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-                <line x1="12" y1="11" x2="12" y2="17" /><line x1="9" y1="14" x2="15" y2="14" />
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
               </svg>
             </button>
           )}

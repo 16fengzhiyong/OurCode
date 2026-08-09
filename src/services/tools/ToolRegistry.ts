@@ -323,7 +323,7 @@ export function createToolRegistry(): Tool[] {
       },
       execute: async (args, context) => {
         const { useChatStore } = await import('@/stores/chatStore')
-        const { sessions, runningSessionId } = useChatStore.getState()
+        const { sessions, runningSessionIds } = useChatStore.getState()
         const selfId = context?.sessionId
         const kw = String(args.search || '').trim().toLowerCase()
         const baseName = (p: string | undefined): string => {
@@ -340,7 +340,7 @@ export function createToolRegistry(): Tool[] {
         }
         const rows = peers.map((s) => {
           const project = baseName(s.projectPath)
-          const status = s.id === runningSessionId ? '运行中' : '空闲'
+          const status = runningSessionIds.includes(s.id) ? '运行中' : '空闲'
           return `| ${s.id} | ${s.title.replace(/\|/g, '\\|')} | ${s.model || '未配置'} | ${project} | ${s.messages.length} | ${status} |`
         })
         return (

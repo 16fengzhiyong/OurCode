@@ -17,10 +17,21 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'deepseek-chat': 64000, 'deepseek-coder': 64000, 'gemini-1.5-pro': 2000000, 'gemini-1.5-flash': 1000000,
 }
 
+/** Stable empty-queue reference — returning a fresh [] from the selector would
+ *  re-render ChatMessages on every store update (e.g. each streaming chunk of
+ *  a parallel conversation), since zustand compares with Object.is. */
+const EMPTY_QUEUE: string[] = []
+
 export default function ChatMessages() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const activeSession = useChatStore((s) => s.getActiveSession())
-  const { isLoading, streamingContent, streamingThinking, runningSessionId, reorderMessages, undoStack, undoDelete, switchBranch, queuedMessages, clearQueue } = useChatStore()
+  const { reorderMessages, undoStack, undoDelete, switchBranch, clearQueue } = useChatStore()
+  // Streaming / loading state is per session — only the conversation the user
+  // is viewing reacts to its own run; parallel sessions stream independently.
+  const activeSessionId = activeSession?.id || ''
+  const isThisSessionLoading = useChatStore((s) => !!activeSessionId && s.runningSessionIds.includes(activeSessionId))
+  const stream = useChatStore((s) => (activeSessionId ? s.streamingBySession[activeSessionId] : undefined))
+  const queuedMessages = useChatStore((s) => (activeSessionId ? (s.queuedMessagesBySession[activeSessionId] ?? EMPTY_QUEUE) : EMPTY_QUEUE))
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [showUndoToast, setShowUndoToast] = useState(false)
@@ -63,11 +74,11 @@ export default function ChatMessages() {
     const grew = len > prevLenRef.current
     prevSessionRef.current = sid
     prevLenRef.current = len
-    if (sessionChanged || grew || streamingContent) {
+    if (sessionChanged || grew || stream?.content) {
       const el = scrollRef.current
       if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
     }
-  }, [activeSession, streamingContent])
+  }, [activeSession, stream?.content])
 
   // Leaving history-edit mode resets any active batch selection.
   useEffect(() => {
@@ -266,7 +277,7 @@ export default function ChatMessages() {
       {queuedMessages.length > 0 && (
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-nova-accent/10 border border-nova-accent/25 text-xs text-nova-accent">
           <span>⏳ {t('chat.queuedBanner', { count: queuedMessages.length })}</span>
-          <button onClick={clearQueue} className="ml-auto hover:text-nova-text-primary transition-colors">{t('common.cancel')}</button>
+          <button onClick={() => clearQueue(activeSessionId)} className="ml-auto hover:text-nova-text-primary transition-colors">{t('common.cancel')}</button>
         </div>
       )}
 
@@ -286,7 +297,7 @@ export default function ChatMessages() {
         </div>
       )}
 
-      {messages.length === 0 && !isLoading && (
+      {messages.length === 0 && !isThisSessionLoading && (
         <div className="flex-1 flex flex-col">
           {/* Welcome card (design: centered icon + title + description) */}
           <div className="flex-1 flex flex-col items-center justify-center text-center px-4 min-h-0">
@@ -336,7 +347,7 @@ export default function ChatMessages() {
           })}
 
 
-      {isLoading && activeSession?.id === runningSessionId && (
+      {isThisSessionLoading && (
         <div className="flex gap-2.5 animate-fade-in">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ background: 'var(--grad-brand)' }}>
             <WaveLogo size={14} />
@@ -345,13 +356,13 @@ export default function ChatMessages() {
             <div className="flex items-center gap-1.5 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
               <span>OurCode AI</span>
             </div>
-            {streamingThinking && <ThinkingBlock content={streamingThinking} defaultExpanded />}
-            {streamingContent ? (
+            {stream?.thinking && <ThinkingBlock content={stream.thinking} defaultExpanded />}
+            {stream?.content ? (
               <div className="text-sm text-nova-text-primary">
-                <MarkdownRenderer content={streamingContent} />
+                <MarkdownRenderer content={stream.content} />
                 <span className="animate-pulse-dot text-nova-accent">▋</span>
               </div>
-            ) : !streamingThinking ? (
+            ) : !stream?.thinking ? (
               <div className="flex items-center gap-2 text-nova-text-muted text-sm">
                 <div className="flex gap-1">
                   <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485' }} />

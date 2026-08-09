@@ -3,12 +3,19 @@
  * These use window.electronAPI to communicate with the main process
  */
 import { loadIgnorePatterns, isIgnoredPath } from './context'
+import { useUIStore } from '@/stores/uiStore'
 
 const EXCLUDED_DIRS = ['node_modules', '.git', 'dist', 'build', 'out', '.next', '__pycache__', 'vendor', '.vscode', '.idea']
 
+/** Current workspace root — the file tree's data attribute when mounted,
+ *  falling back to the selected project (the tree only mounts in tree view). */
+function workspaceRoot(): string {
+  return document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
+}
+
 /** Load .ourcodeignore patterns once per workspace root */
 async function ensureIgnoreLoaded(): Promise<void> {
-  const rootPath = document.getElementById('file-tree-root')?.getAttribute('data-root-path') || ''
+  const rootPath = workspaceRoot()
   if (rootPath) {
     try { await loadIgnorePatterns(rootPath) } catch { /* ignore */ }
   }
@@ -127,7 +134,7 @@ export async function deleteFileOrDir(path: string): Promise<string> {
 
 /** Run a shell command */
 export async function runCommand(command: string, cwd?: string): Promise<string> {
-  const rootPath = document.getElementById('file-tree-root')?.getAttribute('data-root-path') || ''
+  const rootPath = workspaceRoot()
   const workDir = cwd || rootPath
   const result = await window.electronAPI.shellExec(command, workDir)
   if (result.success) {

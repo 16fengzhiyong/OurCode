@@ -4,10 +4,13 @@ import { useI18n } from '@/i18n/useI18n'
 
 export default function ToolApprovalDialog() {
   const { pendingApproval, approveToolCall, rejectToolCall, allowToolPermanently } = useChatStore()
+  // With parallel conversations, only the active session's approval dialog is
+  // shown — switching to the session that owns the pending call reveals it.
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
   const [alwaysAllow, setAlwaysAllow] = useState(false)
   const t = useI18n()
 
-  if (!pendingApproval) return null
+  if (!pendingApproval || pendingApproval.sessionId !== activeSessionId) return null
 
   const { toolCall, preview } = pendingApproval
 

@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react'
 import { useChatStore } from '@/stores/chatStore'
-import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
 import { getLocale } from '@/i18n'
@@ -13,9 +12,8 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
   const {
     sessions,
     activeSessionId,
-    runningSessionId,
+    runningSessionIds,
     setActiveSession,
-    createSession,
     deleteSession,
     renameSession,
     exportSession,
@@ -25,7 +23,6 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
   } = useChatStore()
 
   const showContextMenu = useUIStore((s) => s.showContextMenu)
-  const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
   const t = useI18n()
   const [searchQuery, setSearchQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
@@ -58,14 +55,7 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
     })
   }, [sessions, searchQuery, showArchived])
 
-  const handleNewSession = () => {
-    if (activeConfigGroupId) {
-      createSession(activeConfigGroupId)
-    }
-  }
-
-  const handleDelete = (sessionId: string) => {
-    if (confirm(t('chat.deleteSessionConfirm'))) {
+  const handleDelete = (sessionId: string) => {    if (confirm(t('chat.deleteSessionConfirm'))) {
       deleteSession(sessionId)
     }
   }
@@ -185,15 +175,6 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
             </svg>
           </button>
           <button
-            onClick={handleNewSession}
-            className="p-1 text-nova-text-muted hover:text-nova-accent rounded transition-colors"
-            title={t('chat.newChat')}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-          </button>
-          <button
             onClick={handleImport}
             className="p-1 text-nova-text-muted hover:text-nova-accent rounded transition-colors"
             title={t('chat.importSession')}
@@ -272,7 +253,7 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
                   <div className="min-w-0 flex-1">
                     <div className={`text-xs truncate flex items-center gap-1 ${isActive ? 'text-nova-accent font-medium' : 'text-nova-text-primary'}`}>
                       {/* Status indicator: spinning for running, red dot for error */}
-                      {runningSessionId === session.id ? (
+                      {runningSessionIds.includes(session.id) ? (
                         <span className="w-2.5 h-2.5 border-2 border-nova-accent/40 border-t-nova-accent rounded-full animate-spin shrink-0" />
                       ) : session.agentRuns?.some((r) => r.status === 'error') ? (
                         <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />

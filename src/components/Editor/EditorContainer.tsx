@@ -234,7 +234,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
         chatStore.createSession(configStore.activeConfigGroupId)
       }
     }
-    chatStore.sendMessage(prompt)
+    if (chatStore.activeSessionId) chatStore.sendMessage(chatStore.activeSessionId, prompt)
     useUIStore.getState().toggleChat()
   }, [])
 
