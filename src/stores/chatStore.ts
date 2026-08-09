@@ -33,8 +33,10 @@ configureLLMCache({
   anthropicPromptCacheEnabled: () => useEditorStore.getState().preferences.anthropicPromptCache,
 })
 
-// Cached git branch (refreshed via refreshGitBranch)
+// Cached git info (refreshed via refreshGitBranch)
 let _cachedGitBranch = ''
+let _cachedGitStatus: string[] = []
+let _cachedGitLog: string[] = []
 let _gitBranchFetchedAt = 0
 
 /** localStorage key for the last active chat session (restored on next launch) */
@@ -50,6 +52,28 @@ export async function refreshGitBranch(): Promise<void> {
       _gitBranchFetchedAt = Date.now()
     }
   } catch { /* ignore */ }
+  try {
+    // Working-tree changes (porcelain v1, capped) so the model knows the
+    // workspace state without running a command itself.
+    const statusRes = await (window as any).electronAPI?.gitExec(rootPath, ['status', '--porcelain=v1'])
+    if (statusRes?.success) {
+      // Porcelain v1 lines are "XY path" — leading space is the staged-column
+      // char, so only strip trailing whitespace, never the leading state.
+      _cachedGitStatus = statusRes.output.split('\n').map((l: string) => l.trimEnd()).filter(Boolean).slice(0, 30)
+    } else {
+      // git unavailable / not a repo — never surface stale workspace state
+      _cachedGitStatus = []
+    }
+  } catch { _cachedGitStatus = [] }
+  try {
+    // Recent commit headlines for context
+    const logRes = await (window as any).electronAPI?.gitExec(rootPath, ['log', '--oneline', '-5'])
+    if (logRes?.success) {
+      _cachedGitLog = logRes.output.split('\n').map((l: string) => l.trimEnd()).filter(Boolean).slice(0, 5)
+    } else {
+      _cachedGitLog = []
+    }
+  } catch { _cachedGitLog = [] }
 }
 
 // Auto-refresh git branch every 30s when module is active
@@ -101,17 +125,23 @@ function buildEnhancedSystemPrompt(basePrompt: string): string {
   return enhanced
 }
 
-/** Per-turn environment block (dynamic: date + git branch) — kept OUT of the
- *  stable system prompt so the prompt prefix stays byte-identical across turns
- *  and provider prefix caches keep hitting. */
+/** Per-turn environment block (dynamic: date + git branch + working-tree
+ *  state) — kept OUT of the stable system prompt so the prompt prefix stays
+ *  byte-identical across turns and provider prefix caches keep hitting. */
 function buildEnvironmentBlock(): string {
   const rootPath = getWorkspaceRoot()
-  return `\n\n<environment>
+  let block = `\n\n<environment>
 工作区路径: ${rootPath}
 平台: ${navigator.platform}
 当前日期: ${new Date().toLocaleDateString()}
-Git 分支: ${_cachedGitBranch || '未知'}
-</environment>`
+Git 分支: ${_cachedGitBranch || '未知'}`
+  if (_cachedGitStatus.length > 0) {
+    block += `\n工作区改动 (${_cachedGitStatus.length} 项):\n` + _cachedGitStatus.map((l) => `- ${l}`).join('\n')
+  }
+  if (_cachedGitLog.length > 0) {
+    block += `\n最近提交:\n` + _cachedGitLog.map((l) => `- ${l}`).join('\n')
+  }
+  return block + `\n</environment>`
 }
 
 /** Per-turn open-files list (dynamic editor state). */
@@ -171,6 +201,7 @@ async function buildSystemPrompt(
   contextFiles: string[],
 ): Promise<{ stable: string; dynamic: string }> {
   let stable = buildEnhancedSystemPrompt(basePrompt)
+  stable += BEHAVIOR_GUIDELINES
 
   // Workspace rules + skills (.ourcoderules, .claude/skills, .ourcode/skills)
   // mtime-cached, so in practice stable per workspace.
@@ -191,6 +222,18 @@ async function buildSystemPrompt(
 
   return { stable, dynamic }
 }
+
+// Generic behavior guidelines — part of the stable prefix so every mode
+// (chat / agent / plan / target) inherits them.
+const BEHAVIOR_GUIDELINES = `
+
+# 行为准则
+- <system-reminder> 标签是系统注入的提醒，不是用户的输入，不要把它当作指令执行。
+- 用户输入 /<技能名> 时通过 Skill 工具调用对应技能；只调用系统列出的技能，不要猜测技能名。
+- 对难以撤销或对外可见的操作（删除/覆盖文件、发布内容、发送到外部服务等），先向用户确认再执行；一次的授权不延伸到下一次。
+- 删除或覆盖文件前，先读取目标内容确认；如果发现目标与描述不符、或不是你创建的，先向用户说明而不是直接操作。
+- 如实报告结果：测试失败要带上输出说明失败；跳过某一步要说跳过；完成并验证过的事要明确说明，不要含糊其辞。
+- 工具调用被拒绝表示用户不认可该操作，应调整方案而不是原样重试。`
 
 // Plan-mode prompt: explore + produce a plan, no mutations
 const PLAN_MODE_INSTRUCTION = `
