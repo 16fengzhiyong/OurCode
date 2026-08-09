@@ -86,6 +86,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getUsageSummary: (rangeDays?: number) => ipcRenderer.invoke(IPC_CHANNELS.USAGE_SUMMARY, rangeDays),
   clearUsage: () => ipcRenderer.invoke(IPC_CHANNELS.USAGE_CLEAR),
 
+  // LLM response cache
+  llmCacheGet: (key: string) => ipcRenderer.invoke(IPC_CHANNELS.LLM_CACHE_GET, key),
+  llmCachePut: (entry: { key: string; provider: string; model: string; response: string; tokensIn: number; tokensOut: number }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.LLM_CACHE_PUT, entry),
+  llmCacheClear: () => ipcRenderer.invoke(IPC_CHANNELS.LLM_CACHE_CLEAR),
+
   // Crypto (Export/Import)
   encryptForExport: (text: string, password: string) => ipcRenderer.invoke('crypto:encryptForExport', text, password),
   decryptForImport: (encryptedData: string, password: string) => ipcRenderer.invoke('crypto:decryptForImport', encryptedData, password),

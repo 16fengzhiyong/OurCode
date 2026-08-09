@@ -119,3 +119,38 @@ describe.skipIf(!sqliteUsable)('SQLiteStore usage statistics', () => {
     expect(store.getUsageSummary().totals.tokensIn).toBe(99)
   })
 })
+
+describe.skipIf(!sqliteUsable)('SQLiteStore LLM response cache', () => {
+  let root: string
+  let store: SQLiteStore
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'llm-cache-test-'))
+    store = new SQLiteStore(root)
+  })
+
+  afterEach(() => {
+    store?.close()
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('round-trips an entry and increments hits on read', () => {
+    store.putResponseCache('k1', 'openai', 'gpt-4o', '{"chunks":[]}', 10, 3)
+    const first = store.getResponseCache('k1')
+    expect(first).toEqual({ response: '{"chunks":[]}', tokensIn: 10, tokensOut: 3 })
+    // A miss returns null
+    expect(store.getResponseCache('missing')).toBeNull()
+  })
+
+  it('upserts on the same key (refreshes payload)', () => {
+    store.putResponseCache('k1', 'openai', 'gpt-4o', 'old', 1, 1)
+    store.putResponseCache('k1', 'openai', 'gpt-4o', 'new', 5, 5)
+    expect(store.getResponseCache('k1')?.response).toBe('new')
+  })
+
+  it('clearResponseCache empties the table', () => {
+    store.putResponseCache('k1', 'openai', 'gpt-4o', 'x', 1, 1)
+    store.clearResponseCache()
+    expect(store.getResponseCache('k1')).toBeNull()
+  })
+})

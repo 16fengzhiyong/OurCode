@@ -549,6 +549,19 @@ function registerIpcHandlers(): void {
     store.resetAll()
   })
 
+  // LLM response cache
+  ipcMain.handle(IPC_CHANNELS.LLM_CACHE_GET, async (_event, key: string) => {
+    return store.getResponseCache(key)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.LLM_CACHE_PUT, async (_event, entry: { key: string; provider: string; model: string; response: string; tokensIn: number; tokensOut: number }) => {
+    store.putResponseCache(entry.key, entry.provider, entry.model, entry.response, entry.tokensIn, entry.tokensOut)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.LLM_CACHE_CLEAR, async () => {
+    store.clearResponseCache()
+  })
+
   // Dialog handlers
   ipcMain.handle('dialog:openFolder', async (event) => {
     const result = await dialog.showOpenDialog(windowFromEvent(event) ?? mainWindow!, {

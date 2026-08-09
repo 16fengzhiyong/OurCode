@@ -44,6 +44,11 @@ export const IPC_CHANNELS = {
   USAGE_SUMMARY: 'usage:summary',
   USAGE_CLEAR: 'usage:clear',
 
+  // LLM response cache
+  LLM_CACHE_GET: 'llmCache:get',
+  LLM_CACHE_PUT: 'llmCache:put',
+  LLM_CACHE_CLEAR: 'llmCache:clear',
+
   // Encryption
   CRYPTO_SET_MASTER_KEY: 'crypto:setMasterKey',
   CRYPTO_UNLOCK: 'crypto:unlock',
@@ -121,6 +126,8 @@ export const DEFAULT_PREFERENCES = {
   encryptChatData: false,
   chatHistoryEditMode: false,
   aiAutoMemory: true,
+  llmResponseCache: true,
+  anthropicPromptCache: true,
 }
 
 // Free model keywords

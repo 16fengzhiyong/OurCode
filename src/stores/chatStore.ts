@@ -10,7 +10,7 @@ import { TARGET_MODE_INSTRUCTION } from './targetModeInstruction'
 import { ensureInitialized, readStatus, readStatusText, parseStatus, TargetModeStatus } from '@/services/targetMode/targetModeService'
 import { t } from '@/i18n'
 import { getFileContent } from '@/editor/modelRegistry'
-import { sendLLMRequest } from '@/services/llm/LLMClient'
+import { sendLLMRequest, configureLLMCache } from '@/services/llm/LLMClient'
 import { parseLLMError } from '@/services/llm/errors'
 import { ToolExecutor } from '@/services/tools'
 import { ToolCall, ToolResult } from '@/services/tools/types'
@@ -24,6 +24,14 @@ import {
 } from '@/services/tools/context'
 import { v4 as uuidv4 } from 'uuid'
 import { captureCheckpoint as captureCheckpointService } from '@/services/checkpointService'
+
+// Wire the LLM cache toggles to user preferences (lazily evaluated per
+// request). Every sendLLMRequest caller — chat, agent loop, arena, subagents,
+// inline completion, lifeguard — benefits without each knowing the prefs.
+configureLLMCache({
+  responseCacheEnabled: () => useEditorStore.getState().preferences.llmResponseCache,
+  anthropicPromptCacheEnabled: () => useEditorStore.getState().preferences.anthropicPromptCache,
+})
 
 // Cached git branch (refreshed via refreshGitBranch)
 let _cachedGitBranch = ''
@@ -90,34 +98,43 @@ function buildEnhancedSystemPrompt(basePrompt: string): string {
     .replace(/\{\{gitBranch\}\}/g, _cachedGitBranch || '(未检测到Git分支)')
     .replace(/\{\{date\}\}/g, new Date().toLocaleDateString())
 
-  // Append environment context
-  enhanced += `\n\n<environment>
+  return enhanced
+}
+
+/** Per-turn environment block (dynamic: date + git branch) — kept OUT of the
+ *  stable system prompt so the prompt prefix stays byte-identical across turns
+ *  and provider prefix caches keep hitting. */
+function buildEnvironmentBlock(): string {
+  const rootPath = getWorkspaceRoot()
+  return `\n\n<environment>
 工作区路径: ${rootPath}
 平台: ${navigator.platform}
 当前日期: ${new Date().toLocaleDateString()}
 Git 分支: ${_cachedGitBranch || '未知'}
 </environment>`
+}
 
-  // Append open files context
-  if (editorState.openFiles.length > 0) {
-    enhanced += `\n\n<open_files>`
-    for (const file of editorState.openFiles) {
-      enhanced += `\n- ${file.path}${file.isDirty ? ' (未保存)' : ''}`
-    }
-    enhanced += `\n</open_files>`
+/** Per-turn open-files list (dynamic editor state). */
+function buildOpenFilesBlock(): string {
+  const editorState = useEditorStore.getState()
+  if (editorState.openFiles.length === 0) return ''
+  let block = `\n\n<open_files>`
+  for (const file of editorState.openFiles) {
+    block += `\n- ${file.path}${file.isDirty ? ' (未保存)' : ''}`
   }
+  return block + `\n</open_files>`
+}
 
-  // Append current file content (live from the editor model, so edits made since
-  // the file was opened are included)
-  if (activeFile) {
-    const liveContent = getFileContent(activeFile.path, activeFile.content)
-    const lines = liveContent.split('\n')
-    const truncated = lines.length > 200
-    const content = truncated ? lines.slice(0, 200).join('\n') + '\n... (truncated)' : liveContent
-    enhanced += `\n\n<current_file path="${activeFile.path}">\n${content}\n</current_file>`
-  }
-
-  return enhanced
+/** Per-turn current file content, live from the editor model. */
+function buildCurrentFileBlock(): string {
+  const editorState = useEditorStore.getState()
+  const activeFile = editorState.openFiles.find((f) => f.path === editorState.activeFilePath)
+  if (!activeFile) return ''
+  const liveContent = getFileContent(activeFile.path, activeFile.content)
+  const lines = liveContent.split('\n')
+  const truncated = lines.length > 200
+  const content = truncated ? lines.slice(0, 200).join('\n') + '\n... (truncated)' : liveContent
+  return `\n\n<current_file path="${activeFile.path}">\n${content}\n</current_file>`
 }
 
 /** Inject matching persistent memories into the system prompt */
@@ -139,28 +156,40 @@ async function buildMemoriesBlock(userContent: string): Promise<string> {
   return `\n\n<user_memories>\n关于用户的长期记忆（请在实际编码时遵循）：\n${scored.map((x) => `- ${x.m.content}`).join('\n')}\n</user_memories>`
 }
 
-/** Assemble the full system prompt: base + env + selection + memories + knowledge + retrieved context */
+/**
+ * Assemble the system prompt as two parts for cache friendliness:
+ *  - `stable`: base + template vars + workspace knowledge — byte-identical
+ *    across turns, so provider prefix caches (OpenAI / DeepSeek / Anthropic)
+ *    keep hitting on the shared conversation prefix.
+ *  - `dynamic`: per-turn context (env / open files / current file / editor
+ *    selection / memories / retrieved files) — merged into the request's final
+ *    user message so it never invalidates the stable prefix.
+ */
 async function buildSystemPrompt(
   basePrompt: string,
   userContent: string,
   contextFiles: string[],
-): Promise<string> {
-  let enhanced = buildEnhancedSystemPrompt(basePrompt)
-
-  // Current editor selection (Vibe-and-Replace style selected-text context)
-  enhanced += getEditorSelectionContext()
-
-  // Persistent memories (keyword-matched)
-  enhanced += await buildMemoriesBlock(userContent)
+): Promise<{ stable: string; dynamic: string }> {
+  let stable = buildEnhancedSystemPrompt(basePrompt)
 
   // Workspace rules + skills (.ourcoderules, .claude/skills, .ourcode/skills)
-  enhanced += await loadWorkspaceKnowledge(getWorkspaceRoot())
+  // mtime-cached, so in practice stable per workspace.
+  stable += await loadWorkspaceKnowledge(getWorkspaceRoot())
 
+  // ── Per-turn dynamic context (moved out of the system prompt) ──
+  let dynamic = ''
+  dynamic += buildEnvironmentBlock()
+  dynamic += buildOpenFilesBlock()
+  dynamic += buildCurrentFileBlock()
+  // Current editor selection (Vibe-and-Replace style selected-text context)
+  dynamic += getEditorSelectionContext()
+  // Persistent memories (keyword-matched)
+  dynamic += await buildMemoriesBlock(userContent)
   // Auto-retrieved relevant files
   const activeFile = useEditorStore.getState().openFiles.find((f) => f.path === useEditorStore.getState().activeFilePath)
-  enhanced += await retrieveRelevantContext(userContent, contextFiles, getWorkspaceRoot(), activeFile?.path)
+  dynamic += await retrieveRelevantContext(userContent, contextFiles, getWorkspaceRoot(), activeFile?.path)
 
-  return enhanced
+  return { stable, dynamic }
 }
 
 // Plan-mode prompt: explore + produce a plan, no mutations
@@ -1418,7 +1447,12 @@ function makeLlmUsageEvent(opts: {
   tokensOut?: number
   ok?: boolean
   error?: string
+  /** Client-side cache hit — tokensIn/Out are 0; the saved amounts go in payload. */
+  cacheHit?: { savedTokensIn: number; savedTokensOut: number } | null
 }): UsageEvent {
+  const payload = opts.cacheHit
+    ? { cacheHit: true, savedTokensIn: opts.cacheHit.savedTokensIn, savedTokensOut: opts.cacheHit.savedTokensOut }
+    : undefined
   return {
     id: uuidv4(),
     category: 'llm',
@@ -1432,6 +1466,7 @@ function makeLlmUsageEvent(opts: {
     tokensOut: opts.tokensOut || 0,
     ok: opts.ok ?? true,
     error: opts.error,
+    payload,
   }
 }
 
@@ -1488,17 +1523,19 @@ async function runAgentLoop(
   const lastUserMessage = [...session.messages].reverse().find((m) => m.role === 'user')
   const userContent = lastUserMessage?.content || ''
   const baseSystemPrompt = configGroup.systemPrompt || 'You are a helpful AI coding assistant.'
-  let systemPrompt = await buildSystemPrompt(baseSystemPrompt, userContent, lastUserMessage?.contextFiles || [])
-  // Agent mode is the single planning+execution mode. With the default
-  // projectEditMode 'plan' the planning phase is read-only (enforced via
-  // PLAN_TOOLS below) — the model must submit a plan before any mutation.
-  // After the plan is approved (opts.planApproved), the read-only instruction
-  // and tool gating are lifted and the agent executes the plan. Other edit
-  // modes let the model plan or act directly. Target mode replaces this whole
-  // flow with its own autonomous spec (.ourcode/targemode/ workflow).
+  // Split the prompt into a byte-stable prefix + per-turn dynamic context so
+  // provider prefix caches (OpenAI / DeepSeek / Anthropic) keep hitting across
+  // turns instead of re-billing the whole history every time.
+  const { stable, dynamic } = await buildSystemPrompt(
+    baseSystemPrompt, userContent, lastUserMessage?.contextFiles || [],
+  )
+  let stableSystemPrompt = stable
+  let dynamicContext = dynamic
+  // Mode instructions are static text → stable prefix. Target-mode workflow
+  // status is per-run state → dynamic context (appended to the final user turn).
   if (agentMode === 'agent') {
     if (targetMode) {
-      systemPrompt += TARGET_MODE_INSTRUCTION
+      stableSystemPrompt += TARGET_MODE_INSTRUCTION
       // Bootstrap the state skeleton (idempotent) and inject the current
       // status so the agent resumes from the files instead of its memory.
       // Always the session's own project — not the globally opened folder.
@@ -1508,21 +1545,21 @@ async function runAgentLoop(
         const statusMd = await readStatusText(root)
         useChatStore.setState({ targetModeStatus: statusMd ? parseStatus(statusMd) : null })
         if (statusMd) {
-          systemPrompt += `\n\n<target_mode_status>\n${statusMd}\n</target_mode_status>`
+          dynamicContext += `\n\n<target_mode_status>\n${statusMd}\n</target_mode_status>`
         }
       }
     } else {
       const planningPhase = (session.projectEditMode || 'plan') === 'plan' && !opts?.planApproved
-      systemPrompt += planningPhase ? PLAN_MODE_INSTRUCTION : AGENT_MODE_INSTRUCTION
+      stableSystemPrompt += planningPhase ? PLAN_MODE_INSTRUCTION : AGENT_MODE_INSTRUCTION
     }
   }
   if (opts?.extraSystemText) {
-    systemPrompt += '\n\n' + opts.extraSystemText
+    stableSystemPrompt += '\n\n' + opts.extraSystemText
   }
 
   // Build messages from full history (system + all session messages)
   let messages: RequestMessage[] = [
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: stableSystemPrompt },
     ...session.messages.map((m) => ({
       role: m.role as 'system' | 'user' | 'assistant' | 'tool',
       content: m.content,
@@ -1530,6 +1567,22 @@ async function runAgentLoop(
       toolCallId: m.toolCallId,
     })),
   ]
+
+  // Merge the per-turn dynamic context (memories / retrieved files / editor
+  // state) into the request's final user message — NOT persisted to history —
+  // so the stable system prompt + history prefix stays byte-identical across
+  // turns. The model still sees it as the most recent context.
+  if (dynamicContext.trim()) {
+    const lastIdx = messages.length - 1
+    if (lastIdx >= 0 && messages[lastIdx].role === 'user') {
+      messages[lastIdx] = {
+        ...messages[lastIdx],
+        content: dynamicContext + '\n\n' + messages[lastIdx].content,
+      }
+    } else {
+      messages.push({ role: 'user', content: dynamicContext })
+    }
+  }
 
   // Context-window management: trim the oldest history when the estimate
   // exceeds the model's budget (keeps the current user turn + a notice).
@@ -1620,6 +1673,7 @@ async function runAgentLoop(
       const reqStartedAt = Date.now()
       let reqTokensIn = 0
       let reqTokensOut = 0
+      let cacheHit: { savedTokensIn: number; savedTokensOut: number } | null = null
 
       try {
         for await (const chunk of sendLLMRequest(req, configGroup)) {
@@ -1646,6 +1700,12 @@ async function runAgentLoop(
             reqTokensOut = chunk.usage.completionTokens
           }
 
+          // Client-side cache hit: the response was replayed locally, no API
+          // call was made — report the saved tokens so the dashboard shows it.
+          if (chunk.cacheHit) {
+            cacheHit = chunk.cacheHit
+          }
+
           if (chunk.done) break
         }
       } catch (requestError: any) {
@@ -1660,8 +1720,9 @@ async function runAgentLoop(
         sessionId, projectPath, model, provider: configGroup.provider,
         startedAt: reqStartedAt,
         durationMs: Date.now() - reqStartedAt,
-        tokensIn: reqTokensIn,
-        tokensOut: reqTokensOut,
+        tokensIn: cacheHit ? 0 : reqTokensIn,
+        tokensOut: cacheHit ? 0 : reqTokensOut,
+        cacheHit,
       }))
 
       // No tool calls - we're done

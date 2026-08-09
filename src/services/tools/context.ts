@@ -129,10 +129,13 @@ export async function retrieveRelevantContext(
 
   if (matches.length === 0) return ''
 
-  // Rank: explicit context files first, then name matches, then content matches
+  // Rank: explicit context files first, then name matches, then content matches.
+  // Deterministic to the end (path tie-break) so identical requests produce an
+  // identical block — keeps the client-side response cache key stable.
   matches.sort((a, b) => {
     if (a.score !== b.score) return b.score - a.score
-    return (a.path.length - b.path.length)
+    if (a.path.length !== b.path.length) return a.path.length - b.path.length
+    return a.path < b.path ? -1 : a.path > b.path ? 1 : 0
   })
 
   const lines: string[] = []

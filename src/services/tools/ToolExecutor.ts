@@ -56,7 +56,14 @@ export class ToolExecutor {
     if (filter) defs = defs.filter((d) => filter(d.function.name))
     const dynamic = this.dynamicTools.filter((d) => !filter || filter(d.function.name))
     const skills = this.skillTools.filter((d) => !filter || filter(d.function.name))
-    return [...defs, ...dynamic, ...skills]
+    // Deterministic order (by tool name) — the exact array is part of the
+    // request sent every turn, and provider prefix caches (OpenAI / DeepSeek /
+    // Anthropic) only hit when it stays byte-identical. Order carries no
+    // meaning for the model, so sorting keeps it stable even when MCP/skill
+    // tool lists reload in a different sequence.
+    return [...defs, ...dynamic, ...skills].sort((a, b) =>
+      a.function.name < b.function.name ? -1 : a.function.name > b.function.name ? 1 : 0
+    )
   }
 
   /** Check if a tool requires user approval */

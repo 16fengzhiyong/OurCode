@@ -273,6 +273,13 @@ export interface UserPreferences {
   /** When enabled the agent may call the remember tool to auto-save important
    *  information into long-term memory (managed in Settings). */
   aiAutoMemory: boolean
+  /** Cache identical LLM requests (same provider/model/messages/params) and
+   *  replay the stored response instead of calling the API again. Only
+   *  deterministic requests (temperature 0) are cached. */
+  llmResponseCache: boolean
+  /** Send Anthropic prompt-caching cache_control breakpoints (system/tools/
+   *  mid-conversation) so repeated reads are billed at the cached rate. */
+  anthropicPromptCache: boolean
   /** LSP servers by Monaco language id, e.g. { python: "pylsp", go: "gopls -mode stdio" } */
   lspServers?: Record<string, string>
 }
@@ -332,6 +339,10 @@ export interface LLMRequest {
   // Deep thinking (reasoning models); optional so non-chat request builders stay compatible
   thinking?: boolean
   reasoningEffort?: 'low' | 'medium' | 'high'
+  /** Internal: emit provider prompt-caching markers (e.g. Anthropic cache_control).
+   *  Set by the client when the user enabled prompt caching — not part of the
+   *  cache key. */
+  providerCache?: boolean
 }
 
 // LLM Stream Chunk
@@ -343,6 +354,13 @@ export interface LLMStreamChunk {
   usage?: {
     promptTokens: number
     completionTokens: number
+  }
+  /** Set on a replayed response from the client-side cache: the request hit the
+   *  local cache and no API call was made. `usage` carries 0/0; the saved token
+   *  counts are reported here so the usage dashboard can show the saving. */
+  cacheHit?: {
+    savedTokensIn: number
+    savedTokensOut: number
   }
 }
 

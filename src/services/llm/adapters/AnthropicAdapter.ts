@@ -11,6 +11,30 @@ const ANTHROPIC_MODELS = [
   'claude-3-haiku-20240307',
 ]
 
+/**
+ * Rough input-token estimate (chars ÷ 3.5). Used only to guard prompt caching:
+ * Anthropic requires every cached segment to be ≥ 1024 tokens (2048 on some
+ * models) and returns a 400 when a cache_control breakpoint sits on a smaller
+ * prompt, so we skip breakpoints below a safe margin.
+ */
+function estimateRequestTokens(req: LLMRequest): number {
+  let chars = 0
+  for (const m of req.messages) {
+    chars += (m.content || '').length
+    for (const tc of m.toolCalls || []) {
+      chars += tc.function.name.length + tc.function.arguments.length
+    }
+  }
+  for (const t of req.tools || []) {
+    chars += t.function.name.length + t.function.description.length
+    chars += JSON.stringify(t.function.parameters || {}).length
+  }
+  return Math.ceil(chars / 3.5)
+}
+
+/** Minimum estimated input tokens before cache_control breakpoints are emitted. */
+const PROMPT_CACHE_MIN_TOKENS = 2048
+
 export class AnthropicAdapter implements LLMAdapter {
   async *sendRequest(req: LLMRequest, config: ApiConfigGroup, signal?: AbortSignal): AsyncGenerator<LLMStreamChunk> {
     const url = buildChatUrl(config.baseUrl, 'anthropic', req.model)
@@ -21,85 +45,136 @@ export class AnthropicAdapter implements LLMAdapter {
       'anthropic-version': '2023-06-01',
       ...config.customHeaders,
     }
+    // Prompt caching (cache_control) needs the beta header on some gateways;
+    // harmless on GA accounts.
+    if (req.providerCache) {
+      headers['anthropic-beta'] = 'prompt-caching-2024-07-31'
+    }
 
-    // Anthropic: separate system message from messages array
-    let systemPrompt = ''
-    const messages = req.messages
-      .filter((m) => {
-        if (m.role === 'system') {
-          systemPrompt = m.content
-          return false
-        }
-        return true
-      })
-      .map((m) => {
-        // Tool result messages for Anthropic
-        if (m.role === 'tool' && m.toolCallId) {
+    // Prompt caching minimums: each cached segment must be ≥1024 tokens (some
+    // models 2048+) or the provider rejects the request with a 400. Only emit
+    // breakpoints when the estimated input is comfortably above the minimum.
+    const providerCache = !!(req.providerCache && estimateRequestTokens(req) >= PROMPT_CACHE_MIN_TOKENS)
+
+    /**
+     * Build the request body. `cache` controls cache_control breakpoints; the
+     * body is rebuilt from scratch on the cache fallback path so the previous
+     * mutation can't leak into the retry.
+     */
+    const buildBody = (cache: boolean): { body: Record<string, any>; messages: any[] } => {
+      // Anthropic: separate system message from messages array
+      let systemPrompt = ''
+      // any[] — the cache_control breakpoint below rewrites a message's content
+      // into a block array, which doesn't fit the mapped union type.
+      const messages: any[] = req.messages
+        .filter((m) => {
+          if (m.role === 'system') {
+            systemPrompt = m.content
+            return false
+          }
+          return true
+        })
+        .map((m) => {
+          // Tool result messages for Anthropic
+          if (m.role === 'tool' && m.toolCallId) {
+            return {
+              role: 'user' as const,
+              content: [
+                {
+                  type: 'tool_result',
+                  tool_use_id: m.toolCallId,
+                  content: m.content,
+                },
+              ],
+            }
+          }
+          // Assistant messages with tool calls
+          if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+            const content: any[] = []
+            if (m.content) {
+              content.push({ type: 'text', text: m.content })
+            }
+            for (const tc of m.toolCalls) {
+              content.push({
+                type: 'tool_use',
+                id: tc.id,
+                name: tc.function.name,
+                input: JSON.parse(tc.function.arguments),
+              })
+            }
+            return { role: 'assistant' as const, content }
+          }
           return {
-            role: 'user' as const,
-            content: [
-              {
-                type: 'tool_result',
-                tool_use_id: m.toolCallId,
-                content: m.content,
-              },
-            ],
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+          }
+        })
+
+      const body: Record<string, any> = {
+        model: req.model,
+        messages,
+        max_tokens: req.maxTokens > 0 ? req.maxTokens : 4096,
+        stream: req.stream,
+        temperature: req.temperature,
+        top_p: req.topP,
+      }
+
+      // Deep thinking: Anthropic extended thinking maps effort to a token budget
+      // (low/medium/high -> 2048/4096/8192). max_tokens must stay above the budget.
+      if (req.thinking) {
+        const effortBudgets = { low: 2048, medium: 4096, high: 8192 }
+        const budget = effortBudgets[req.reasoningEffort || 'high']
+        body.thinking = { type: 'enabled', budget_tokens: budget }
+        if (body.max_tokens <= budget) body.max_tokens = budget + 2048
+      }
+
+      if (systemPrompt) {
+        body.system = systemPrompt
+      }
+
+      // Add tools if provided (convert from OpenAI format to Anthropic format)
+      if (req.tools && req.tools.length > 0) {
+        body.tools = req.tools.map((t) => ({
+          name: t.function.name,
+          description: t.function.description,
+          input_schema: t.function.parameters,
+        }))
+      }
+
+      // Anthropic prompt caching: mark cache_control breakpoints so the repeated
+      // prefix (system + tools + conversation history) is billed at the cached
+      // read rate instead of full price on every turn.
+      if (cache) {
+        if (typeof body.system === 'string' && body.system) {
+          body.system = [{ type: 'text', text: body.system, cache_control: { type: 'ephemeral' } }]
+        }
+        // Cache the tools segment: the breakpoint goes on the LAST tool.
+        if (Array.isArray(body.tools) && body.tools.length > 0) {
+          const last = body.tools[body.tools.length - 1]
+          body.tools[body.tools.length - 1] = { ...last, cache_control: { type: 'ephemeral' } }
+        }
+        // Mid-conversation breakpoint: walk back from the second-to-last message
+        // (the final message can't carry cache_control) for a plain-text message
+        // — skip tool_result / tool_use blocks — and cache the history up to it.
+        // The next turn's request then shares that byte-identical prefix.
+        const start = Math.max(0, messages.length - 6)
+        for (let i = messages.length - 2; i >= start; i--) {
+          const m = messages[i]
+          if (typeof m.content === 'string' && m.content) {
+            messages[i] = {
+              ...m,
+              content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }],
+            }
+            break
           }
         }
-        // Assistant messages with tool calls
-        if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
-          const content: any[] = []
-          if (m.content) {
-            content.push({ type: 'text', text: m.content })
-          }
-          for (const tc of m.toolCalls) {
-            content.push({
-              type: 'tool_use',
-              id: tc.id,
-              name: tc.function.name,
-              input: JSON.parse(tc.function.arguments),
-            })
-          }
-          return { role: 'assistant' as const, content }
-        }
-        return {
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        }
-      })
+      }
 
-    const body: Record<string, any> = {
-      model: req.model,
-      messages,
-      max_tokens: req.maxTokens > 0 ? req.maxTokens : 4096,
-      stream: req.stream,
-      temperature: req.temperature,
-      top_p: req.topP,
+      return { body, messages }
     }
 
-    // Deep thinking: Anthropic extended thinking maps effort to a token budget
-    // (low/medium/high -> 2048/4096/8192). max_tokens must stay above the budget.
-    if (req.thinking) {
-      const effortBudgets = { low: 2048, medium: 4096, high: 8192 }
-      const budget = effortBudgets[req.reasoningEffort || 'high']
-      body.thinking = { type: 'enabled', budget_tokens: budget }
-      if (body.max_tokens <= budget) body.max_tokens = budget + 2048
-    }
-
-    if (systemPrompt) {
-      body.system = systemPrompt
-    }
-
-    // Add tools if provided (convert from OpenAI format to Anthropic format)
-    if (req.tools && req.tools.length > 0) {
-      body.tools = req.tools.map((t) => ({
-        name: t.function.name,
-        description: t.function.description,
-        input_schema: t.function.parameters,
-      }))
-    }
-
-    const response = await llmFetch(url, {
+    const { body } = buildBody(providerCache)
+    let response = await llmFetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
@@ -107,8 +182,23 @@ export class AnthropicAdapter implements LLMAdapter {
     }, { stream: true, skipTlsVerify: !!config.skipTlsVerify })
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => '')
-      throw new Error(`Anthropic API 请求失败 (${response.status}): ${errorText || response.statusText}`)
+      // The provider rejected the cache_control breakpoints (usually a segment
+      // below the token minimum) — retry once without prompt caching.
+      let errorText = await response.text().catch(() => '')
+      if (providerCache && /cache/i.test(errorText)) {
+        const { body: retryBody } = buildBody(false)
+        response = await llmFetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(retryBody),
+          signal,
+        }, { stream: true, skipTlsVerify: !!config.skipTlsVerify })
+        errorText = ''
+      }
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '')
+        throw new Error(`Anthropic API 请求失败 (${response.status}): ${errText || response.statusText}`)
+      }
     }
 
     if (!req.stream) {

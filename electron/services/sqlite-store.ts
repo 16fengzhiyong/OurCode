@@ -220,11 +220,23 @@ export class SQLiteStore {
         payload TEXT DEFAULT '{}'
       );
 
+      CREATE TABLE IF NOT EXISTS llm_response_cache (
+        key TEXT PRIMARY KEY,
+        provider TEXT DEFAULT '',
+        model TEXT DEFAULT '',
+        response TEXT NOT NULL,
+        tokens_in INTEGER DEFAULT 0,
+        tokens_out INTEGER DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        hits INTEGER DEFAULT 1
+      );
+
       CREATE INDEX IF NOT EXISTS idx_messages_session ON chat_messages(session_id, sort_order);
       CREATE INDEX IF NOT EXISTS idx_sessions_config ON chat_sessions(config_group_id);
       CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_usage_category_time ON usage_events(category, started_at);
       CREATE INDEX IF NOT EXISTS idx_usage_name ON usage_events(name);
+      CREATE INDEX IF NOT EXISTS idx_cache_created ON llm_response_cache(created_at);
     `)
   }
 
@@ -740,6 +752,48 @@ export class SQLiteStore {
 
   clearUsageEvents(): void {
     this.db.exec('DELETE FROM usage_events')
+  }
+
+  // ───────────────────── LLM response cache ─────────────────────
+  /** Max entries kept in the cache; the oldest are pruned on insert beyond this. */
+  private static readonly CACHE_MAX_ENTRIES = 5000
+
+  getResponseCache(key: string): { response: string; tokensIn: number; tokensOut: number } | null {
+    const row = this.db.prepare(
+      'SELECT response, tokens_in, tokens_out FROM llm_response_cache WHERE key = ?'
+    ).get(key) as any
+    if (!row) return null
+    this.db.prepare('UPDATE llm_response_cache SET hits = hits + 1 WHERE key = ?').run(key)
+    return {
+      response: row.response,
+      tokensIn: row.tokens_in || 0,
+      tokensOut: row.tokens_out || 0,
+    }
+  }
+
+  /** Insert (or refresh) a cache entry; prune the oldest when over capacity. */
+  putResponseCache(key: string, provider: string, model: string, response: string, tokensIn: number, tokensOut: number): void {
+    this.db.prepare(`
+      INSERT INTO llm_response_cache (key, provider, model, response, tokens_in, tokens_out, created_at, hits)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      ON CONFLICT(key) DO UPDATE SET
+        response = excluded.response,
+        tokens_in = excluded.tokens_in,
+        tokens_out = excluded.tokens_out,
+        created_at = excluded.created_at
+    `).run(key, provider, model, response, tokensIn, tokensOut, Date.now())
+
+    const count = (this.db.prepare('SELECT COUNT(*) AS c FROM llm_response_cache').get() as any).c as number
+    if (count > SQLiteStore.CACHE_MAX_ENTRIES) {
+      const excess = count - SQLiteStore.CACHE_MAX_ENTRIES
+      this.db.prepare(
+        'DELETE FROM llm_response_cache WHERE key IN (SELECT key FROM llm_response_cache ORDER BY created_at ASC LIMIT ?)'
+      ).run(excess)
+    }
+  }
+
+  clearResponseCache(): void {
+    this.db.exec('DELETE FROM llm_response_cache')
   }
 
   resetAll(): void {

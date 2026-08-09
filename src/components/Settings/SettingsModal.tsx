@@ -781,6 +781,12 @@ export default function SettingsModal() {
                 <SettingRow label="允许 AI 自动记忆" desc="开启后 AI 可在对话中自动把重要信息保存到长期记忆" right={
                   <ToggleButton on={preferences.aiAutoMemory} onClick={() => savePreferences({ aiAutoMemory: !preferences.aiAutoMemory })} />
                 } />
+                <SettingRow label="LLM 响应缓存" desc="相同请求直接复用上次结果、不再调用 API（仅缓存 temperature=0 的确定性请求）" right={
+                  <ToggleButton on={preferences.llmResponseCache} onClick={() => savePreferences({ llmResponseCache: !preferences.llmResponseCache })} />
+                } />
+                <SettingRow label="Anthropic 提示词缓存" desc="发送 cache_control 断点，重复的历史前缀按缓存价计费（Claude 约 1/10）" right={
+                  <ToggleButton on={preferences.anthropicPromptCache} onClick={() => savePreferences({ anthropicPromptCache: !preferences.anthropicPromptCache })} />
+                } />
               </div>
 
               <div className="flex flex-col gap-3">
