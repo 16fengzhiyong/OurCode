@@ -327,8 +327,12 @@ export const useUIStore = create<UIState>((set, get) => ({
     // Only restore projects that were actually opened before (in recentProjects)
     const recent = get().recentProjects
     if (!recent.includes(path)) return
-    // Verify the folder still exists on disk; otherwise fall back to the list
+    // Verify the folder still exists on disk; otherwise fall back to the list.
+    // The main process only serves fs: calls for paths the renderer authorized
+    // (the allowlist is empty at startup), so authorize first — otherwise this
+    // stat is rejected and the last project never restores.
     try {
+      await window.electronAPI.authorize(path)
       const stat = await window.electronAPI.stat(path)
       if (!stat || !stat.isDirectory) return
     } catch {

@@ -58,25 +58,6 @@ export default function FileTree({ rootPath }: FileTreeProps) {
     if (initial) setIsLoading(false)
   }, [rootPath, loadFiles])
 
-  // Load root files
-  useEffect(() => {
-    refreshTree(true)
-  }, [refreshTree])
-
-  // Watch for file changes
-  useEffect(() => {
-    window.electronAPI.watch(rootPath)
-    const unsubscribe = window.electronAPI.onFileChanged(() => {
-      // Reload files while preserving the expanded directory structure
-      refreshTree()
-    })
-
-    return () => {
-      window.electronAPI.unwatch(rootPath)
-      unsubscribe()
-    }
-  }, [rootPath, refreshTree])
-
   // Fetch git status and apply to file entries
   const fetchGitStatus = useCallback(async () => {
     try {
@@ -97,8 +78,39 @@ export default function FileTree({ rootPath }: FileTreeProps) {
     } catch { /* ignore git errors */ }
   }, [rootPath])
 
+  // Watch for file changes, then load the tree. fs:* calls are rejected by the
+  // main process until the root is registered (via this fs:watch), so the first
+  // listDir must wait for it — a mount-time listDir that raced the watch used
+  // to fail and leave the tree empty on every fresh open.
   useEffect(() => {
-    fetchGitStatus()
+    let cancelled = false
+    window.electronAPI.watch(rootPath)
+      .then(() => {
+        if (cancelled) return
+        refreshTree(true)
+        fetchGitStatus()
+      })
+      .catch(() => {
+        // Watcher failed to start (e.g. MCP config error) — load the tree
+        // anyway; the root may have been registered before the failure.
+        if (!cancelled) refreshTree(true)
+      })
+    const unsubscribe = window.electronAPI.onFileChanged(() => {
+      // Reload files while preserving the expanded directory structure
+      refreshTree()
+    })
+
+    return () => {
+      cancelled = true
+      window.electronAPI.unwatch(rootPath)
+      unsubscribe()
+    }
+  }, [rootPath, refreshTree, fetchGitStatus])
+
+  // Git status badges refresh on a timer; the initial fetch happens once the
+  // watcher is active (see the watch effect above, where the root is already
+  // registered so the git call is not rejected).
+  useEffect(() => {
     const interval = setInterval(fetchGitStatus, 15000)
     return () => clearInterval(interval)
   }, [fetchGitStatus])

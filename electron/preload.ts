@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.FS_RENAME, oldPath, newPath),
   delete: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_DELETE, path),
   stat: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_STAT, path),
+  authorize: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_AUTHORIZE, path),
   watch: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_WATCH, path),
   unwatch: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_UNWATCH, path),
   openInFinder: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.FS_OPEN_IN_FINDER, path),

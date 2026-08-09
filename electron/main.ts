@@ -24,10 +24,11 @@ const SEARCH_MAX_FILE_BYTES = 50 * 1024 * 1024
 
 /**
  * Paths the renderer is allowed to touch. Populated from the dialogs that the
- * user explicitly opened (open folder / open file / save file) and the watched
- * project root. Every fs:* handler validates against this allowlist so that a
- * compromised renderer (e.g. via the Markdown surface) cannot read/write/delete
- * arbitrary files outside what the user opened.
+ * user explicitly opened (open folder / open file / save file), explicit
+ * fs:authorize calls and the watched project root. Every fs:* handler validates
+ * against this allowlist so that a compromised renderer (e.g. via the Markdown
+ * surface) cannot read/write/delete arbitrary files outside what the user
+ * opened.
  */
 const allowedRoots: Set<string> = new Set()
 
@@ -362,6 +363,15 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('fs:unwatch', async (_event, path: string) => {
     fileSystem.unwatch(path)
+  })
+
+  // Authorize a path (and everything under it) without starting a watcher or
+  // loading MCP config. The renderer probes paths at startup (restoring the
+  // last project) when the allowlist is still empty — fs:watch can't be reused
+  // there because it would start a watcher / reload MCP servers as a side
+  // effect.
+  ipcMain.handle('fs:authorize', async (_event, path: string) => {
+    registerRoot(path)
   })
 
   ipcMain.handle('fs:openInFinder', async (_event, path: string) => {
