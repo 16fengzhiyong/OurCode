@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="favicon.png" />
+  <title>任务管理工作台</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body data-theme="light">
+  <!-- ============ 顶部导航 ============ -->
+  <header class="topbar">
+    <div class="brand">📋 任务管理工作台</div>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="dashboard" role="tab">仪表盘</button>
+      <button class="tab" data-tab="tasks" role="tab">任务列表</button>
+      <button class="tab" data-tab="settings" role="tab">设置</button>
+    </nav>
+  </header>
+
+  <!-- ============ 仪表盘 ============ -->
+  <main>
+    <section id="panel-dashboard" class="panel active" data-panel="dashboard">
+      <h2>仪表盘</h2>
+      <p class="muted" id="dashboard-greeting">你好，请先在「设置」里填写你的名字。</p>
+      <div class="stats">
+        <div class="stat-card">
+          <span class="stat-value" id="stat-total">0</span>
+          <span class="stat-label">总任务</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="stat-done">0</span>
+          <span class="stat-label">已完成</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="stat-pending">0</span>
+          <span class="stat-label">进行中</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 任务列表 ============ -->
+    <section id="panel-tasks" class="panel" data-panel="tasks" hidden>
+      <h2>任务列表</h2>
+
+      <form id="task-form" class="task-form">
+        <input
+          id="task-input"
+          type="text"
+          placeholder="输入任务描述，例如：完成季度报告"
+          autocomplete="off"
+        />
+        <button type="submit" id="add-task-btn">添加任务</button>
+      </form>
+      <p id="form-error" class="error" hidden>任务描述不能为空，请输入后再添加。</p>
+
+      <div class="task-toolbar">
+        <input id="search-input" type="search" placeholder="🔍 按关键词筛选任务" />
+        <span class="muted" id="task-count">共 0 项 · 显示 0 项</span>
+      </div>
+
+      <ul id="task-list" class="task-list"></ul>
+      <p id="empty-hint" class="muted">暂无任务，去添加一条吧。</p>
+    </section>
+
+    <!-- ============ 设置 ============ -->
+    <section id="panel-settings" class="panel" data-panel="settings" hidden>
+      <h2>设置</h2>
+
+      <div class="setting-row">
+        <label for="username-input">你的名字</label>
+        <input id="username-input" type="text" placeholder="例如：张三" />
+        <p class="muted">保存后，仪表盘会显示「你好，<span id="username-preview">…</span>」。</p>
+      </div>
+
+      <div class="setting-row">
+        <label>主题</label>
+        <div class="theme-switch">
+          <button id="theme-light" class="theme-btn active">☀️ 浅色</button>
+          <button id="theme-dark" class="theme-btn">🌙 深色</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer muted">任务管理工作台 v1.0 · 仅用于 AI 自测演示</footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

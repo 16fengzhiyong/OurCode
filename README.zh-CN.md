@@ -30,6 +30,7 @@ OurCode IDE 是一个基于 Electron 构建的桌面代码编辑器，将 AI 助
 - **子智能体（Subagents）** — 内置 `code-reviewer`（代码审查）、`test-generator`（测试生成）、`researcher`（检索）三类智能体（可通过 `.ourcode/agents/*.md` 自定义），以权限单调递减、迭代/Token 预算与 checkpoint 回滚的方式执行委派子任务。
 - **技能系统（Skills）** — 类 Claude Code 的 `SKILL.md` 发现机制：工作区或用户目录中的技能会作为只读工具按需加载，也可从技能注册表一键安装。
 - **MCP 支持** — 通过 stdio 或 HTTP（streamable）连接 MCP 服务器，为助手接入外部工具、资源与提示词，支持断线自动重连。
+- **浏览器 UI 自测** — 接入 Playwright MCP 后，助手可打开真实浏览器，对客户 Web 项目自动点击/输入并逐项验证功能（`ui-self-test` 技能）。详见 [`docs/BROWSER_SELF_TEST.md`](docs/BROWSER_SELF_TEST.md)，可运行示例见 [`examples/ui-self-test-demo`](examples/ui-self-test-demo)。
 
 ### 📝 代码编辑器与工作区
 

@@ -9,6 +9,14 @@
       "serverUrl": "https://gateway.internal.example.com/mcp",
       "headers": { "Authorization": "Bearer xxx" },
       "skipTlsVerify": true
+    },
+    "playwright": {
+      "command": "node",
+      "args": ["node_modules/@playwright/mcp/cli.js"],
+      "env": {}
     }
+  },
+  "_comments": {
+    "playwright": "浏览器操作 MCP（AI 可对 Web 项目自动点击/输入/验证）。stdio 传输不走 shell，Windows 上不能用 npx，需先在工作区安装：npm i -D @playwright/mcp，再执行 node node_modules/@playwright/mcp/node_modules/playwright/cli.js install chromium。详细用法见 docs/BROWSER_SELF_TEST.md 和 examples/ui-self-test-demo。"
   }
 }

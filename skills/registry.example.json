@@ -20,6 +20,13 @@
       "version": "2.0.0",
       "author": "OurCode 社区",
       "contentUrl": "https://example.com/ourcode-registry/deploy/SKILL.md"
+    },
+    {
+      "name": "ui-self-test",
+      "description": "对客户 Web 项目做自动化 UI 自测：用 Playwright MCP 浏览器工具点击/输入/验证，输出通过/失败测试报告",
+      "version": "1.0.0",
+      "author": "OurCode 社区",
+      "contentUrl": "https://example.com/ourcode-registry/ui-self-test/SKILL.md"
     }
   ]
 }

@@ -1,0 +1,178 @@
+/* 任务管理工作台样式 */
+:root {
+  --bg: #f5f6fa;
+  --panel: #ffffff;
+  --text: #1f2430;
+  --muted: #8a93a6;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --border: #e3e6ee;
+  --danger: #ef4444;
+  --done: #10b981;
+  --shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+}
+
+body[data-theme="dark"] {
+  --bg: #14161c;
+  --panel: #1e2129;
+  --text: #e6e8ee;
+  --muted: #7c8498;
+  --border: #2d313c;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  transition: background 0.2s, color 0.2s;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.brand { font-size: 18px; font-weight: 600; }
+
+.tabs { display: flex; gap: 8px; }
+
+.tab {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.tab:hover { color: var(--text); }
+
+.tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+main { max-width: 760px; margin: 32px auto; padding: 0 20px; }
+
+h2 { font-size: 20px; margin: 0 0 8px; }
+
+.muted { color: var(--muted); font-size: 13px; }
+
+/* 仪表盘 */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.stat-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+
+.stat-value { display: block; font-size: 32px; font-weight: 700; color: var(--accent); }
+.stat-label { font-size: 13px; color: var(--muted); }
+
+/* 任务表单 */
+.task-form { display: flex; gap: 8px; margin-top: 16px; }
+
+.task-form input,
+.task-toolbar input,
+.setting-row input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.task-form input:focus,
+.task-toolbar input:focus,
+.setting-row input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+button[type="submit"],
+.theme-btn {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+button[type="submit"]:hover { background: var(--accent-hover); }
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+
+.task-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.task-toolbar #search-input { flex: 1; }
+
+.task-list { list-style: none; padding: 0; margin: 0; }
+
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow);
+}
+
+.task-item.completed .task-text { text-decoration: line-through; color: var(--muted); }
+
+.task-text { flex: 1; word-break: break-all; }
+
+.delete-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.delete-btn:hover { color: var(--danger); background: rgba(239, 68, 68, 0.08); }
+
+/* 设置 */
+.setting-row { margin-top: 20px; }
+.setting-row label { display: block; font-size: 14px; margin-bottom: 8px; font-weight: 600; }
+.setting-row input { max-width: 320px; }
+.theme-switch { display: flex; gap: 8px; }
+
+.theme-btn { background: var(--border); color: var(--text); }
+.theme-btn.active { background: var(--accent); color: #fff; }
+
+.footer { text-align: center; padding: 24px; }

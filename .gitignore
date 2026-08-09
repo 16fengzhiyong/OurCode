@@ -12,6 +12,9 @@ test-results/
 # Playwright
 playwright-report/
 
+# @playwright/mcp runtime data (console logs, page snapshots)
+.playwright-mcp/
+
 # Logs
 *.log
 npm-debug.log*
