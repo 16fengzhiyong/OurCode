@@ -17,21 +17,15 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'deepseek-chat': 64000, 'deepseek-coder': 64000, 'gemini-1.5-pro': 2000000, 'gemini-1.5-flash': 1000000,
 }
 
-/** Stable empty-queue reference — returning a fresh [] from the selector would
- *  re-render ChatMessages on every store update (e.g. each streaming chunk of
- *  a parallel conversation), since zustand compares with Object.is. */
-const EMPTY_QUEUE: string[] = []
-
 export default function ChatMessages() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const activeSession = useChatStore((s) => s.getActiveSession())
-  const { reorderMessages, undoStack, undoDelete, switchBranch, clearQueue } = useChatStore()
-  // Streaming / loading state is per session — only the conversation the user
+  const { reorderMessages, undoStack, undoDelete, switchBranch } = useChatStore()
+  // Loading / streaming state is per session — only the conversation the user
   // is viewing reacts to its own run; parallel sessions stream independently.
   const activeSessionId = activeSession?.id || ''
   const isThisSessionLoading = useChatStore((s) => !!activeSessionId && s.runningSessionIds.includes(activeSessionId))
   const stream = useChatStore((s) => (activeSessionId ? s.streamingBySession[activeSessionId] : undefined))
-  const queuedMessages = useChatStore((s) => (activeSessionId ? (s.queuedMessagesBySession[activeSessionId] ?? EMPTY_QUEUE) : EMPTY_QUEUE))
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [showUndoToast, setShowUndoToast] = useState(false)
@@ -282,19 +276,6 @@ export default function ChatMessages() {
 
       {/* Agent todo (overview pinned above the conversation) */}
       <TodoPanel sessionId={activeSession.id} />
-
-      {/* Queued messages while the agent is working — violet gradient banner */}
-      {queuedMessages.length > 0 && (
-        <div className="banner-queue flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs shrink-0">
-          <svg className="w-[15px] h-[15px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 22h14M5 2h14" />
-            <path d="M17 2v4a5 5 0 0 1-5 5 5 5 0 0 1-5-5V2" />
-            <path d="M17 22v-4a5 5 0 0 0-5-5 5 5 0 0 0-5 5v4" />
-          </svg>
-          <span className="font-medium">{t('chat.queuedBanner', { count: queuedMessages.length })}</span>
-          <button onClick={() => clearQueue(activeSessionId)} className="ml-auto font-semibold transition-colors">{t('common.cancel')}</button>
-        </div>
-      )}
 
       {/* Context truncation warning — amber gradient banner (critical stays red) */}
       {tokenWarning && (

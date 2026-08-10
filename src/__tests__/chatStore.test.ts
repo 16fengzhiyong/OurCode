@@ -507,6 +507,45 @@ describe('chatStore agent run state', () => {
     expect(useChatStore.getState().queuedMessagesBySession['s2']).toEqual(['另一条'])
   })
 
+  it('removeQueuedMessage deletes only the given index and keeps order', () => {
+    useChatStore.getState().queueMessage('s1', 'A')
+    useChatStore.getState().queueMessage('s1', 'B')
+    useChatStore.getState().queueMessage('s1', 'C')
+    useChatStore.getState().removeQueuedMessage('s1', 1)
+    expect(useChatStore.getState().queuedMessagesBySession['s1']).toEqual(['A', 'C'])
+    // Invalid index / unknown session are no-ops
+    useChatStore.getState().removeQueuedMessage('s1', 5)
+    useChatStore.getState().removeQueuedMessage('s1', -1)
+    useChatStore.getState().removeQueuedMessage('s2', 0)
+    expect(useChatStore.getState().queuedMessagesBySession['s1']).toEqual(['A', 'C'])
+  })
+
+  it('sendQueuedNow stops the run and promotes the picked message to the front', () => {
+    const ac = new AbortController()
+    useChatStore.setState({ runningSessionIds: ['s1'], abortControllers: { s1: ac } })
+    useChatStore.getState().queueMessage('s1', 'A')
+    useChatStore.getState().queueMessage('s1', 'B')
+    useChatStore.getState().queueMessage('s1', 'C')
+    const abortSpy = vi.spyOn(ac, 'abort')
+    useChatStore.getState().sendQueuedNow('s1', 2)
+    // The picked message is now first (drained next by the aborted run's finally)
+    expect(useChatStore.getState().queuedMessagesBySession['s1']).toEqual(['C', 'A', 'B'])
+    // stopGeneration aborted the controller and dropped it from the map
+    expect(abortSpy).toHaveBeenCalledTimes(1)
+    expect(useChatStore.getState().abortControllers['s1']).toBeUndefined()
+  })
+
+  it('sendQueuedNow with an invalid index is a no-op', () => {
+    const ac = new AbortController()
+    useChatStore.setState({ runningSessionIds: ['s1'], abortControllers: { s1: ac } })
+    useChatStore.getState().queueMessage('s1', 'A')
+    const abortSpy = vi.spyOn(ac, 'abort')
+    useChatStore.getState().sendQueuedNow('s1', 3)
+    useChatStore.getState().sendQueuedNow('s1', -1)
+    expect(useChatStore.getState().queuedMessagesBySession['s1']).toEqual(['A'])
+    expect(abortSpy).not.toHaveBeenCalled()
+  })
+
   it('createSession binds to an explicitly passed projectPath', () => {
     useChatStore.getState().createSession('cfg-1', '/explicit/proj')
     const s = useChatStore.getState().sessions[0]

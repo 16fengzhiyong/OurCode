@@ -12,6 +12,11 @@ import { dragSource } from '../Sidebar/FileTreeNode'
 const slashDescription = (cmd: SlashCommand, t: (key: TranslationKey, vars?: Record<string, string | number>) => string) =>
   t(('slashCommands.' + cmd.id) as TranslationKey)
 
+/** Stable empty-queue reference — a fresh [] from the selector would re-render
+ *  ChatInput on every store update (e.g. each streaming chunk of a parallel
+ *  conversation), since zustand compares with Object.is. */
+const EMPTY_QUEUE: string[] = []
+
 /**
  * Whether `path` sits inside `root`. The main process only grants fs access to
  * registered roots (project + dialog-picked files), so out-of-workspace drops
@@ -82,12 +87,13 @@ export default function ChatInput() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileSearchRef = useRef<HTMLDivElement>(null)
 
-  const { sendMessage, stopGeneration, queueMessage } = useChatStore()
+  const { sendMessage, stopGeneration, queueMessage, removeQueuedMessage, sendQueuedNow, clearQueue } = useChatStore()
   // Loading/stop state is per session: while THIS conversation generates the
   // send button turns into stop; other conversations running in parallel keep
   // their own buttons (and stopping here must never abort them).
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const isThisSessionLoading = useChatStore((s) => !!s.activeSessionId && s.runningSessionIds.includes(s.activeSessionId))
+  const queuedMessages = useChatStore((s) => (s.activeSessionId ? (s.queuedMessagesBySession[s.activeSessionId] ?? EMPTY_QUEUE) : EMPTY_QUEUE))
   const targetMode = useChatStore((s) => {
     const sess = s.sessions.find((x) => x.id === s.activeSessionId)
     return sess?.targetMode === true
@@ -448,6 +454,53 @@ export default function ChatInput() {
         </div>
       )}
 
+      {/* Queued messages (typed while the agent is working) — shown above the
+          input so each one can be sent now or deleted before it fires. */}
+      {activeSessionId && queuedMessages.length > 0 && (
+        <div className="banner-queue rounded-lg mb-2 overflow-hidden">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <path d="M5 22h14M5 2h14" />
+              <path d="M17 2v4a5 5 0 0 1-5 5 5 5 0 0 1-5-5V2" />
+              <path d="M17 22v-4a5 5 0 0 0-5-5 5 5 0 0 0-5 5v4" />
+            </svg>
+            <span>{t('chat.queueTitle')} · {queuedMessages.length}</span>
+            <button
+              onClick={() => clearQueue(activeSessionId)}
+              className="ml-auto font-semibold transition-colors hover:text-nova-text-primary"
+            >
+              {t('chat.queueClearAll')}
+            </button>
+          </div>
+          <div className="max-h-32 overflow-y-auto px-2 pb-2 space-y-1">
+            {queuedMessages.map((msg, i) => (
+              <div key={i} className="flex items-center gap-1.5 text-xs rounded px-2 py-1 hover:bg-nova-hover transition-colors">
+                <span className="flex-1 min-w-0 truncate">{msg}</span>
+                <button
+                  onClick={() => sendQueuedNow(activeSessionId, i)}
+                  title={t('chat.queueSendNow')}
+                  className="shrink-0 opacity-70 hover:opacity-100 transition-opacity"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3" fill="currentColor" stroke="none" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => removeQueuedMessage(activeSessionId, i)}
+                  title={t('chat.queueDelete')}
+                  className="shrink-0 opacity-70 hover:opacity-100 transition-opacity"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Input Area — also a drop target for files (OS or file tree) */}
       <div
         className={`relative ${isDragOver ? 'ring-2 ring-nova-accent/70 rounded-lg' : ''}`}
@@ -569,7 +622,10 @@ export default function ChatInput() {
                   <line x1="8" y1="23" x2="16" y2="23" />
                 </svg>
               </button>
-              {isThisSessionLoading ? (
+              {/* While the agent works the button is "结束" — typing turns it
+                  into "发送" so Enter/click queues the message (type-ahead);
+                  sending or clearing the input flips it back to "结束". */}
+              {isThisSessionLoading && !input.trim() ? (
                 <button
                   onClick={() => activeSessionId && stopGeneration(activeSessionId)}
                   className="px-3.5 py-1.5 text-xs text-white font-medium rounded-lg transition-colors"

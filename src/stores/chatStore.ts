@@ -446,6 +446,10 @@ interface ChatState {
   // Queued messages (type while the agent is working) — per session
   queuedMessagesBySession: Record<string, string[]>
   queueMessage: (sessionId: string, content: string) => void
+  removeQueuedMessage: (sessionId: string, index: number) => void
+  /** "立即发送" — stop the current run so its finally drains the message next,
+   *  or send it right away if nothing is running. */
+  sendQueuedNow: (sessionId: string, index: number) => void
   clearQueue: (sessionId: string) => void
 
   // Inbound cross-session messages (send_message tool) awaiting the target
@@ -872,6 +876,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
         [sessionId]: [...(s.queuedMessagesBySession[sessionId] || []), trimmed],
       },
     }))
+  },
+
+  removeQueuedMessage: (sessionId, index) => {
+    const queue = get().queuedMessagesBySession[sessionId]
+    if (!sessionId || !queue || index < 0 || index >= queue.length) return
+    set((s) => ({
+      queuedMessagesBySession: {
+        ...s.queuedMessagesBySession,
+        [sessionId]: queue.filter((_, i) => i !== index),
+      },
+    }))
+  },
+
+  sendQueuedNow: (sessionId, index) => {
+    const queue = get().queuedMessagesBySession[sessionId]
+    if (!sessionId || !queue || index < 0 || index >= queue.length) return
+    // Promote the picked message to the front of the queue.
+    const next = [...queue]
+    const [msg] = next.splice(index, 1)
+    next.unshift(msg)
+    set((s) => ({
+      queuedMessagesBySession: {
+        ...s.queuedMessagesBySession,
+        [sessionId]: next,
+      },
+    }))
+    if (get().runningSessionIds.includes(sessionId)) {
+      // Abort the current run — its finally block drains the (now front)
+      // message as the very next thing sent, ahead of the rest of the queue.
+      get().stopGeneration(sessionId)
+    } else {
+      // Nothing is generating for this session; send it right away.
+      void get().sendMessage(sessionId, msg)
+    }
   },
 
   clearQueue: (sessionId) => {
