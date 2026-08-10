@@ -184,7 +184,7 @@ function TaskCard({
 }) {
   return (
     <div
-      className={`rounded-lg border p-2.5 space-y-1.5 ${
+      className={`rounded-xl border border-nova-border bg-nova-card/60 p-2.5 space-y-1.5 hover:border-nova-accent/30 transition-colors ${
         isActive ? 'border-nova-accent/40 bg-nova-accent/5' : 'border-nova-border bg-nova-surface/60'
       }`}
     >

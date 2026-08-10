@@ -121,7 +121,7 @@ export default function PluginMarketplace() {
   return (
     <div role="dialog" aria-modal="true" aria-label={t('plugin.dialog')} className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={closeMarketplace}>
       <div
-        className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl w-[900px] max-h-[80vh] flex flex-col overflow-hidden"
+        className="glass-chrome rounded-2xl w-[900px] max-h-[80vh] flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -316,7 +316,7 @@ api.ui.registerPanel('my-panel', 'My Plugin', () => {
         {/* Uninstall confirmation */}
         {showConfirmUninstall && (
           <div role="dialog" aria-modal="true" aria-label={t('plugin.uninstallDialog')} className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60" onClick={() => setShowConfirmUninstall(null)}>
-            <div className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl p-6 w-[400px]" onClick={(e) => e.stopPropagation()}>
+            <div className="glass-chrome rounded-2xl p-6 w-[400px]" style={{ boxShadow: 'var(--shadow-xl)' }} onClick={(e) => e.stopPropagation()}>
               <h3 className="text-lg font-semibold text-nova-text-primary mb-2">{t('plugin.uninstallDialog')}</h3>
               <p className="text-sm text-nova-text-secondary mb-1">
                 {t('plugin.uninstallConfirm')}

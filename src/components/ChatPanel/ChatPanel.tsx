@@ -160,7 +160,7 @@ export default function ChatPanel() {
   }, [effectiveAgentMode, targetMode, refreshTargetModeStatus])
 
   return (
-    <div className="h-full flex" style={{ background: 'var(--surface)' }}>
+    <div className="h-full flex bg-transparent">
       {/* Session sidebar (collapsible) */}
       {isChatSessionListOpen && (
         <ChatSidebar onClose={() => setChatSessionListOpen(false)} />
@@ -174,13 +174,13 @@ export default function ChatPanel() {
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* Chat header */}
-        <div className="px-3 py-2 border-b shrink-0" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+        <div className="px-3 py-2 shrink-0">
           <div className="flex items-center justify-between gap-2">
             {/* Brand */}
             <div className="flex items-center gap-2 min-w-0">
               <div
-                className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-                style={{ background: 'var(--grad-brand)', boxShadow: '0 2px 8px #2563eb44' }}
+                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                style={{ background: 'var(--grad-brand)', boxShadow: '0 2px 8px rgba(99,102,241,0.4)' }}
               >
                 <WaveLogo />
               </div>
@@ -320,14 +320,15 @@ export default function ChatPanel() {
               <ChatMessages />
 
               {/* Mode bar — chat / agent (planning is a read-only phase of agent mode) */}
-              <div className="shrink-0 px-3 py-1.5 border-t border-nova-border flex items-center justify-between gap-1.5" style={{ background: 'var(--surface)' }}>
+              <div className="shrink-0 px-3 py-2 border-t border-nova-border flex items-center justify-between gap-1.5 bg-transparent">
                 {/* Chat / agent switch — hidden while target mode is running
                     (the pill is the single control then) */}
                 {!targetMode && (
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => setAgentMode(activeSession.id, 'chat')}
-                      className={`px-2.5 py-1 text-xs rounded-md transition-colors ${effectiveAgentMode === 'chat' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
+                      className={`px-3 py-1 text-xs rounded-full transition-all ${effectiveAgentMode === 'chat' ? 'text-white shadow-sm' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
+                      style={effectiveAgentMode === 'chat' ? { background: 'var(--grad-brand)' } : undefined}
                       title={t('chat.chatModeHint')}
                     >
                       {t('chat.modeChat')}
@@ -335,7 +336,8 @@ export default function ChatPanel() {
                     <button
                       onClick={handleSwitchToAgent}
                       disabled={!hasProject}
-                      className={`px-2.5 py-1 text-xs rounded-md transition-colors ${effectiveAgentMode === 'agent' ? 'bg-[#2563eb] text-white' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'} ${!hasProject ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      className={`px-3 py-1 text-xs rounded-full transition-all ${effectiveAgentMode === 'agent' ? 'text-white shadow-sm' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'} ${!hasProject ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      style={effectiveAgentMode === 'agent' ? { background: 'var(--grad-brand)' } : undefined}
                       title={hasProject ? t('chat.modeAgentHint') : t('chat.agentNeedsProject')}
                     >
                       {t('chat.modeAgent')}
@@ -377,7 +379,7 @@ export default function ChatPanel() {
                     <select
                       value={projectEditMode}
                       onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}
-                      className="text-xs rounded-md px-2 py-1 border border-nova-border bg-nova-input-bg text-nova-text-primary outline-none cursor-pointer hover:border-nova-accent focus:border-nova-accent transition-colors"
+                      className="text-xs rounded-full px-3 py-1 border border-nova-border bg-nova-input-bg text-nova-text-primary outline-none cursor-pointer hover:border-nova-accent focus:border-nova-accent transition-colors"
                       title={t('chat.projectEditModeLabel')}
                       style={{ backgroundImage: 'none' }}
                     >

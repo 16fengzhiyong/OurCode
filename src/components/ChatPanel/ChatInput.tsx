@@ -581,7 +581,8 @@ export default function ChatInput() {
                 <button
                   onClick={handleSubmit}
                   disabled={!input.trim() || !activeConfigGroupId}
-                  className="bg-[#2563eb] hover:bg-[#3b82f6] text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="text-white text-xs font-medium px-4 py-1.5 rounded-full transition-all hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+                  style={{ background: 'var(--grad-brand)' }}
                 >
                   {t('chat.send')}
                 </button>

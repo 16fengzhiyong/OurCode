@@ -102,7 +102,7 @@ export default function UsagePanel() {
       <div className="p-3 space-y-4">
         {/* Header: range + refresh + clear */}
         <div className="flex items-center gap-1">
-          <div className="flex items-center rounded-md border border-nova-border overflow-hidden">
+          <div className="flex items-center rounded-full border border-nova-border overflow-hidden">
             {RANGE_OPTIONS.map((opt) => (
               <button
                 key={opt.labelKey}

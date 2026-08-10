@@ -298,15 +298,15 @@ export default function TitleBar() {
   }
 
   return (
-    <div className="h-12 flex items-center drag-region select-none shrink-0" style={{ background: 'var(--bg-tabs)', borderBottom: '1px solid var(--border)' }}>
+    <div className="h-12 flex items-center drag-region select-none shrink-0 rounded-xl glass-chrome px-1">
       {/* Logo */}
-      <div className="flex items-center px-4 gap-2 no-drag">
+      <div className="flex items-center pl-3 pr-2 gap-2 no-drag">
         <div
           className="w-3.5 h-3.5 rounded-full animate-logo-pulse shrink-0"
-          style={{ background: 'radial-gradient(circle, #3B82F6 0%, #2563EB 100%)', boxShadow: '0 0 6px #2563eb88' }}
+          style={{ background: 'linear-gradient(135deg, #0EA5E9 0%, #6366F1 55%, #A855F7 100%)', boxShadow: '0 0 8px rgba(99,102,241,0.45)' }}
         />
-        <span className="text-xs text-nova-text-muted">
-          OurCode
+        <span className="text-xs font-bold text-nova-text-primary tracking-tight">
+          OurCode&nbsp;<span className="font-extrabold bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-500 bg-clip-text text-transparent">AI</span>
         </span>
       </div>
 
@@ -324,10 +324,10 @@ export default function TitleBar() {
               role="menuitem"
               aria-haspopup="menu"
               aria-expanded={activeMenu === menu.label}
-              className={`h-12 px-2.5 text-xs transition-colors ${
+              className={`my-2 h-7 px-2.5 rounded-full text-xs transition-colors ${
                 activeMenu === menu.label
-                  ? 'bg-nova-hover text-[var(--text-primary)]'
-                  : 'text-nova-text-secondary hover:text-nova-text-primary hover:bg-nova-hover/50'
+                  ? 'bg-nova-accent/15 text-nova-text-primary'
+                  : 'text-nova-text-secondary hover:text-nova-text-primary hover:bg-nova-hover'
               }`}
               onClick={() => handleMenuClick(menu.label)}
               onMouseEnter={() => activeMenu && setActiveMenu(menu.label)}
@@ -373,10 +373,11 @@ export default function TitleBar() {
       <div className="flex-1 flex justify-center min-w-0 px-4">
         <button
           onClick={() => (rootPath ? useUIStore.getState().toggleSidebar() : openCommandPalette())}
-          className="hidden md:flex items-center gap-2 px-3 h-7 rounded-lg text-xs transition-colors min-w-0 max-w-[420px] no-drag"
+          className="hidden md:flex items-center gap-2 px-3 h-7 rounded-full text-xs transition-colors min-w-0 max-w-[420px] no-drag"
           style={{
-            background: 'color-mix(in srgb, var(--card, #27272a) 60%, transparent)',
-            border: '1px solid var(--border)',
+            background: 'color-mix(in srgb, var(--card, #ffffff) 55%, transparent)',
+            border: `1px solid ${activeConfigGroupId ? 'color-mix(in srgb, var(--accent, #0058bc) 35%, transparent)' : 'var(--border)'}`,
+            boxShadow: activeConfigGroupId ? '0 0 0 3px color-mix(in srgb, var(--accent, #0058bc) 12%, transparent)' : 'none',
             backdropFilter: 'var(--backdrop-blur)',
             WebkitBackdropFilter: 'var(--backdrop-blur)',
           }}
@@ -389,7 +390,7 @@ export default function TitleBar() {
             {rootPath ? rootPath.split(/[/\\]/).pop() || rootPath : t('layout.openFolder')}
           </span>
           <span
-            className={`w-1.5 h-1.5 rounded-full shrink-0 ${activeConfigGroupId ? 'bg-green-400' : 'bg-nova-text-muted'}`}
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${activeConfigGroupId ? 'bg-green-400 animate-pulse-dot' : 'bg-nova-text-muted'}`}
           />
           <span className="text-nova-text-muted text-[11px] shrink-0">
             {activeConfigGroupId ? (isChatVisible ? 'OurCode AI' : 'AI') : t('layout.notConfigured')}
@@ -402,7 +403,7 @@ export default function TitleBar() {
         {/* Window controls */}
         <button
           onClick={handleMinimize}
-          className="p-2 text-nova-text-muted hover:text-white hover:bg-nova-hover transition-colors"
+          className="p-2 rounded-full text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
           aria-label={t('layout.minimize')} title={t('layout.minimize')}
         >
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -411,7 +412,7 @@ export default function TitleBar() {
         </button>
         <button
           onClick={handleMaximize}
-          className="p-2 text-nova-text-muted hover:text-white hover:bg-nova-hover transition-colors"
+          className="p-2 rounded-full text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
           aria-label={isMaximized ? t('layout.restore') : t('layout.maximize')} title={isMaximized ? t('layout.restore') : t('layout.maximize')}
         >
           {isMaximized ? (
@@ -427,7 +428,7 @@ export default function TitleBar() {
         </button>
         <button
           onClick={handleClose}
-          className="p-2 text-nova-text-muted hover:text-white transition-colors"
+          className="p-2 rounded-full text-nova-text-muted hover:text-white transition-colors"
           aria-label={t('layout.close')} title={t('layout.close')}
           onMouseEnter={(e) => { e.currentTarget.style.background = '#e81123' }}
           onMouseLeave={(e) => { e.currentTarget.style.background = '' }}

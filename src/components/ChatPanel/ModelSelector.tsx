@@ -85,7 +85,7 @@ export default function ModelSelector() {
         {/* Provider selector */}
         <button
           onClick={() => { setShowProviderMenu(!showProviderMenu); setShowModelList(false) }}
-          className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-2 bg-nova-input-bg text-nova-text-secondary rounded-lg border border-nova-border text-xs hover:border-nova-accent/40 transition-colors max-w-[45%]"
+          className="flex items-center gap-1.5 py-1.5 pl-2.5 pr-2 bg-nova-input-bg text-nova-text-secondary rounded-full border border-nova-border text-xs hover:border-nova-accent/40 transition-colors max-w-[45%]"
         >
           <span className="w-2 h-2 rounded-full shrink-0" style={{ background: activeGroup?.color || '#6C9EFF' }} />
           <span className="truncate">{activeGroup?.name || '选择提供商'}</span>
@@ -95,7 +95,7 @@ export default function ModelSelector() {
         {/* Model selector */}
         <button
           onClick={() => { setShowModelList(!showModelList); setShowProviderMenu(false) }}
-          className="flex-1 min-w-0 py-1.5 px-3 bg-nova-input-bg text-nova-text-secondary rounded-lg border border-nova-border text-xs text-left flex items-center gap-2 hover:border-nova-accent/40 transition-colors"
+          className="flex-1 min-w-0 py-1.5 px-3 bg-nova-input-bg text-nova-text-secondary rounded-full border border-nova-border text-xs text-left flex items-center gap-2 hover:border-nova-accent/40 transition-colors"
         >
           {currentModel ? (
             <>

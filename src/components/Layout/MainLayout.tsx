@@ -209,24 +209,24 @@ export default function MainLayout() {
   }, [])
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-nova-bg text-nova-text-primary overflow-hidden">
+    <div className="h-full min-h-0 flex flex-col bg-nova-bg text-nova-text-primary overflow-hidden p-2 gap-2">
       <TitleBar />
-      <div className="flex-1 h-full min-h-0 flex overflow-hidden">
+      <div className="flex-1 h-full min-h-0 flex gap-2 overflow-hidden">
         <ActivityBar />
         {isSidebarVisible && !(isNarrow && isChatVisible) && (
           <div style={{ width: effectiveSidebarWidth }} className="shrink-0 relative">
-            <div className="h-full border-r border-nova-border"><Sidebar /></div>
+            <div className="h-full rounded-xl overflow-hidden glass-chrome"><Sidebar /></div>
             <div
               className="resizer absolute right-0 top-0 h-full z-10"
               onMouseDown={(e) => handlePanelResize('sidebar', e)}
             />
           </div>
         )}
-        <div className="flex-1 h-full min-h-0 flex flex-col overflow-hidden">
+        <div className="flex-1 h-full min-h-0 flex flex-col gap-2 overflow-hidden">
           <div className={`flex-1 h-full min-h-0 flex ${isNarrow ? 'flex-col' : ''} overflow-hidden`}>
             {isEditorVisible && (
               <>
-                <div className={`flex-1 h-full min-w-0 min-h-0 overflow-hidden flex ${splitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}>
+                <div className={`flex-1 h-full min-w-0 min-h-0 overflow-hidden flex rounded-xl glass-chrome ${splitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}>
                   {panelOrder.map((pid, index) => (
                     <div key={pid} className="flex-1 h-full min-w-0 min-h-0 overflow-hidden flex flex-col" style={panelOrder.length > 1 && splitRatios[index - 1] ? { flex: `0 0 ${splitRatios[index - 1] * 100}%` } : undefined}>
                       <TabBar panelId={pid} />
@@ -277,18 +277,18 @@ export default function MainLayout() {
             {isChatVisible && (
               <div
                 style={isNarrow || !isEditorVisible ? undefined : { width: Math.min(chatWidth, Math.max(360, windowWidth - 100)) + 'px' }}
-                className={`h-full ${isNarrow ? 'border-t' : 'border-l'} border-nova-border ${isEditorVisible && !isNarrow ? 'shrink-0' : 'flex-1 min-w-0'} overflow-hidden`}
+                className={`h-full rounded-xl overflow-hidden glass-chrome ${isEditorVisible && !isNarrow ? 'shrink-0' : 'flex-1 min-w-0'} ${isNarrow ? 'flex-1 min-w-0' : ''}`}
               ><ChatPanel /></div>
             )}
           </div>
           {isProblemsOpen && (
-            <div className="shrink-0" style={{ height: 160 }}><ProblemsPanel /></div>
+            <div className="shrink-0 rounded-xl overflow-hidden glass-chrome" style={{ height: 160 }}><ProblemsPanel /></div>
           )}
           {isDebugOpen && (
-            <div className="shrink-0" style={{ height: 200 }}><DebugPanel /></div>
+            <div className="shrink-0 rounded-xl overflow-hidden glass-chrome" style={{ height: 200 }}><DebugPanel /></div>
           )}
           {isTerminalVisible && (
-            <div style={{ height: isCompact ? Math.min(terminalHeight, 180) : Math.min(terminalHeight, windowWidth < 800 ? 200 : 500) }} className="border-t border-nova-border shrink-0"><TerminalPanel rootPath={rootPath} /></div>
+            <div style={{ height: isCompact ? Math.min(terminalHeight, 180) : Math.min(terminalHeight, windowWidth < 800 ? 200 : 500) }} className="rounded-xl overflow-hidden glass-chrome shrink-0"><TerminalPanel rootPath={rootPath} /></div>
           )}
         </div>
       </div>

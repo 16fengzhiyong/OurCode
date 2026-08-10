@@ -62,11 +62,14 @@ export default function OnboardingModal({ onComplete }: OnboardingModalProps) {
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={t('onboarding.dialog')} className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-nova-surface border border-nova-border rounded-2xl shadow-2xl w-[520px] overflow-hidden">
+    <div role="dialog" aria-modal="true" aria-label={t('onboarding.dialog')} className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40 backdrop-blur-md">
+      <div className="glass-chrome rounded-2xl w-[520px] overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}>
         {/* Header */}
         <div className="px-8 pt-8 pb-4 text-center">
-          <div className="w-14 h-14 mx-auto mb-4 rounded-xl bg-gradient-to-br from-[#3B82F6] to-[#2563EB] flex items-center justify-center">
+          <div
+            className="w-14 h-14 mx-auto mb-4 rounded-full flex items-center justify-center"
+            style={{ background: 'var(--grad-brand)', boxShadow: '0 8px 24px rgba(99,102,241,0.4)' }}
+          >
             <span className="text-2xl font-bold text-white">N</span>
           </div>
           <h1 className="text-xl font-bold text-nova-text-primary mb-1">{t('onboarding.welcome')}</h1>
@@ -93,7 +96,8 @@ export default function OnboardingModal({ onComplete }: OnboardingModalProps) {
                 </button>
                 <button
                   onClick={() => setStep(1)}
-                  className="flex-1 px-4 py-2.5 text-sm font-medium bg-nova-accent text-white rounded-lg hover:opacity-90 transition-opacity"
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-white rounded-full hover:opacity-90 transition-all shadow-sm"
+                  style={{ background: 'var(--grad-brand)' }}
                 >
                   {t('onboarding.setupApiKey')}
                 </button>

@@ -439,7 +439,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
       />
 
       {/* Tab bar */}
-      <div className="flex items-center h-7 bg-nova-tabs border-t border-nova-border flex-shrink-0 overflow-x-auto">
+      <div className="flex items-center h-7 bg-transparent flex-shrink-0 overflow-x-auto">
         {tabs.map((tab) => (
           <div
             key={tab.id}

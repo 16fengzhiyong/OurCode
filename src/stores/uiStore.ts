@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-const DEFAULT_THEME_COLOR = '#2563eb'
+const DEFAULT_THEME_COLOR = '#0058bc'
 
 /** localStorage key for the last-selected project (re-opened on next launch) */
 const LAST_PROJECT_KEY = 'lastProjectState'
@@ -209,8 +209,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   // Window state
   isMaximized: false,
 
-  // Theme
-  theme: 'dark',
+  // Theme — light glassmorphism is the default design direction
+  theme: 'light',
   themeColor: localStorage.getItem('themeColor') || DEFAULT_THEME_COLOR,
 
   // Project navigation

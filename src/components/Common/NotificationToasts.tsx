@@ -46,7 +46,7 @@ function NotificationToast({ notification, onDismiss }: { notification: AppNotif
     <div
       role="status"
       onClick={handleClick}
-      className={`flex items-start gap-2.5 px-3 py-2.5 bg-nova-surface border border-nova-border border-l-2 rounded-lg shadow-xl animate-slide-in max-w-sm pointer-events-auto ${
+      className={`flex items-start gap-2.5 px-3 py-2.5 glass-chrome border-l-2 rounded-xl animate-slide-in max-w-sm pointer-events-auto ${
         isBottom ? 'cursor-pointer hover:bg-nova-hover transition-colors' : ''
       }`}
       style={{ borderLeftColor: TYPE_COLORS[notification.type] }}

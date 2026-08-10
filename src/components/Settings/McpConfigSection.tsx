@@ -182,7 +182,7 @@ export default function McpConfigSection({ rootPath }: { rootPath: string | null
           </button>
           <button
             onClick={saveConfig}
-            className="px-3 py-1 text-[11px] font-medium text-white bg-[#2563eb] hover:opacity-90 rounded-md transition-opacity"
+            className="px-3 py-1 text-[11px] font-medium text-white rounded-full hover:opacity-90 transition-all shadow-sm" style={{ background: 'var(--grad-brand)' }}
           >
             保存配置
           </button>
@@ -197,7 +197,7 @@ export default function McpConfigSection({ rootPath }: { rootPath: string | null
           </div>
         )}
         {servers.map((s, i) => (
-          <div key={i} className="rounded-lg border border-nova-border bg-nova-hover/40 p-3 flex flex-col gap-2.5">
+          <div key={i} className="rounded-xl border border-nova-border bg-nova-card/70 p-3 flex flex-col gap-2.5 hover:border-nova-accent/30 transition-colors">
             <div className="flex items-center gap-2">
               <input
                 value={s.name}
@@ -303,7 +303,7 @@ export default function McpConfigSection({ rootPath }: { rootPath: string | null
 
         <button
           onClick={() => setServers((prev) => [...prev, emptyServer()])}
-          className="self-start inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 rounded-md transition-colors"
+          className="self-start inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 rounded-full transition-colors"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />

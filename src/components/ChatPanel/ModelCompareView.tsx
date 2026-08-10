@@ -87,7 +87,7 @@ export default function ModelCompareView({ onClose }: ModelCompareViewProps) {
 
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-nova-surface border border-nova-border rounded-xl shadow-2xl w-[880px] max-w-[96vw] max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <div className="glass-chrome rounded-2xl w-[880px] max-w-[96vw] max-h-[85vh] flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }} onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-nova-border shrink-0">
           <div className="flex items-center gap-2.5">

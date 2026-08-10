@@ -175,7 +175,7 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
   }
 
   return (
-    <div className="w-[220px] border-r border-nova-border bg-nova-sidebar flex flex-col shrink-0">
+    <div className="w-[220px] border-r border-nova-border bg-transparent flex flex-col shrink-0">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-nova-border">
         <span className="text-xs font-semibold text-nova-text-secondary">{t('chat.sessionList')}</span>
@@ -221,7 +221,7 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('chat.searchSessions')}
-            className="w-full pl-7 pr-2 py-1 bg-nova-input-bg border border-nova-border rounded text-xs text-nova-text-primary outline-none focus:border-nova-accent/50 placeholder-nova-text-muted"
+            className="w-full pl-7 pr-2 py-1.5 bg-nova-input-bg border border-nova-border rounded-full text-xs text-nova-text-primary outline-none focus:border-nova-accent/50 placeholder-nova-text-muted"
           />
           {searchQuery && (
             <button
@@ -257,8 +257,8 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
               <div
                 key={session.id}
                 className={`
-                  group px-3 py-2 cursor-pointer transition-colors
-                  ${isActive ? 'bg-nova-accent/15 border-l-2 border-l-nova-accent' : 'hover:bg-nova-hover border-l-2 border-l-transparent'}
+                  group mx-1.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors border-l-2
+                  ${isActive ? 'bg-nova-accent/12 border-l-nova-accent' : 'border-l-transparent hover:bg-nova-hover'}
                   ${session.archivedAt ? 'opacity-60' : ''}
                 `}
                 onClick={() => setActiveSession(session.id)}
@@ -267,12 +267,18 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className={`text-xs truncate flex items-center gap-1 ${isActive ? 'text-nova-accent font-medium' : 'text-nova-text-primary'}`}>
-                      {/* Status indicator: bubble (needs input) > spinning
-                          (running) > red dot (error) */}
+                      {/* Status indicator: labeled pill (needs input) >
+                          spinning (running) > red dot (error) */}
                       {attentionSessionIds.has(session.id) ? (
-                        <svg className="w-3 h-3 shrink-0 text-nova-accent" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-                        </svg>
+                        <span
+                          className="shrink-0 inline-flex items-center gap-1 px-1.5 py-px rounded-full text-[9px] font-medium"
+                          style={{ background: 'color-mix(in srgb, var(--accent, #0058bc) 14%, transparent)', color: 'var(--accent)' }}
+                        >
+                          <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                          </svg>
+                          待处理
+                        </span>
                       ) : runningSessionIds.includes(session.id) ? (
                         <span className="w-2.5 h-2.5 border-2 border-nova-accent/40 border-t-nova-accent rounded-full animate-spin shrink-0" />
                       ) : session.agentRuns?.some((r) => r.status === 'error') ? (

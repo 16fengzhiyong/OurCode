@@ -35,7 +35,7 @@ export default function QuestionDialog() {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
-      <div className="w-[480px] max-w-[90vw] rounded-2xl p-5 bg-nova-surface border border-nova-border shadow-2xl">
+      <div className="w-[480px] max-w-[90vw] rounded-2xl p-5 glass-chrome" style={{ boxShadow: 'var(--shadow-xl)' }}>
         <div className="flex items-center gap-2 mb-3">
           <span className="text-lg">❓</span>
           <strong className="text-sm text-nova-text-primary">{t('chat.askUserTitle')}</strong>

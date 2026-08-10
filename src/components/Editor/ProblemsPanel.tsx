@@ -63,7 +63,7 @@ export default function ProblemsPanel() {
   const count = (sev: ProblemSeverity) => problems.filter((p) => p.severity === sev).length
 
   return (
-    <div className="h-full flex flex-col bg-nova-bg border-t border-nova-border text-xs overflow-hidden">
+    <div className="h-full flex flex-col bg-transparent text-xs overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-nova-border shrink-0">
         <span className="font-medium text-nova-text-secondary mr-2">{t('editor.problems')}</span>

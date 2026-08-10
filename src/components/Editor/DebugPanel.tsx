@@ -22,7 +22,7 @@ export default function DebugPanel() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-nova-bg border-t border-nova-border text-xs overflow-hidden">
+    <div className="h-full flex flex-col bg-transparent text-xs overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-nova-border shrink-0 flex-wrap">
         <span className="font-medium text-nova-text-secondary mr-1">{t('editor.debugTitle')}</span>

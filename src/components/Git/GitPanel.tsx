@@ -342,45 +342,48 @@ export default function GitPanel() {
           <button
             onClick={handleCommit}
             disabled={!commitMessage.trim()}
-            className="px-3 py-1.5 text-xs bg-nova-accent text-white rounded-md hover:opacity-90 disabled:opacity-30 transition-colors inline-flex items-center gap-1"
+            className="px-3 py-1.5 text-xs text-white rounded-full hover:opacity-90 disabled:opacity-30 transition-all inline-flex items-center gap-1"
+            style={{ background: 'linear-gradient(135deg, #0ea5e9, #6366f1, #a855f7)' }}
           >
             ✓ 提交
           </button>
           <button
             onClick={handlePush}
-            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors"
+            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-full hover:text-nova-text-primary transition-colors"
             title={t('git.pushTitle')}
           >
             ↑ 推送
           </button>
           <button
             onClick={handlePull}
-            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors"
+            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-full hover:text-nova-text-primary transition-colors"
             title={t('git.pullTitle')}
           >
             ↓ 拉取
           </button>
           <button
             onClick={() => { showLog ? setShowLog(false) : handleViewLog() }}
-            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors"
+            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-full hover:text-nova-text-primary transition-colors"
           >
             📋 日志
           </button>
           <button
             onClick={handleGenerateCommitMessage}
             disabled={generatingCommit}
-            className="px-2 py-1.5 text-xs text-nova-text-muted hover:text-nova-accent transition-colors disabled:opacity-40 bg-transparent border-none cursor-pointer"
+            className="px-3 py-1.5 text-xs rounded-full transition-colors disabled:opacity-40"
+            style={{ border: '1px solid color-mix(in srgb, var(--accent, #0058bc) 45%, transparent)', color: 'var(--accent)' }}
             title={t('git.generateCommitHint')}
           >
-            {generatingCommit ? t('git.generating') : '🤖 AI 生成'}
+            {generatingCommit ? t('git.generating') : '🤖 AI 生成提交消息'}
           </button>
           <button
             onClick={handleLifeguard}
             disabled={lifeguardRunning}
-            className="px-2 py-1.5 text-xs text-nova-text-muted hover:text-red-400 transition-colors disabled:opacity-40 bg-transparent border-none cursor-pointer"
+            className="px-3 py-1.5 text-xs text-nova-text-muted hover:text-red-400 rounded-full transition-colors disabled:opacity-40"
+            style={{ border: '1px solid var(--border)' }}
             title={t('git.lifeguardHint')}
           >
-            {lifeguardRunning ? t('git.lifeguardRunning') : '🔍 预检'}
+            {lifeguardRunning ? t('git.lifeguardRunning') : '🛟 提交前检查'}
           </button>
         </div>
 

@@ -104,11 +104,11 @@ export default function Sidebar() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-nova-sidebar">
+    <div className="h-full flex flex-col bg-transparent">
       {/* Sidebar Header */}
       <div
         className="flex items-center justify-between shrink-0"
-        style={{ padding: '0 12px', height: 36, borderBottom: '1px solid var(--border)' }}
+        style={{ padding: '0 12px', height: 36 }}
       >
         <div className="flex items-center gap-1.5">
           <span className="text-nova-text-muted flex items-center">

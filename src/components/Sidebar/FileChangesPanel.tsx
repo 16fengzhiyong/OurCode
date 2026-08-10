@@ -251,7 +251,7 @@ export default function FileChangesPanel() {
           onClick={() => { setDiffContent(null); setDiffSession(null) }}
         >
           <div
-            className="w-[700px] max-w-[90vw] max-h-[80vh] bg-nova-surface border border-nova-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+            className="w-[700px] max-w-[90vw] max-h-[80vh] glass-chrome rounded-2xl flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-nova-border">

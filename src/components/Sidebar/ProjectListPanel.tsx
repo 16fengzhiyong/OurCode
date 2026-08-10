@@ -30,24 +30,34 @@ function formatTime(ts: number): string {
 }
 
 /** Leading status indicator for a session row — priority: needs-input bubble
- *  (需求 3) > running spinner (需求 2) > plain dot. */
-function SessionStatusDot({ running, needsAttention, color }: {
+ *  (需求 3) > running spinner (需求 2) > error dot > plain dot.
+ *  Attention shows as a labeled accent pill (design: 对话历史状态). */
+function SessionStatusDot({ running, needsAttention, hasError, color }: {
   running: boolean
   needsAttention: boolean
+  hasError?: boolean
   color?: string
 }) {
   if (needsAttention) {
-    // Message-bubble icon: this conversation is waiting for the user
+    // Message-bubble pill: this conversation is waiting for the user
     return (
-      <span className="shrink-0" style={{ color: color || 'var(--accent)' }} title="该会话需要处理">
-        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <span
+        className="shrink-0 inline-flex items-center gap-1 px-1.5 py-px rounded-full text-[9px] font-medium"
+        style={{ background: 'color-mix(in srgb, var(--accent, #0058bc) 14%, transparent)', color: 'var(--accent)' }}
+        title="该会话需要处理"
+      >
+        <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
         </svg>
+        待处理
       </span>
     )
   }
   if (running) {
     return <span className="w-2 h-2 border-2 border-nova-accent/40 border-t-nova-accent rounded-full animate-spin shrink-0" />
+  }
+  if (hasError) {
+    return <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" title="运行出错" />
   }
   return (
     <span
@@ -64,6 +74,7 @@ export default function ProjectListPanel() {
   } = useUIStore()
   const sessions = useChatStore((s) => s.sessions)
   const runningSessionIds = useChatStore((s) => s.runningSessionIds)
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
   const pendingQuestion = useChatStore((s) => s.pendingQuestion)
   const pendingApproval = useChatStore((s) => s.pendingApproval)
   const batchApproval = useChatStore((s) => s.batchApproval)
@@ -75,7 +86,7 @@ export default function ProjectListPanel() {
   const [showMoreSessions, setShowMoreSessions] = useState<Set<string>>(new Set())
 
   // Sessions waiting on the user (question / tool approval / batch approval /
-  // plan approval) — shown as a message-bubble icon in the list (需求 3).
+  // plan approval) — shown as an accent "待处理" pill in the list (需求 3).
   const attentionSessionIds = useMemo(() => {
     const ids = new Set<string>()
     if (pendingQuestion?.sessionId) ids.add(pendingQuestion.sessionId)
@@ -84,6 +95,13 @@ export default function ProjectListPanel() {
     for (const s of sessions) if (s.planStatus === 'pending_approval') ids.add(s.id)
     return ids
   }, [pendingQuestion, pendingApproval, batchApproval, sessions])
+
+  // Sessions whose last agent run errored — red dot (design: 对话历史状态).
+  const errorSessionIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const s of sessions) if (s.agentRuns?.some((r) => r.status === 'error')) ids.add(s.id)
+    return ids
+  }, [sessions])
 
   // Collect unique projects from recentProjects + sessions' projectPath.
   // Recently opened projects keep their open-order (most recent first) so the
@@ -233,7 +251,7 @@ export default function ProjectListPanel() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="搜索项目或对话..."
-          className="w-full px-2.5 py-1.5 text-[11px] bg-nova-input-bg border border-nova-border rounded-md text-nova-text-primary placeholder-nova-text-muted focus:border-nova-accent/50 focus:outline-none transition-colors"
+          className="w-full px-3 py-1.5 text-[11px] bg-nova-input-bg border border-nova-border rounded-full text-nova-text-primary placeholder-nova-text-muted focus:border-nova-accent/50 focus:outline-none transition-colors"
         />
       </div>
 
@@ -313,28 +331,42 @@ export default function ProjectListPanel() {
               {/* Sessions under this project — always visible, filtered by projectPath */}
               {projectSessions.length > 0 && (
                 <div className="ml-6 pl-2 border-l border-nova-border mb-0.5">
-                  {visibleSessions.map((session) => (
-                    <div
-                      key={session.id}
-                      className="flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded cursor-pointer hover:bg-nova-hover transition-colors text-[11px]"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleSessionClick(session.id)
-                      }}
-                    >
-                      <SessionStatusDot
-                        running={runningSessionIds.includes(session.id)}
-                        needsAttention={attentionSessionIds.has(session.id)}
-                        color={color.fg}
-                      />
-                      <span className="flex-1 truncate text-nova-text-secondary">
-                        {session.title}
-                      </span>
-                      <span className="text-[9px] text-nova-text-muted shrink-0">
-                        {formatTime(session.updatedAt)}
-                      </span>
-                    </div>
-                  ))}
+                  {visibleSessions.map((session) => {
+                    const isActive = session.id === activeSessionId
+                    return (
+                      <div
+                        key={session.id}
+                        className={`flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded cursor-pointer transition-colors text-[11px] border-l-2 ${
+                          isActive
+                            ? 'bg-nova-accent/10 border-l-nova-accent text-nova-accent'
+                            : 'border-l-transparent hover:bg-nova-hover'
+                        }`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleSessionClick(session.id)
+                        }}
+                        title={`${session.title} · ${session.messages.length} 条消息`}
+                      >
+                        <SessionStatusDot
+                          running={runningSessionIds.includes(session.id)}
+                          needsAttention={attentionSessionIds.has(session.id)}
+                          hasError={errorSessionIds.has(session.id)}
+                          color={color.fg}
+                        />
+                        {session.pinnedAt && (
+                          <svg className="w-2.5 h-2.5 shrink-0 text-nova-accent" viewBox="0 0 24 24" fill="currentColor" aria-label="置顶">
+                            <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
+                          </svg>
+                        )}
+                        <span className="flex-1 truncate text-nova-text-secondary">
+                          {session.title}
+                        </span>
+                        <span className="text-[9px] text-nova-text-muted shrink-0">
+                          {formatTime(session.updatedAt)}
+                        </span>
+                      </div>
+                    )
+                  })}
 
                   {projectSessions.length > 5 && (
                     <button
@@ -365,24 +397,38 @@ export default function ProjectListPanel() {
             <div className="px-2 pb-1 text-[10px] font-medium text-nova-text-muted uppercase tracking-wider">
               {t('chat.orphanSessions')} ({orphanSessions.length})
             </div>
-            {orphanSessions.map((session) => (
-              <div
-                key={session.id}
-                className="flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded cursor-pointer hover:bg-nova-hover transition-colors text-[11px]"
-                onClick={() => handleSessionClick(session.id)}
-              >
-                <SessionStatusDot
-                  running={runningSessionIds.includes(session.id)}
-                  needsAttention={attentionSessionIds.has(session.id)}
-                />
-                <span className="flex-1 truncate text-nova-text-secondary">
-                  {session.title}
-                </span>
-                <span className="text-[9px] text-nova-text-muted shrink-0">
-                  {formatTime(session.updatedAt)}
-                </span>
-              </div>
-            ))}
+            {orphanSessions.map((session) => {
+              const isActive = session.id === activeSessionId
+              return (
+                <div
+                  key={session.id}
+                  className={`flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded cursor-pointer transition-colors text-[11px] border-l-2 ${
+                    isActive
+                      ? 'bg-nova-accent/10 border-l-nova-accent text-nova-accent'
+                      : 'border-l-transparent hover:bg-nova-hover'
+                  }`}
+                  onClick={() => handleSessionClick(session.id)}
+                  title={`${session.title} · ${session.messages.length} 条消息`}
+                >
+                  <SessionStatusDot
+                    running={runningSessionIds.includes(session.id)}
+                    needsAttention={attentionSessionIds.has(session.id)}
+                    hasError={errorSessionIds.has(session.id)}
+                  />
+                  {session.pinnedAt && (
+                    <svg className="w-2.5 h-2.5 shrink-0 text-nova-accent" viewBox="0 0 24 24" fill="currentColor" aria-label="置顶">
+                      <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
+                    </svg>
+                  )}
+                  <span className="flex-1 truncate text-nova-text-secondary">
+                    {session.title}
+                  </span>
+                  <span className="text-[9px] text-nova-text-muted shrink-0">
+                    {formatTime(session.updatedAt)}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

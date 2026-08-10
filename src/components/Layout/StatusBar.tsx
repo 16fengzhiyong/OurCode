@@ -171,14 +171,14 @@ export default function StatusBar() {
   const encodings = ['UTF-8', 'GBK', 'GB2312', 'GB18030', 'ASCII', 'ISO-8859-1', 'UTF-16']
 
   return (
-    <div className="h-[22px] text-nova-text-muted text-[11px] flex items-center px-3 select-none shrink-0" style={{ background: 'var(--bg-statusbar)', borderTop: '1px solid var(--border)' }}>
+    <div className="h-[24px] text-nova-text-muted text-[11px] flex items-center px-3 select-none shrink-0 rounded-xl glass-chrome">
       {/* Left side */}
       <div className="flex items-center gap-3">
         {/* Git branch */}
         {gitBranch && (
           <div className="relative" ref={branchMenuRef}>
             <button
-              className="flex items-center gap-1 opacity-90 hover:opacity-100 cursor-pointer px-1 rounded hover:bg-nova-hover"
+              className="flex items-center gap-1 opacity-90 hover:opacity-100 cursor-pointer px-1.5 rounded-full hover:bg-nova-hover"
               onClick={() => { setShowBranchMenu(!showBranchMenu); if (!showBranchMenu) fetchBranches() }}
               title={t('statusBar.switchBranch')}
             >

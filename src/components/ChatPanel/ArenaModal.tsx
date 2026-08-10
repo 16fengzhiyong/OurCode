@@ -101,7 +101,7 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
-      <div className="w-[900px] max-w-[95vw] max-h-[90vh] flex flex-col rounded-2xl bg-nova-surface border border-nova-border shadow-2xl">
+      <div className="w-[900px] max-w-[95vw] max-h-[90vh] flex flex-col rounded-2xl glass-chrome" style={{ boxShadow: 'var(--shadow-xl)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-nova-border shrink-0">
           <div className="flex items-center gap-2">
@@ -211,7 +211,7 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
 
           {/* Duration comparison bar */}
           {results.length > 0 && (
-            <div className="mb-4 p-3 bg-nova-card rounded-xl border border-nova-border">
+            <div className="mb-4 p-3 bg-nova-card/70 rounded-xl border border-nova-border">
               <div className="text-[10px] font-semibold text-nova-text-muted uppercase tracking-wider mb-2">⏱ 响应耗时对比</div>
               <div className="space-y-1.5">
                 {results.map((r) => {
@@ -245,7 +245,7 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
               const provider = getProviderFromModelId(r.model)
               const isFastest = r.durationMs === Math.min(...results.filter((x) => !x.error).map((x) => x.durationMs))
               return (
-                <div key={r.model} className="rounded-xl border border-nova-border bg-nova-hover/20 overflow-hidden flex flex-col hover:border-nova-border-strong transition-colors">
+                <div key={r.model} className="rounded-xl border border-nova-border bg-nova-card/70 overflow-hidden flex flex-col hover:border-nova-accent/40 hover:shadow-sm transition-all">
                   {/* Card header */}
                   <div className="flex items-center gap-2 px-3 py-2.5 border-b border-nova-border/60 bg-nova-hover/20">
                     <div className="w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-bold shrink-0"

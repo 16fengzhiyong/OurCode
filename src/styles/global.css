@@ -1,119 +1,125 @@
-/* Import fonts */
-@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap');
+/* Import fonts — Plus Jakarta Sans (UI) + JetBrains Mono (code) */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Root — Dark design tokens (zinc palette + blue accent) */
+/* Root — Light Glassmorphism design tokens (GPT-platform style).
+   Default is LIGHT; `.dark` (below) overrides with the dark glass variant. */
 :root {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --bg: #18181b;
-  --surface: #1f1f23;
-  --sidebar: #1f1f23;
-  --card: #27272a;
-  --editor-bg: #18181b;
-  --border: #27272a;
-  --border-strong: #3f3f46;
-  --hover: #2e2e33;
-  --input-bg: #1f1f23;
-  --text-primary: #d4d4d8;
-  --text-secondary: #c4c4c8;
-  --text-muted: #a1a1aa;
-  --text-placeholder: #52525b;
-  --text-disabled: #52525b;
-  --accent: var(--primary-color, #2563eb);
-  --accent-purple: var(--primary-color, #2563eb);
-  --primary-color: #2563eb;
-  --primary-color-10: rgba(37, 99, 235, 0.1);
-  --primary-color-20: rgba(37, 99, 235, 0.2);
-  --primary-color-30: rgba(37, 99, 235, 0.3);
-  --ai-bg: #1f1f23;
-  --ai-surface: #27272a;
-  --ai-border: #3f3f46;
-  --ai-accent: #3b82f6;
-  --ai-glow: #3b82f6;
-  --bg-activity: #1f1f23;
-  --bg-tabs: #1f1f23;
-  --bg-tab-active: #18181b;
-  --bg-statusbar: #1f1f23;
-  --bg-selected: rgba(59, 130, 246, 0.16);
-  --text-active: #ffffff;
-  --selection: #2563eb;
-  --link: #3b82f6;
-  --green: #22c55e;
-  --red: #f48771;
-  --yellow: #e5ba7d;
-  --info: #3b82f6;
-  --bubble-user: #27272a;
-  --bubble-user-hover: #2e2e33;
-  --grad-brand: linear-gradient(135deg, #3b82f6, #2563eb);
-  --grad-avatar: linear-gradient(135deg, #60a5fa, #8b5cf6);
-
-  /* Radius / elevation / backdrop */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-  --shadow-sm: 0 0 4px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 0 6px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 0 12px rgba(0, 0, 0, 0.14);
-  --shadow-xl: 0 0 20px rgba(0, 0, 0, 0.15);
-  --shadow-hover: 0 0 8px rgba(0, 0, 0, 0.12);
-  --backdrop-blur: blur(20px) saturate(180%) brightness(0.55);
-
-  /* Tool call highlight chips */
-  --hl-bg: #3a3a3a;
-  --hl-bg-hover: #4a4a4a;
-  --hl-text: #e0e0e0;
-}
-
-/* Light theme — softened zinc palette (less glare than pure white) + blue accent */
-:root:not(.dark) {
-  --bg: #f4f4f5;
-  --surface: #fafafa;
-  --sidebar: #fafafa;
-  --card: #ffffff;
-  --editor-bg: #fafafa;
-  --border: #e4e4e7;
-  --border-strong: #d4d4d8;
-  --hover: #ececef;
-  --input-bg: #ffffff;
-  --text-primary: #18181b;
-  --text-secondary: #27272a;
-  --text-muted: #71717a;
-  --text-placeholder: #a1a1aa;
-  --text-disabled: #d4d4d8;
-  --accent: var(--primary-color, #2563eb);
-  --accent-purple: var(--primary-color, #2563eb);
-  --primary-color: #2563eb;
-  --ai-bg: #fafafa;
-  --ai-surface: #f4f4f5;
-  --ai-border: #e4e4e7;
-  --ai-accent: #2563eb;
-  --ai-glow: #2563eb;
-  --bg-activity: #fafafa;
-  --bg-tabs: #fafafa;
-  --bg-tab-active: #f4f4f5;
-  --bg-statusbar: #fafafa;
-  --bg-selected: rgba(37, 99, 235, 0.12);
-  --text-active: #18181b;
-  --selection: #2563eb;
-  --link: #2563eb;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --sidebar: #ffffff;
+  --card: rgba(255, 255, 255, 0.75);
+  --editor-bg: #ffffff;
+  --border: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.16);
+  --hover: rgba(15, 23, 42, 0.06);
+  --input-bg: rgba(255, 255, 255, 0.6);
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-placeholder: #94a3b8;
+  --text-disabled: #cbd5e1;
+  --accent: var(--primary-color, #0058bc);
+  --accent-purple: #7c3aed;
+  --primary-color: #0058bc;
+  --primary-color-10: rgba(0, 88, 188, 0.1);
+  --primary-color-20: rgba(0, 88, 188, 0.2);
+  --primary-color-30: rgba(0, 88, 188, 0.3);
+  --ai-bg: #ffffff;
+  --ai-surface: rgba(255, 255, 255, 0.6);
+  --ai-border: rgba(15, 23, 42, 0.1);
+  --ai-accent: #0058bc;
+  --ai-glow: #0ea5e9;
+  --bg-activity: rgba(255, 255, 255, 0.5);
+  --bg-tabs: rgba(255, 255, 255, 0.6);
+  --bg-tab-active: #ffffff;
+  --bg-statusbar: rgba(255, 255, 255, 0.55);
+  --bg-selected: rgba(0, 88, 188, 0.12);
+  --text-active: #0f172a;
+  --selection: #0058bc;
+  --link: #0058bc;
   --green: #16a34a;
-  --red: #d33b2a;
-  --yellow: #9a6a00;
-  --info: #2563eb;
-  --bubble-user: #eef4fb;
-  --bubble-user-hover: #e3edfa;
-  --grad-brand: linear-gradient(135deg, #3b82f6, #2563eb);
+  --red: #dc2626;
+  --yellow: #d97706;
+  --info: #0058bc;
+  --bubble-user: #e8f0ff;
+  --bubble-user-hover: #dce9ff;
+  --grad-brand: linear-gradient(135deg, #0ea5e9, #6366f1, #a855f7);
   --grad-avatar: linear-gradient(135deg, #60a5fa, #8b5cf6);
+
+  /* Radius / elevation / backdrop — airy glass, soft diffuse shadows */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.05);
+  --shadow-lg: 0 8px 40px rgba(15, 23, 42, 0.06);
+  --shadow-xl: 0 16px 48px rgba(15, 23, 42, 0.1);
+  --shadow-hover: 0 4px 16px rgba(15, 23, 42, 0.08);
   --backdrop-blur: blur(20px) saturate(180%);
 
   /* Tool call highlight chips */
-  --hl-bg: #e4e4e7;
-  --hl-bg-hover: #d4d4d8;
-  --hl-text: #3f3f46;
+  --hl-bg: rgba(15, 23, 42, 0.06);
+  --hl-bg-hover: rgba(15, 23, 42, 0.1);
+  --hl-text: #334155;
+}
+
+/* Dark theme — deep charcoal-blue glass variant (M3 Vivid Precision dark) */
+:root.dark {
+  --bg: #0f1420;
+  --surface: #151a26;
+  --sidebar: #151a26;
+  --card: rgba(21, 26, 38, 0.8);
+  --editor-bg: #10151f;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --hover: rgba(255, 255, 255, 0.07);
+  --input-bg: rgba(255, 255, 255, 0.05);
+  --text-primary: #e1e2eb;
+  --text-secondary: #c2c6d5;
+  --text-muted: #8c909e;
+  --text-placeholder: #565b66;
+  --text-disabled: #565b66;
+  --accent: var(--primary-color, #4d94ff);
+  --accent-purple: #dcaeff;
+  --primary-color: #4d94ff;
+  --primary-color-10: rgba(77, 148, 255, 0.12);
+  --primary-color-20: rgba(77, 148, 255, 0.2);
+  --primary-color-30: rgba(77, 148, 255, 0.3);
+  --ai-bg: #151a26;
+  --ai-surface: #1b2130;
+  --ai-border: rgba(255, 255, 255, 0.1);
+  --ai-accent: #4d94ff;
+  --ai-glow: #4d94ff;
+  --bg-activity: #151a26;
+  --bg-tabs: #151a26;
+  --bg-tab-active: #10151f;
+  --bg-statusbar: #151a26;
+  --bg-selected: rgba(77, 148, 255, 0.16);
+  --text-active: #ffffff;
+  --selection: #4d94ff;
+  --link: #4d94ff;
+  --green: #34d399;
+  --red: #f48771;
+  --yellow: #e5ba7d;
+  --info: #4d94ff;
+  --bubble-user: #1d3a66;
+  --bubble-user-hover: #24446f;
+  --grad-brand: linear-gradient(135deg, #0ea5e9, #6366f1, #a855f7);
+  --grad-avatar: linear-gradient(135deg, #60a5fa, #8b5cf6);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.35);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.4);
+  --backdrop-blur: blur(20px) saturate(180%) brightness(0.85);
+
+  /* Tool call highlight chips */
+  --hl-bg: rgba(255, 255, 255, 0.07);
+  --hl-bg-hover: rgba(255, 255, 255, 0.11);
+  --hl-text: #e0e0e0;
 }
 
 html {
@@ -128,6 +134,26 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text-primary);
+}
+
+/* Glass canvas — two/three soft "fruity" gradient orbs behind the floating
+   glass panels. backdrop-filter on the panels blurs these into a real
+   glassmorphism effect. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(620px 420px at 6% -6%, rgba(14, 165, 233, 0.16), transparent 65%),
+    radial-gradient(720px 520px at 96% 8%, rgba(168, 85, 247, 0.12), transparent 65%),
+    radial-gradient(640px 440px at 88% 104%, rgba(249, 115, 22, 0.1), transparent 65%),
+    radial-gradient(520px 380px at 0% 100%, rgba(99, 102, 241, 0.1), transparent 65%);
+}
+
+:root.dark body::before {
+  opacity: 0.45;
 }
 
 /* Custom scrollbar (VS Code style) */
@@ -609,10 +635,10 @@ body.app-dragging .drag-region * {
   background: var(--primary-color-30);
 }
 
-/* Logo pulse animation (blue accent) */
+/* Logo pulse animation (electric-blue accent) */
 @keyframes logo-pulse {
-  0%, 100% { box-shadow: 0 0 6px #2563eb88; }
-  50% { box-shadow: 0 0 14px #3b82f6, 0 0 24px #3b82f666; }
+  0%, 100% { box-shadow: 0 0 6px #0058bc88; }
+  50% { box-shadow: 0 0 14px #0ea5e9, 0 0 24px #0ea5e966; }
 }
 
 .animate-logo-pulse {
@@ -654,16 +680,30 @@ body.app-dragging .drag-region * {
   box-shadow: var(--shadow-sm);
 }
 
+/* Floating glass chrome — the default surface for window chrome panels
+   (title bar, activity rail, sidebars, chat, bottom panels, status bar).
+   Uses --card (white glass in light, deep-slate glass in dark) at ~60% so the
+   canvas gradient orbs blur through it for a real glassmorphism feel. */
+.glass-chrome {
+  background: color-mix(in srgb, var(--card, rgba(255, 255, 255, 0.75)) 60%, transparent);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+}
+
 /* Pill section (top-bar button groups) */
 .pill-section {
   display: flex;
   align-items: center;
   gap: 3px;
   padding: 3px;
-  border: 1px solid #5959592f;
-  border-radius: var(--radius-lg);
-  background: var(--editor-bg, #18181b);
-  box-shadow: 0 2px 4px #0000001a;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--card, rgba(255,255,255,0.75)) 55%, transparent);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  box-shadow: var(--shadow-sm);
 }
 
 .pill-btn {

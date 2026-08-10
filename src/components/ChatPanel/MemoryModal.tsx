@@ -78,7 +78,7 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
-      <div className="w-[640px] max-w-[94vw] max-h-[85vh] flex flex-col rounded-2xl bg-nova-surface border border-nova-border shadow-2xl">
+      <div className="w-[640px] max-w-[94vw] max-h-[85vh] flex flex-col rounded-2xl glass-chrome" style={{ boxShadow: 'var(--shadow-xl)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-nova-border shrink-0">
           <div className="flex items-center gap-2.5">
@@ -147,7 +147,7 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
               <input
                 type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="搜索记忆..."
-                className="w-full pl-7 pr-2 py-1.5 bg-nova-input-bg border border-nova-border rounded text-[11px] text-nova-text-primary outline-none focus:border-nova-accent/50 placeholder-nova-text-muted"
+                className="w-full pl-7 pr-2 py-1.5 bg-nova-input-bg border border-nova-border rounded-full text-[11px] text-nova-text-primary outline-none focus:border-nova-accent/50 placeholder-nova-text-muted"
               />
             </div>
           </div>
@@ -258,8 +258,7 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
               <button
                 onClick={handleAdd}
                 disabled={!content.trim() || (scope === 'project' && !hasProject)}
-                className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-30 hover:opacity-90 transition-opacity"
-                style={{ background: 'var(--grad-brand)' }}
+                className="px-4 py-1.5 text-xs text-white rounded-full disabled:opacity-30 hover:opacity-90 transition-all shadow-sm" style={{ background: 'var(--grad-brand)' }}
               >
                 {t('chat.saveMemory')}
               </button>
@@ -287,7 +286,7 @@ function MemoryCard({ memory, onDelete, formatDate, isProject, projectPath, shor
   const isLong = memory.content.length > 120
 
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-nova-border bg-nova-hover/30 px-3 py-2 group hover:border-nova-border-strong transition-colors mb-1.5">
+    <div className="flex items-start gap-2 rounded-xl border border-nova-border bg-nova-card/60 px-3 py-2.5 group hover:border-nova-accent/40 hover:shadow-sm transition-all mb-1.5">
       <span
         className={`mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full shrink-0 font-medium ${
           isProject ? 'bg-purple-500/15 text-purple-400' : 'bg-blue-500/15 text-blue-400'

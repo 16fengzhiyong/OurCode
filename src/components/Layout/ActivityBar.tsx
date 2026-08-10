@@ -125,11 +125,10 @@ export default function ActivityBar() {
 
   return (
     <div
-      className="shrink-0 flex flex-col select-none"
+      className="shrink-0 flex flex-col select-none rounded-xl glass-chrome"
       style={{
         width: 44,
-        background: 'var(--bg-activity)',
-        borderRight: '1px solid var(--border)',
+        background: 'color-mix(in srgb, var(--card, rgba(255,255,255,0.75)) 55%, transparent)',
       }}
     >
       {/* Top icons */}
@@ -141,7 +140,7 @@ export default function ActivityBar() {
               key={item.key}
               aria-label={t(item.titleKey)} title={t(item.titleKey)}
               onClick={() => handleClick(item.key)}
-              className="relative flex items-center justify-center rounded-sm transition-all"
+              className="relative flex items-center justify-center rounded-full transition-all"
               style={{
                 width: 38,
                 height: 38,
@@ -168,8 +167,8 @@ export default function ActivityBar() {
                   style={{
                     position: 'absolute',
                     left: 0,
-                    top: 6,
-                    bottom: 6,
+                    top: 7,
+                    bottom: 7,
                     width: 2,
                     background: 'var(--accent)',
                     borderRadius: '0 2px 2px 0',
@@ -197,7 +196,7 @@ export default function ActivityBar() {
               alignItems: 'center',
               justifyContent: 'center',
               transition: 'color 0.15s, background 0.15s',
-              borderRadius: 6,
+              borderRadius: 9999,
               margin: '1px 0',
               background: 'transparent',
               border: 'none',

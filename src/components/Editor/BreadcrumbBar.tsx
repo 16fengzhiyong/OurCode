@@ -29,7 +29,7 @@ export default function BreadcrumbBar() {
   if (!activeFilePath) return null
 
   return (
-    <div className="flex items-center gap-1 px-3 py-0.5 text-[11px] text-nova-text-muted border-b border-nova-border-light bg-nova-editor/60 overflow-x-auto whitespace-nowrap shrink-0 select-none">
+    <div className="flex items-center gap-1 px-3 py-1 text-[11px] text-nova-text-muted bg-transparent overflow-x-auto whitespace-nowrap shrink-0 select-none">
       <svg className="w-3 h-3 text-nova-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
         <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z" />
       </svg>

@@ -117,7 +117,7 @@ export const DEFAULT_MODEL_PARAMS: ModelParams = {
 
 // Default User Preferences
 export const DEFAULT_PREFERENCES = {
-  theme: 'dark' as const,
+  theme: 'light' as const,
   fontSize: 14,
   fontFamily: "'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace",
   tabSize: 2,

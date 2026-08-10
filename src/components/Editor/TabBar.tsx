@@ -134,8 +134,8 @@ export default function TabBar({ panelId }: TabBarProps) {
   return (
     <>
       <div
-        className={`flex bg-nova-editor border-b border-nova-border-light overflow-x-auto ${isDragOver ? 'bg-opacity-80 ring-1 ring-accent-blue/30' : ''}`}
-        style={{ paddingLeft: 12 }}
+        className={`flex bg-transparent overflow-x-auto ${isDragOver ? 'bg-opacity-80 ring-1 ring-accent-blue/30' : ''}`}
+        style={{ padding: '8px 12px 4px', gap: 4 }}
         onDragOver={handleTabBarDragOver}
         onDrop={(e) => handleDrop(e)}
         onDragLeave={() => setIsDragOver(false)}
@@ -151,17 +151,16 @@ export default function TabBar({ panelId }: TabBarProps) {
             <div
               key={file.path}
               className={`
-                flex items-center h-9 px-4 cursor-pointer
+                flex items-center h-8 px-3 cursor-pointer
                 text-[13px] gap-2 min-w-0
-                border-r border-nova-border-light
-                group relative select-none
+                rounded-full
+                group relative select-none transition-all
                 ${isActive
-                  ? 'bg-nova-tab-active text-[var(--text-primary)] border-b-2 border-b-accent-blue'
-                  : 'bg-nova-sidebar text-nova-text-secondary hover:bg-nova-hover'
+                  ? 'bg-white/85 text-[var(--text-primary)] shadow-sm border border-nova-border'
+                  : 'bg-transparent text-nova-text-secondary hover:bg-nova-hover border border-transparent'
                 }
-                ${dropIndex === index ? 'border-l-2 border-l-accent-blue' : ''}
+                ${dropIndex === index ? 'ring-2 ring-accent-blue' : ''}
               `}
-              style={{ borderTopLeftRadius: 8, borderTopRightRadius: 8 }}
               onClick={() => setActiveFile(file.path, panelId)}
               draggable
               onDragStart={(e) => handleDragStart(e, index)}
@@ -189,7 +188,7 @@ export default function TabBar({ panelId }: TabBarProps) {
               <button
                 onClick={(e) => handleClose(e, file.path)}
                 className={`
-                  w-4 h-4 flex items-center justify-center rounded shrink-0
+                  w-4 h-4 flex items-center justify-center rounded-full shrink-0
                   ${file.isDirty ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}
                   hover:bg-nova-border transition-opacity
                 `}
@@ -204,7 +203,7 @@ export default function TabBar({ panelId }: TabBarProps) {
 
         {orderedFiles.length === 0 && (
           <div
-            className="flex items-center h-9 px-4 text-[13px] text-nova-text-muted italic"
+            className="flex items-center h-8 px-4 text-[13px] text-nova-text-muted italic"
             onDragOver={handleTabBarDragOver}
             onDrop={(e) => handleDrop(e)}
           >
@@ -216,7 +215,7 @@ export default function TabBar({ panelId }: TabBarProps) {
         <div className="ml-auto flex items-center gap-0.5 px-1 shrink-0">
           <button
             onClick={() => splitPanel('horizontal')}
-            className="p-1.5 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover rounded transition-colors"
+            className="p-1.5 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover rounded-full transition-colors"
             title={t('editor.splitLeftRight')}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -226,7 +225,7 @@ export default function TabBar({ panelId }: TabBarProps) {
           </button>
           <button
             onClick={() => splitPanel('vertical')}
-            className="p-1.5 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover rounded transition-colors"
+            className="p-1.5 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover rounded-full transition-colors"
             title={t('editor.splitUpDown')}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -237,7 +236,7 @@ export default function TabBar({ panelId }: TabBarProps) {
           {panelOrder.length > 1 && (
             <button
               onClick={() => closePanel(panelId)}
-              className="p-1.5 text-nova-text-muted hover:text-red-400 hover:bg-nova-hover rounded transition-colors"
+              className="p-1.5 text-nova-text-muted hover:text-red-400 hover:bg-nova-hover rounded-full transition-colors"
               title={t('editor.closePanel')}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -249,7 +248,7 @@ export default function TabBar({ panelId }: TabBarProps) {
           )}
           <button
             onClick={toggleEditorVisible}
-            className="p-1.5 text-nova-text-muted hover:text-red-400 hover:bg-nova-hover rounded transition-colors"
+            className="p-1.5 text-nova-text-muted hover:text-red-400 hover:bg-nova-hover rounded-full transition-colors"
             title={t('editor.hideEditor')}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
