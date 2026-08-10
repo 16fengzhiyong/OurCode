@@ -238,7 +238,6 @@ export default function ProjectListPanel() {
           </svg>
           返回项目列表
         </button>
-
         {/* File tree */}
         <div className="flex-1 overflow-hidden">
           <FileTree rootPath={activeProjectPath} />
@@ -250,15 +249,24 @@ export default function ProjectListPanel() {
   // ───────────── VIEW: Project list ─────────────
   return (
     <div className="h-full flex flex-col">
-      {/* Search */}
+      {/* Search — glass capsule with leading icon (Stitch 资源管理器) */}
       <div className="px-3 pt-2 pb-1">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="搜索项目或对话..."
-          className="w-full px-3 py-1.5 text-[11px] bg-nova-input-bg border border-nova-border rounded-full text-nova-text-primary placeholder-nova-text-muted focus:border-nova-accent/50 focus:outline-none transition-colors"
-        />
+        <div className="relative">
+          <svg
+            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-nova-text-muted pointer-events-none"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索项目或对话..."
+            className="w-full bg-nova-input-bg border border-nova-border rounded-full py-1.5 pl-9 pr-4 text-[11px] text-nova-text-primary placeholder-nova-text-muted focus:border-nova-accent/60 focus:ring-2 focus:ring-nova-accent/20 focus:outline-none transition-all"
+          />
+        </div>
       </div>
 
       {/* Project list */}
@@ -271,7 +279,7 @@ export default function ProjectListPanel() {
             <div className="text-nova-text-muted text-xs mb-3">还没有打开项目</div>
             <button
               onClick={handleOpenFolder}
-              className="px-4 py-2 bg-nova-accent text-white rounded-lg text-sm hover:opacity-90 transition-opacity"
+              className="px-4 py-2 bg-nova-accent text-white rounded-full text-sm font-semibold hover:scale-[1.02] hover:brightness-110 transition-all shadow-sm"
             >
               打开文件夹
             </button>
@@ -287,15 +295,22 @@ export default function ProjectListPanel() {
 
           return (
             <div key={project.path}>
-              {/* Project item — click enters file tree */}
+              {/* Project item — click enters file tree. Glass card: hover
+                  white/40, current = primary-container + left accent bar. */}
               <div
-                className={`group flex items-center gap-2.5 px-3 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-all border ${
+                className={`group relative flex items-center gap-2.5 px-3 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-all border ${
                   isCurrent
                     ? 'bg-nova-accent/10 border-nova-accent/40'
                     : 'border-transparent hover:bg-nova-hover hover:border-nova-border'
                 }`}
                 onClick={() => handleEnterProject(project.path)}
               >
+                {isCurrent && (
+                  <span
+                    className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 bg-nova-accent rounded-r-full"
+                    aria-hidden="true"
+                  />
+                )}
                 <img
                   src={projectLogo}
                   alt={project.name}
@@ -344,10 +359,10 @@ export default function ProjectListPanel() {
                     return (
                       <div
                         key={session.id}
-                        className={`flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded cursor-pointer transition-colors text-[11px] border-l-2 ${
+                        className={`group relative flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded-md cursor-pointer transition-colors text-[11px] ${
                           isActive
-                            ? 'bg-nova-accent/10 border-l-nova-accent text-nova-accent'
-                            : 'border-l-transparent hover:bg-nova-hover'
+                            ? 'bg-nova-accent/10 text-nova-accent'
+                            : 'hover:bg-nova-hover'
                         }`}
                         onClick={(e) => {
                           e.stopPropagation()
@@ -355,6 +370,12 @@ export default function ProjectListPanel() {
                         }}
                         title={`${session.title} · ${session.messages.length} 条消息`}
                       >
+                        {isActive && (
+                          <span
+                            className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-3 bg-nova-accent rounded-r-full"
+                            aria-hidden="true"
+                          />
+                        )}
                         <SessionStatusDot
                           running={runningSessionIds.includes(session.id)}
                           needsAttention={attentionSessionIds.has(session.id)}
@@ -410,14 +431,20 @@ export default function ProjectListPanel() {
               return (
                 <div
                   key={session.id}
-                  className={`flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded cursor-pointer transition-colors text-[11px] border-l-2 ${
+                  className={`group relative flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded-md cursor-pointer transition-colors text-[11px] ${
                     isActive
-                      ? 'bg-nova-accent/10 border-l-nova-accent text-nova-accent'
-                      : 'border-l-transparent hover:bg-nova-hover'
+                      ? 'bg-nova-accent/10 text-nova-accent'
+                      : 'hover:bg-nova-hover'
                   }`}
                   onClick={() => handleSessionClick(session.id)}
                   title={`${session.title} · ${session.messages.length} 条消息`}
                 >
+                  {isActive && (
+                    <span
+                      className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-3 bg-nova-accent rounded-r-full"
+                      aria-hidden="true"
+                    />
+                  )}
                   <SessionStatusDot
                     running={runningSessionIds.includes(session.id)}
                     needsAttention={attentionSessionIds.has(session.id)}

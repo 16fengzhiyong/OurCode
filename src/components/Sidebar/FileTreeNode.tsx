@@ -18,6 +18,8 @@ interface FileTreeNodeProps {
   onClick: (path: string, isDirectory: boolean) => void
   searchQuery: string
   onRefresh?: () => void
+  /** Path open in the editor — the matching row shows the selected state */
+  activePath?: string | null
 }
 
 export default function FileTreeNode({
@@ -28,11 +30,13 @@ export default function FileTreeNode({
   onClick,
   searchQuery,
   onRefresh,
+  activePath,
 }: FileTreeNodeProps) {
   const paddingLeft = depth * 12 + 8
   const { showContextMenu } = useUIStore()
   const [isDragOver, setIsDragOver] = useState(false)
   const t = useI18n()
+  const isActive = activePath === entry.path
 
   const handleClick = () => {
     onClick(entry.path, entry.isDirectory)
@@ -210,8 +214,12 @@ export default function FileTreeNode({
   return (
     <div>
       <div
-        className={`flex items-center h-[26px] px-2 hover:bg-nova-hover cursor-pointer group rounded-md mx-2 transition-colors ${
-          isDragOver ? 'bg-nova-accent/15 ring-1 ring-nova-accent/50' : ''
+        className={`group relative flex items-center h-[26px] px-2 cursor-pointer rounded-md mx-2 transition-colors ${
+          isDragOver
+            ? 'bg-nova-accent/15 ring-1 ring-nova-accent/50'
+            : isActive
+              ? 'bg-nova-accent/10'
+              : 'hover:bg-nova-hover'
         }`}
         style={{ paddingLeft }}
         onClick={handleClick}
@@ -223,6 +231,14 @@ export default function FileTreeNode({
         onDrop={handleDrop}
         onDragEnd={handleDragEnd}
       >
+        {/* Active accent bar (Stitch: left primary rounded bar on selected file) */}
+        {isActive && (
+          <span
+            className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-3.5 bg-nova-accent rounded-r-full"
+            aria-hidden="true"
+          />
+        )}
+
         {/* Expand/Collapse icon */}
         {entry.isDirectory ? (
           <span className="w-4 mr-1 text-text-muted text-xs">
@@ -239,24 +255,27 @@ export default function FileTreeNode({
         />
 
         {/* File name */}
-        <span className={`flex-1 text-[13px] truncate group-hover:text-white transition-colors ${
-          entry.isDirectory ? 'text-nova-text-secondary' : 'text-nova-text-primary'
+        <span className={`flex-1 text-[13px] truncate transition-colors ${
+          isActive
+            ? 'text-nova-text-primary font-medium'
+            : entry.isDirectory
+              ? 'text-nova-text-secondary group-hover:text-nova-text-primary'
+              : 'text-nova-text-primary'
         }`}>
           {entry.name}
         </span>
 
-        {/* Git status */}
+        {/* Git status — colored badge letter (Stitch: M warning / A success / D error / R info) */}
         {entry.gitStatus && (
           <span
-            className={`text-xs px-1 rounded ${
-              entry.gitStatus === 'modified'
-                ? 'text-[#E5BA7D]'
-                : entry.gitStatus === 'added'
-                ? 'text-[#73C991]'
-                : entry.gitStatus === 'deleted'
-                ? 'text-[#F48771]'
-                : 'text-[#3B82F6]'
-            }`}
+            className="text-xs font-bold px-1 rounded"
+            style={{
+              color:
+                entry.gitStatus === 'modified' ? 'var(--yellow, #d97706)'
+                : entry.gitStatus === 'added' ? 'var(--green, #16a34a)'
+                : entry.gitStatus === 'deleted' ? 'var(--red, #dc2626)'
+                : '#3B82F6',
+            }}
           >
             {entry.gitStatus === 'modified' ? 'M' : entry.gitStatus === 'added' ? 'A' : entry.gitStatus === 'deleted' ? 'D' : 'R'}
           </span>
@@ -276,6 +295,7 @@ export default function FileTreeNode({
               onClick={onClick}
               searchQuery={searchQuery}
               onRefresh={onRefresh}
+              activePath={activePath}
             />
           ))}
         </div>

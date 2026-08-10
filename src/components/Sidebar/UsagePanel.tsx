@@ -102,15 +102,15 @@ export default function UsagePanel() {
       <div className="p-3 space-y-4">
         {/* Header: range + refresh + clear */}
         <div className="flex items-center gap-1">
-          <div className="flex items-center rounded-full border border-nova-border overflow-hidden">
+          <div className="flex items-center rounded-full border border-nova-border bg-white/40 dark:bg-white/10 backdrop-blur-xl p-1 gap-0.5">
             {RANGE_OPTIONS.map((opt) => (
               <button
                 key={opt.labelKey}
                 onClick={() => setRange(opt.days)}
-                className={`px-1.5 py-0.5 text-[10px] transition-colors ${
+                className={`px-2.5 py-1 text-[10px] font-semibold rounded-full transition-all ${
                   rangeDays === opt.days
-                    ? 'bg-nova-accent/15 text-nova-accent'
-                    : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'
+                    ? 'bg-nova-accent text-white shadow-sm'
+                    : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-white/60 dark:hover:bg-white/10'
                 }`}
               >
                 {t(opt.labelKey)}
@@ -155,7 +155,7 @@ export default function UsagePanel() {
           <EmptyState onRefresh={() => load()} />
         ) : (
           <>
-            {/* Summary cards */}
+            {/* Summary cards — 2x2 glass grid (Stitch) */}
             <div className="grid grid-cols-2 gap-2">
               <StatCard label={t('usage.requests')} value={String(summary.totals.requests)} accent="text-[#3B82F6]" />
               <StatCard
@@ -197,7 +197,7 @@ export default function UsagePanel() {
                   {skills.map((s) => {
                     const stat = skillRankMap.get(s.name)
                     return (
-                      <div key={s.name} className="flex items-center gap-2 rounded-md border border-nova-border bg-nova-surface/60 px-2 py-1.5">
+                      <div key={s.name} className="flex items-center gap-2 rounded-md border border-nova-border bg-white/60 dark:bg-white/5 backdrop-blur-xl px-2 py-1.5">
                         <div className="min-w-0 flex-1">
                           <div className="text-xs text-nova-text-primary truncate">{s.name}</div>
                           <div className="text-[10px] text-nova-text-muted truncate">
@@ -210,7 +210,7 @@ export default function UsagePanel() {
                         )}
                         <button
                           onClick={() => runSkill(s.name, s.description)}
-                          className="shrink-0 px-2 py-0.5 rounded text-[10px] text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 transition-colors"
+                          className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 transition-colors"
                         >
                           {t('usage.runSkill')}
                         </button>
@@ -268,9 +268,9 @@ export default function UsagePanel() {
 
 function StatCard({ label, value, accent, sub }: { label: string; value: string; accent: string; sub?: string }) {
   return (
-    <div className="rounded-lg border border-nova-border bg-nova-surface/60 p-2.5">
-      <div className="text-[10px] text-nova-text-muted uppercase tracking-wider">{label}</div>
-      <div className={`text-base font-semibold leading-tight ${accent}`}>{value}</div>
+    <div className="rounded-lg border border-nova-border bg-white/70 dark:bg-white/5 backdrop-blur-xl p-3 flex flex-col gap-0.5 shadow-sm">
+      <div className="text-[10px] text-nova-text-muted uppercase tracking-[0.08em] font-semibold">{label}</div>
+      <div className={`text-lg font-extrabold leading-tight ${accent}`}>{value}</div>
       {sub && <div className="text-[10px] text-nova-text-muted mt-0.5">{sub}</div>}
     </div>
   )
@@ -279,7 +279,7 @@ function StatCard({ label, value, accent, sub }: { label: string; value: string;
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <div className="text-[11px] font-medium text-nova-text-muted uppercase tracking-wider mb-1.5">{title}</div>
+      <div className="text-[11px] font-bold text-nova-text-muted uppercase tracking-[0.08em] mb-1.5">{title}</div>
       {children}
     </section>
   )
@@ -336,7 +336,7 @@ function TrendChart({ daily, rangeDays }: { daily: UsageDailyRow[]; rangeDays: n
   const bw = W / days.length
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-20 rounded border border-nova-border bg-nova-surface/40">
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-20 rounded-lg border border-nova-border bg-white/40 dark:bg-white/5 backdrop-blur-xl">
       {days.map((d, i) => {
         const hIn = (d.tokensIn / max) * (H - 6)
         const hOut = (d.tokensOut / max) * (H - 6)
@@ -345,7 +345,7 @@ function TrendChart({ daily, rangeDays }: { daily: UsageDailyRow[]; rangeDays: n
         return (
           <g key={d.day}>
             <title>{`${d.day}: ↑${formatTokens(d.tokensIn)} ↓${formatTokens(d.tokensOut)}`}</title>
-            <rect x={x} y={H - hIn} width={w} height={hIn} fill="var(--primary-color)" opacity={0.85} />
+            <rect x={x} y={H - hIn} width={w} height={hIn} fill="var(--primary-color, #0058bc)" opacity={0.85} />
             <rect x={x} y={H - hIn - hOut} width={w} height={hOut} fill="#8B5CF6" opacity={0.85} />
           </g>
         )
@@ -358,20 +358,23 @@ function ModelList({ rows }: { rows: UsageRankRow[] }) {
   const max = Math.max(...rows.map((r) => r.tokensIn + r.tokensOut), 1)
   const t = useI18n()
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {rows.slice(0, 8).map((r) => {
         const total = r.tokensIn + r.tokensOut
         const pct = Math.max((total / max) * 100, total > 0 ? 3 : 0)
         return (
           <div key={r.name}>
             <div className="flex items-baseline justify-between gap-2">
-              <span className="text-xs text-nova-text-primary truncate">{r.name}</span>
+              <span className="text-xs font-bold text-nova-text-primary truncate">{r.name}</span>
               <span className="text-[10px] text-nova-text-muted shrink-0">
                 {t('usage.calls', { count: r.count })} · {formatTokens(total)}
               </span>
             </div>
-            <div className="mt-0.5 h-1 rounded-full bg-nova-hover overflow-hidden">
-              <div className="h-full rounded-full bg-nova-accent" style={{ width: `${pct}%` }} />
+            <div className="mt-1 h-1.5 rounded-full bg-nova-hover dark:bg-white/10 overflow-hidden">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${pct}%`, background: 'linear-gradient(90deg, var(--primary-color, #0058bc), #7c3aed)' }}
+              />
             </div>
           </div>
         )
@@ -415,7 +418,7 @@ function McpList({ rows }: { rows: UsageRankRow[] }) {
       {groups.slice(0, 10).map(([server, { tools, connections }]) => {
         const connErrors = connections.reduce((s, r) => s + r.errors, 0)
         return (
-          <div key={server} className="rounded-md border border-nova-border bg-nova-surface/60 px-2 py-1.5">
+          <div key={server} className="rounded-md border border-nova-border bg-white/60 dark:bg-white/5 backdrop-blur-xl px-2 py-1.5">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-nova-text-primary truncate">{server}</span>
               {connErrors > 0 && (

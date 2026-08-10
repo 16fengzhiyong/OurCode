@@ -117,8 +117,8 @@ export default function Sidebar() {
             <HeaderIcon />
           </span>
           <span
-            className="font-semibold uppercase tracking-wider"
-            style={{ fontSize: 11, color: 'var(--text-secondary)', letterSpacing: '0.5px' }}
+            className="font-bold uppercase tracking-[0.08em]"
+            style={{ fontSize: 11, color: 'var(--text-secondary)', letterSpacing: '0.08em' }}
           >
             {headerTitle}
           </span>

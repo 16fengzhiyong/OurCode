@@ -26,6 +26,7 @@ export default function GitPanel() {
   const [commitMessage, setCommitMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [log, setLog] = useState<GitCommit[]>([])
+  const [lastCommit, setLastCommit] = useState<GitCommit | null>(null)
   const [showLog, setShowLog] = useState(false)
   const [diffContent, setDiffContent] = useState<string | null>(null)
   const [diffFile, setDiffFile] = useState<string | null>(null)
@@ -102,20 +103,29 @@ export default function GitPanel() {
     } finally {
       setIsLoading(false)
     }
+
+    // Keep the recent-commit footer in sync with every status refresh
+    // (Stitch: 最近提交脚注 — history icon + hash + message + time).
+    const logResult = await runGitCommand(['log', '-1', '--format=%H|%s|%an|%ar'])
+    if (logResult.success && logResult.output) {
+      const [hash, message, author, date] = logResult.output.trim().split('|')
+      setLastCommit({ hash, message, author, date })
+    }
   }, [getRootPath, runGitCommand])
 
   useEffect(() => {
     refreshStatus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshStatus])
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'modified': return { icon: 'M', color: 'text-yellow-400' }
-      case 'added': return { icon: 'A', color: 'text-green-400' }
-      case 'deleted': return { icon: 'D', color: 'text-red-400' }
-      case 'renamed': return { icon: 'R', color: 'text-blue-400' }
-      case 'untracked': return { icon: 'U', color: 'text-nova-text-muted' }
-      default: return { icon: '?', color: 'text-nova-text-muted' }
+      case 'modified': return { icon: 'M', color: 'var(--yellow, #d97706)' }
+      case 'added': return { icon: 'A', color: 'var(--green, #16a34a)' }
+      case 'deleted': return { icon: 'D', color: 'var(--red, #dc2626)' }
+      case 'renamed': return { icon: 'R', color: '#3B82F6' }
+      case 'untracked': return { icon: 'U', color: 'var(--text-muted, #64748b)' }
+      default: return { icon: '?', color: 'var(--text-muted, #64748b)' }
     }
   }
 
@@ -329,7 +339,7 @@ export default function GitPanel() {
           value={commitMessage}
           onChange={(e) => setCommitMessage(e.target.value)}
           placeholder={t('git.commitPlaceholder')}
-          className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-lg text-xs text-nova-text-primary outline-none focus:border-nova-accent/50 resize-none transition-colors"
+          className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-xl text-xs text-nova-text-primary outline-none focus:border-nova-accent/60 focus:ring-2 focus:ring-nova-accent/20 resize-none transition-all"
           rows={2}
           style={{ minHeight: 48, lineHeight: 1.5 }}
           onKeyDown={(e) => {
@@ -340,50 +350,53 @@ export default function GitPanel() {
         />
         <div className="flex flex-wrap items-center gap-1.5 mt-2">
           <button
+            onClick={handleGenerateCommitMessage}
+            disabled={generatingCommit}
+            className="flex-1 relative overflow-hidden rounded-xl py-1.5 text-xs font-semibold text-nova-text-primary bg-white/50 dark:bg-white/10 border border-nova-border transition-all hover:bg-white/80 dark:hover:bg-white/15 disabled:opacity-40 group inline-flex items-center justify-center gap-1"
+            title={t('git.generateCommitHint')}
+          >
+            <span className="absolute inset-0 bg-gradient-to-r from-[#0ea5e9] via-[#6366f1] to-[#a855f7] opacity-15 group-hover:opacity-25 transition-opacity" aria-hidden="true" />
+            <span className="relative z-10">
+              {generatingCommit ? t('git.generating') : '🤖 AI 生成提交消息'}
+            </span>
+          </button>
+          <button
+            onClick={handleLifeguard}
+            disabled={lifeguardRunning}
+            className="px-3 py-1.5 text-xs text-nova-text-secondary rounded-xl bg-white/40 dark:bg-white/10 border border-nova-border hover:bg-white/70 dark:hover:bg-white/15 transition-colors disabled:opacity-40"
+            title={t('git.lifeguardHint')}
+          >
+            {lifeguardRunning ? t('git.lifeguardRunning') : '🛟 提交前检查'}
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5 mt-2">
+          <button
             onClick={handleCommit}
             disabled={!commitMessage.trim()}
-            className="px-3 py-1.5 text-xs text-white rounded-full hover:opacity-90 disabled:opacity-30 transition-all inline-flex items-center gap-1"
-            style={{ background: 'linear-gradient(135deg, #0ea5e9, #6366f1, #a855f7)' }}
+            className="flex-1 py-2 text-xs text-white rounded-xl font-semibold disabled:opacity-30 transition-all inline-flex items-center justify-center gap-1 hover:scale-[1.02] hover:brightness-110 shadow-sm"
+            style={{ background: 'var(--primary-color, #0058bc)' }}
           >
             ✓ 提交
           </button>
           <button
             onClick={handlePush}
-            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-full hover:text-nova-text-primary transition-colors"
+            className="px-3 py-2 text-xs bg-nova-hover text-nova-text-secondary rounded-xl hover:text-nova-text-primary transition-colors"
             title={t('git.pushTitle')}
           >
             ↑ 推送
           </button>
           <button
             onClick={handlePull}
-            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-full hover:text-nova-text-primary transition-colors"
+            className="px-3 py-2 text-xs bg-nova-hover text-nova-text-secondary rounded-xl hover:text-nova-text-primary transition-colors"
             title={t('git.pullTitle')}
           >
             ↓ 拉取
           </button>
           <button
             onClick={() => { showLog ? setShowLog(false) : handleViewLog() }}
-            className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-full hover:text-nova-text-primary transition-colors"
+            className="px-3 py-2 text-xs bg-nova-hover text-nova-text-secondary rounded-xl hover:text-nova-text-primary transition-colors"
           >
             📋 日志
-          </button>
-          <button
-            onClick={handleGenerateCommitMessage}
-            disabled={generatingCommit}
-            className="px-3 py-1.5 text-xs rounded-full transition-colors disabled:opacity-40"
-            style={{ border: '1px solid color-mix(in srgb, var(--accent, #0058bc) 45%, transparent)', color: 'var(--accent)' }}
-            title={t('git.generateCommitHint')}
-          >
-            {generatingCommit ? t('git.generating') : '🤖 AI 生成提交消息'}
-          </button>
-          <button
-            onClick={handleLifeguard}
-            disabled={lifeguardRunning}
-            className="px-3 py-1.5 text-xs text-nova-text-muted hover:text-red-400 rounded-full transition-colors disabled:opacity-40"
-            style={{ border: '1px solid var(--border)' }}
-            title={t('git.lifeguardHint')}
-          >
-            {lifeguardRunning ? t('git.lifeguardRunning') : '🛟 提交前检查'}
           </button>
         </div>
 
@@ -445,8 +458,8 @@ export default function GitPanel() {
         {/* Staged changes */}
         {stagedChanges.length > 0 && (
           <div>
-            <div className="flex items-center justify-between px-3 py-1.5 bg-nova-bg">
-              <span className="text-[10px] font-semibold text-nova-text-muted uppercase">{t('git.staged')}</span>
+            <div className="flex items-center justify-between px-3 py-1.5">
+              <span className="text-[10px] font-bold text-nova-text-muted uppercase tracking-[0.08em]">{t('git.staged')} ({stagedChanges.length})</span>
               <button
                 onClick={handleUnstageAll}
                 className="text-[10px] text-nova-text-muted hover:text-nova-accent"
@@ -461,20 +474,30 @@ export default function GitPanel() {
               return (
                 <div
                   key={item.file}
-                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-nova-hover cursor-pointer group"
+                  className="group flex items-center gap-2 px-3 py-1.5 mx-1 rounded-md hover:bg-nova-hover cursor-pointer transition-colors"
                 >
                   <button
                     onClick={() => handleToggleStage(item.file, true)}
-                    className="text-[10px] text-yellow-400 hover:text-yellow-300"
+                    className="text-[10px] text-nova-text-muted hover:text-nova-text-primary"
                     title={t('git.unstage')}
                   >
                     -
                   </button>
-                  <span className={`text-[10px] font-bold w-4 text-center ${color}`}>{icon}</span>
-                  <span className="text-xs text-nova-text-primary truncate flex-1" onClick={() => openFile(resolveFilePath(item.file))}>{fileName}</span>
+                  <span
+                    className="text-[10px] font-bold w-4 text-center shrink-0 px-1 py-px rounded"
+                    style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)` }}
+                  >
+                    {icon}
+                  </span>
+                  <span
+                    className="text-xs text-nova-text-primary truncate flex-1 font-mono hover:text-nova-accent"
+                    onClick={() => openFile(resolveFilePath(item.file))}
+                  >
+                    {fileName}
+                  </span>
                   <button
                     onClick={() => handleViewDiff(item.file)}
-                    className="text-[10px] text-nova-text-muted hover:text-nova-accent opacity-0 group-hover:opacity-100"
+                    className="text-[10px] text-nova-text-muted hover:text-nova-accent opacity-0 group-hover:opacity-100 transition-opacity"
                     title={t('git.viewDiff')}
                   >
                     {t('git.diff')}
@@ -488,8 +511,8 @@ export default function GitPanel() {
         {/* Unstaged changes */}
         {unstagedChanges.length > 0 && (
           <div>
-            <div className="flex items-center justify-between px-3 py-1.5 bg-nova-bg">
-              <span className="text-[10px] font-semibold text-nova-text-muted uppercase">{t('git.changes')}</span>
+            <div className="flex items-center justify-between px-3 py-1.5">
+              <span className="text-[10px] font-bold text-nova-text-muted uppercase tracking-[0.08em]">{t('git.changes')} ({unstagedChanges.length})</span>
               <button
                 onClick={handleStageAll}
                 className="text-[10px] text-nova-text-muted hover:text-nova-accent"
@@ -504,20 +527,30 @@ export default function GitPanel() {
               return (
                 <div
                   key={item.file}
-                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-nova-hover cursor-pointer group"
+                  className="group flex items-center gap-2 px-3 py-1.5 mx-1 rounded-md hover:bg-nova-hover cursor-pointer transition-colors"
                 >
                   <button
                     onClick={() => handleToggleStage(item.file, false)}
-                    className="text-[10px] text-green-400 hover:text-green-300"
+                    className="text-[10px] text-nova-text-muted hover:text-nova-accent"
                     title={t('git.stage')}
                   >
                     +
                   </button>
-                  <span className={`text-[10px] font-bold w-4 text-center ${color}`}>{icon}</span>
-                  <span className="text-xs text-nova-text-primary truncate flex-1" onClick={() => openFile(resolveFilePath(item.file))}>{fileName}</span>
+                  <span
+                    className="text-[10px] font-bold w-4 text-center shrink-0 px-1 py-px rounded"
+                    style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)` }}
+                  >
+                    {icon}
+                  </span>
+                  <span
+                    className="text-xs text-nova-text-primary truncate flex-1 font-mono hover:text-nova-accent"
+                    onClick={() => openFile(resolveFilePath(item.file))}
+                  >
+                    {fileName}
+                  </span>
                   <button
                     onClick={() => handleViewDiff(item.file)}
-                    className="text-[10px] text-nova-text-muted hover:text-nova-accent opacity-0 group-hover:opacity-100"
+                    className="text-[10px] text-nova-text-muted hover:text-nova-accent opacity-0 group-hover:opacity-100 transition-opacity"
                     title={t('git.viewDiff')}
                   >
                     {t('git.diff')}
@@ -531,29 +564,61 @@ export default function GitPanel() {
         {/* Untracked files */}
         {untrackedFiles.length > 0 && (
           <div>
-            <div className="flex items-center justify-between px-3 py-1.5 bg-nova-bg">
-              <span className="text-[10px] font-semibold text-nova-text-muted uppercase">{t('git.untracked')}</span>
+            <div className="flex items-center justify-between px-3 py-1.5">
+              <span className="text-[10px] font-bold text-nova-text-muted uppercase tracking-[0.08em]">{t('git.untracked')} ({untrackedFiles.length})</span>
             </div>
             {untrackedFiles.map((item) => {
               const fileName = item.file.split(/[/\\]/).pop() || item.file
               return (
                 <div
                   key={item.file}
-                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-nova-hover cursor-pointer group"
+                  className="group flex items-center gap-2 px-3 py-1.5 mx-1 rounded-md hover:bg-nova-hover cursor-pointer transition-colors"
                 >
                   <button
                     onClick={() => handleToggleStage(item.file, false)}
-                    className="text-[10px] text-green-400 hover:text-green-300"
+                    className="text-[10px] text-nova-text-muted hover:text-nova-accent"
                     title={t('git.track')}
                   >
                     +
                   </button>
-                  <span className="text-[10px] font-bold w-4 text-center text-nova-text-muted">U</span>
-                  <span className="text-xs text-nova-text-primary truncate flex-1" onClick={() => openFile(resolveFilePath(item.file))}>{fileName}</span>
+                  <span
+                    className="text-[10px] font-bold w-4 text-center shrink-0 px-1 py-px rounded"
+                    style={{ color: 'var(--text-muted, #64748b)', background: 'color-mix(in srgb, var(--text-muted, #64748b) 12%, transparent)' }}
+                  >
+                    U
+                  </span>
+                  <span
+                    className="text-xs text-nova-text-primary truncate flex-1 font-mono hover:text-nova-accent"
+                    onClick={() => openFile(resolveFilePath(item.file))}
+                  >
+                    {fileName}
+                  </span>
                 </div>
               )
             })}
           </div>
+        )}
+
+        {/* Recent commit footer (Stitch: history icon + hash + message + time) */}
+        {lastCommit && (
+          <button
+            onClick={() => { showLog ? setShowLog(false) : handleViewLog() }}
+            className="mt-1 mb-1 flex items-center gap-2 px-3 py-2 mx-1 rounded-lg border border-nova-border bg-nova-surface/40 hover:bg-nova-hover transition-colors text-left w-[calc(100%-8px)]"
+            title={t('git.recentCommits')}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="text-nova-text-muted shrink-0">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l2.5 2.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+            </svg>
+            <span className="text-[11px] font-mono font-bold text-nova-text-secondary shrink-0">
+              {lastCommit.hash.slice(0, 7)}
+            </span>
+            <span className="text-[11px] text-nova-text-primary truncate flex-1">
+              {lastCommit.message}
+            </span>
+            <span className="text-[10px] text-nova-text-muted shrink-0 opacity-70">
+              {lastCommit.date}
+            </span>
+          </button>
         )}
       </div>
 

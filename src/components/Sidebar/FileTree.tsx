@@ -15,6 +15,7 @@ export default function FileTree({ rootPath }: FileTreeProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const { openFile } = useEditorStore()
+  const activeFilePath = useEditorStore((s) => s.activeFilePath)
   const { showHiddenFiles } = useEditorStore((s) => s.preferences)
   const t = useI18n()
 
@@ -148,15 +149,24 @@ export default function FileTree({ rootPath }: FileTreeProps) {
 
   return (
     <div className="h-full flex flex-col" id="file-tree-root" data-root-path={rootPath}>
-      {/* Search */}
-      <div className="p-2">
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={t('sidebar.searchFiles')}
-          className="w-full px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-full text-sm text-nova-text-primary placeholder-nova-text-muted focus:border-nova-accent/50 focus:outline-none transition-colors"
-        />
+      {/* Search — glass capsule with leading icon (Stitch 资源管理器) */}
+      <div className="p-2 pb-1">
+        <div className="relative">
+          <svg
+            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-nova-text-muted pointer-events-none"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t('sidebar.searchFiles')}
+            className="w-full bg-nova-input-bg border border-nova-border rounded-full py-1.5 pl-9 pr-4 text-[11px] text-nova-text-primary placeholder-nova-text-muted focus:border-nova-accent/60 focus:ring-2 focus:ring-nova-accent/20 focus:outline-none transition-all"
+          />
+        </div>
       </div>
 
       {/* File Tree */}
@@ -187,6 +197,7 @@ export default function FileTree({ rootPath }: FileTreeProps) {
             onClick={handleFileClick}
             searchQuery={searchQuery}
             onRefresh={() => refreshTree()}
+            activePath={activeFilePath}
           />
         )))}
       </div>

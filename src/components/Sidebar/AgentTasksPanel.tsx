@@ -23,10 +23,10 @@ const STATUS_KEY: Record<AgentRun['status'], TranslationKey> = {
 }
 
 const STATUS_STYLE: Record<AgentRun['status'], string> = {
-  running: 'text-[#3B82F6] border-[#3B82F6]/40 bg-[#3B82F6]/10',
-  creating_plan: 'text-[#3B82F6] border-[#3B82F6]/40 bg-[#3B82F6]/10',
+  running: 'text-nova-accent border-nova-accent/40 bg-nova-accent/10',
+  creating_plan: 'text-nova-accent border-nova-accent/40 bg-nova-accent/10',
   waiting_plan: 'text-yellow-400 border-yellow-500/40 bg-yellow-500/10',
-  approved_running: 'text-[#3B82F6] border-[#3B82F6]/40 bg-[#3B82F6]/10',
+  approved_running: 'text-nova-accent border-nova-accent/40 bg-nova-accent/10',
   done: 'text-green-400 border-green-500/40 bg-green-500/10',
   stopped: 'text-nova-text-muted border-nova-border bg-nova-hover/30',
   error: 'text-red-400 border-red-500/40 bg-red-500/10',
@@ -89,7 +89,7 @@ export default function AgentTasksPanel() {
       <div className="p-3 space-y-4">
         {/* Current run(s) — parallel conversations each show their live run */}
         <section>
-          <div className="text-[11px] font-medium text-nova-text-muted uppercase tracking-wider mb-1.5">
+          <div className="text-[11px] font-bold text-nova-text-muted uppercase tracking-[0.08em] mb-1.5">
             {t('agent.currentRun')}
           </div>
           {currentRuns.length > 0 ? (
@@ -115,7 +115,7 @@ export default function AgentTasksPanel() {
         {/* History */}
         {history.length > 0 && (
           <section>
-            <div className="text-[11px] font-medium text-nova-text-muted uppercase tracking-wider mb-1.5">
+            <div className="text-[11px] font-bold text-nova-text-muted uppercase tracking-[0.08em] mb-1.5">
               {t('agent.history')}
             </div>
             <div className="space-y-1.5">
@@ -136,7 +136,7 @@ export default function AgentTasksPanel() {
 
         {/* Per-project allowlist manager */}
         <section>
-          <div className="text-[11px] font-medium text-nova-text-muted uppercase tracking-wider mb-1.5">
+          <div className="text-[11px] font-bold text-nova-text-muted uppercase tracking-[0.08em] mb-1.5">
             {t('agent.allowlistTitle')}
           </div>
           {allowlist.length === 0 ? (
@@ -146,14 +146,14 @@ export default function AgentTasksPanel() {
               {allowlist.map((name) => (
                 <span
                   key={name}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-mono bg-green-500/10 text-green-400 border border-green-500/20"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono bg-white/60 border border-nova-border dark:bg-white/10 text-nova-text-primary"
                 >
                   {name}
                 </span>
               ))}
               <button
                 onClick={() => rootPath && clearToolAllowlist(rootPath)}
-                className="px-2 py-0.5 rounded text-[10px] text-nova-text-muted hover:text-red-400 hover:bg-red-500/10 border border-nova-border transition-colors"
+                className="px-2 py-1 rounded text-[10px] text-nova-text-muted hover:text-red-400 hover:bg-red-500/10 border border-nova-border transition-colors"
               >
                 {t('agent.clearAllowlist')}
               </button>
@@ -184,16 +184,18 @@ function TaskCard({
 }) {
   return (
     <div
-      className={`rounded-xl border border-nova-border bg-nova-card/60 p-2.5 space-y-1.5 hover:border-nova-accent/30 transition-colors ${
-        isActive ? 'border-nova-accent/40 bg-nova-accent/5' : 'border-nova-border bg-nova-surface/60'
+      className={`rounded-lg border p-2.5 space-y-1.5 transition-colors backdrop-blur-xl ${
+        isActive
+          ? 'border-nova-accent/30 bg-white/80 dark:bg-white/10'
+          : 'border-nova-border bg-white/60 dark:bg-white/5 hover:bg-white/80 dark:hover:bg-white/10'
       }`}
     >
       <div className="flex items-center gap-1.5 min-w-0">
-        <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] border ${STATUS_STYLE[run.status]}`}>
+        <span className={`shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${STATUS_STYLE[run.status]}`}>
           {t(STATUS_KEY[run.status])}
         </span>
         <span className="text-[10px] text-nova-text-muted shrink-0">{formatElapsed(run, t)}</span>
-        {isActive && <span className="w-1.5 h-1.5 rounded-full bg-[#3B82F6] animate-pulse-dot shrink-0" />}
+        {isActive && <span className="w-1.5 h-1.5 rounded-full bg-nova-accent animate-pulse-dot shrink-0" />}
       </div>
       <div className="text-xs text-nova-text-primary leading-snug line-clamp-2 break-words">{run.task}</div>
       <div className="flex items-center gap-1 text-[10px] text-nova-text-muted">
@@ -205,21 +207,21 @@ function TaskCard({
       <div className="flex items-center gap-1.5">
         <button
           onClick={onOpen}
-          className="px-2 py-0.5 rounded text-[10px] text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 transition-colors"
+          className="px-2 py-0.5 rounded-full text-[10px] font-semibold text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 transition-colors"
         >
           {t('agent.openSession')}
         </button>
         {isRunningStatus(run.status) && (
           <button
             onClick={onStop}
-            className="px-2 py-0.5 rounded text-[10px] text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors"
+            className="px-2.5 py-0.5 rounded-full text-[10px] font-bold text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors"
           >
             {t('agent.stop')}
           </button>
         )}
         <button
           onClick={onDelete}
-          className="ml-auto px-1.5 py-0.5 rounded text-[10px] text-nova-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+          className="ml-auto px-1.5 py-0.5 rounded-full text-[10px] text-nova-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
         >
           {t('agent.deleteRecord')}
         </button>

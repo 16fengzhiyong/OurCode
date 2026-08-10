@@ -105,10 +105,10 @@ export default function FileChangesPanel() {
 
   const getStatusIcon = (toolName: string) => {
     switch (toolName) {
-      case 'write_file': return { icon: 'A', color: '#73c991', label: 'added' }
-      case 'edit_file': return { icon: 'M', color: '#e5ba7d', label: 'modified' }
-      case 'delete_file': return { icon: 'D', color: '#f48771', label: 'deleted' }
-      default: return { icon: 'M', color: '#e5ba7d', label: 'modified' }
+      case 'write_file': return { icon: 'A', color: 'var(--green, #16a34a)', label: 'added' }
+      case 'edit_file': return { icon: 'M', color: 'var(--yellow, #d97706)', label: 'modified' }
+      case 'delete_file': return { icon: 'D', color: 'var(--red, #dc2626)', label: 'deleted' }
+      default: return { icon: 'M', color: 'var(--yellow, #d97706)', label: 'modified' }
     }
   }
 
@@ -189,58 +189,72 @@ export default function FileChangesPanel() {
           </div>
         ) : (
           groupedChanges.map((group) => (
-            <div key={group.sessionId} className="mb-1 mx-2">
-              {/* Group header */}
-              <div className="flex items-center gap-1.5 px-2 py-2 text-[10px] font-semibold text-nova-text-muted uppercase tracking-wider">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
-                  <path d="M14 2v6h6" />
-                  <path d="M12.2 17.8l.9-2.6 4.2-4.2 1.7 1.7-4.2 4.2-2.6.9z" />
-                </svg>
-                <span className="font-normal normal-case tracking-normal text-nova-text-secondary">
-                  {group.title} — {formatTime(group.time)}
+            <div key={group.sessionId} className="mb-2 mx-2 flex flex-col gap-1.5">
+              {/* Session header (Stitch: title + time) */}
+              <div className="flex items-baseline gap-1.5 px-1 pt-1">
+                <span className="text-xs font-bold text-nova-text-primary truncate">
+                  {group.title}
+                </span>
+                <span className="text-[10px] text-nova-text-muted shrink-0">
+                  · {formatTime(group.time)}
                 </span>
               </div>
 
-              {/* File rows */}
-              {group.changes.map((change, i) => {
-                const st = getStatusIcon(change.toolName)
-                return (
-                  <div
-                    key={`${change.filePath}-${i}`}
-                    className="flex items-center gap-2 px-2 py-1.5 mx-1 rounded group cursor-pointer hover:bg-nova-hover transition-colors text-xs"
-                    onClick={() => openFile(resolvePath(change.filePath))}
-                  >
-                    <span
-                      className="w-3.5 text-center text-[10px] font-bold shrink-0"
-                      style={{ color: st.color }}
+              {/* File rows in a glass card (Stitch glass-card) */}
+              <div className="rounded-lg border border-nova-border bg-nova-surface/50 p-1 flex flex-col gap-0.5">
+                {group.changes.map((change, i) => {
+                  const st = getStatusIcon(change.toolName)
+                  return (
+                    <div
+                      key={`${change.filePath}-${i}`}
+                      className="group flex items-center justify-between p-1.5 rounded-md hover:bg-nova-hover transition-colors cursor-pointer"
+                      onClick={() => openFile(resolvePath(change.filePath))}
                     >
-                      {st.icon}
-                    </span>
-                    <span className="flex-1 truncate text-nova-text-primary">
-                      {change.fileName}
-                    </span>
-                    <button
-                      className="text-[10px] text-nova-text-muted opacity-0 group-hover:opacity-100 hover:text-nova-accent transition-all bg-transparent border-none cursor-pointer px-1"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleViewDiff(change)
-                      }}
-                    >
-                      查看变更
-                    </button>
-                    <button
-                      className="text-[10px] text-nova-text-muted opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all bg-transparent border-none cursor-pointer px-1"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleRevert(change)
-                      }}
-                    >
-                      ↩ 回退
-                    </button>
-                  </div>
-                )
-              })}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded"
+                          style={{ color: st.color, background: `color-mix(in srgb, ${st.color} 12%, transparent)` }}
+                        >
+                          {st.icon}
+                        </span>
+                        <span className={`flex-1 truncate text-[12px] font-mono text-nova-text-primary ${change.toolName === 'delete_file' ? 'line-through text-nova-text-muted' : ''}`}>
+                          {change.fileName}
+                        </span>
+                        <span className="text-[10px] text-nova-text-muted shrink-0 opacity-70">
+                          · {formatTime(group.time)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                        <button
+                          className="p-1 text-nova-text-muted hover:text-nova-accent hover:bg-nova-accent/10 rounded-full transition-colors"
+                          title="查看差异"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleViewDiff(change)
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M4 12h16M4 6h16M4 18h16" />
+                          </svg>
+                        </button>
+                        <button
+                          className="p-1 text-nova-text-muted hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
+                          title="回滚"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRevert(change)
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 12a9 9 0 1 0 3-6.7" />
+                            <path d="M3 4v5h5" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           ))
         )}

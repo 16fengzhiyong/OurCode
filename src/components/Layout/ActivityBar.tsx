@@ -145,7 +145,7 @@ export default function ActivityBar() {
               style={{
                 width: 38,
                 height: 38,
-                color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                color: isActive ? 'var(--accent)' : 'var(--text-muted)',
                 background: isActive ? 'var(--bg-selected)' : 'transparent',
                 margin: '1px 0',
               }}
@@ -162,7 +162,7 @@ export default function ActivityBar() {
                 }
               }}
             >
-              {/* Active indicator bar */}
+              {/* Active indicator bar (Stitch: left primary rounded bar) */}
               {isActive && (
                 <span
                   style={{
@@ -170,9 +170,9 @@ export default function ActivityBar() {
                     left: 0,
                     top: 7,
                     bottom: 7,
-                    width: 2,
+                    width: 3,
                     background: 'var(--accent)',
-                    borderRadius: '0 2px 2px 0',
+                    borderRadius: '0 3px 3px 0',
                   }}
                 />
               )}
