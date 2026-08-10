@@ -46,6 +46,11 @@
   --red: #dc2626;
   --yellow: #d97706;
   --info: #0058bc;
+  --warning: #d97706;
+  --success: #16a34a;
+  --error: #dc2626;
+  --error-container: #fee2e2;
+  --primary-container: #e8f0ff;
   --bubble-user: #e8f0ff;
   --bubble-user-hover: #dce9ff;
   --grad-brand: linear-gradient(135deg, #0ea5e9, #6366f1, #a855f7);
@@ -108,6 +113,11 @@
   --red: #f48771;
   --yellow: #e5ba7d;
   --info: #4d94ff;
+  --warning: #e5ba7d;
+  --success: #34d399;
+  --error: #f48771;
+  --error-container: rgba(244, 135, 113, 0.14);
+  --primary-container: #1d3a66;
   --bubble-user: #1d3a66;
   --bubble-user-hover: #24446f;
   --grad-brand: linear-gradient(135deg, #0ea5e9, #6366f1, #a855f7);

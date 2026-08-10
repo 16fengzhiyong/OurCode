@@ -192,7 +192,7 @@ export default function FileChangesPanel() {
             <div key={group.sessionId} className="space-y-2">
               {/* Session header (Stitch: primary-container chat avatar + title + time) */}
               <div className="flex items-center gap-2.5 px-2">
-                <div className="w-8 h-8 rounded-full bg-nova-accent/10 flex items-center justify-center text-primary shrink-0">
+                <div className="w-8 h-8 rounded-full bg-accent-10 flex items-center justify-center text-primary shrink-0">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4 5h16v11H8l-4 4V5z" />
                   </svg>
@@ -276,7 +276,7 @@ export default function FileChangesPanel() {
       {groupedChanges.length > 0 && (
         <div className="p-3 border-t border-glass-border shrink-0">
           <button
-            className="w-full py-2.5 rounded-xl text-primary font-bold text-xs hover:bg-nova-accent/10 transition-colors flex items-center justify-center gap-1.5"
+            className="w-full py-2.5 rounded-xl text-primary font-bold text-xs hover:bg-accent-10 transition-colors flex items-center justify-center gap-1.5"
             onClick={() => {
               const ui = useUIStore.getState()
               if (ui.activeSidebarTab === 'changes' && ui.isSidebarVisible) {

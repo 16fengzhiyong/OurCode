@@ -275,8 +275,7 @@ export default function ProjectListPanel() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="搜索项目或对话..."
-            className="w-full bg-nova-input-bg border border-nova-border rounded-full py-1.5 pl-9 pr-4 text-[11px] text-nova-text-primary placeholder-nova-text-muted focus:border-nova-accent/60 focus:ring-2 focus:ring-nova-accent/20 focus:outline-none transition-all"
-          />
+            className="w-full bg-nova-input-bg border border-nova-border rounded-full py-1.5 pl-9 pr-4 text-[11px] text-nova-text-primary placeholder-nova-text-muted focus:border-accent-60 focus:ring-2 focus:ring-accent-20 focus:outline-none transition-all"          />
         </div>
       </div>
 
@@ -310,7 +309,7 @@ export default function ProjectListPanel() {
               <div
                 className={`group flex items-start gap-3 rounded-xl p-3 cursor-pointer transition-all border ${
                   isCurrent
-                    ? 'bg-nova-accent/10 border-nova-accent/60'
+                    ? 'bg-accent-10 border-accent-60'
                     : 'border-transparent hover:bg-white/50 dark:hover:bg-white/10 hover:border-glass-border'
                 }`}
                 onClick={() => handleEnterProject(project.path)}
@@ -348,7 +347,7 @@ export default function ProjectListPanel() {
                     e.stopPropagation()
                     handleNewSessionForProject(project.path)
                   }}
-                  className="p-1 rounded-full text-nova-text-muted hover:text-nova-accent hover:bg-nova-accent/10 transition-colors opacity-0 group-hover:opacity-100 shrink-0 self-center"
+                  className="p-1 rounded-full text-nova-text-muted hover:text-nova-accent hover:bg-accent-10 transition-colors opacity-0 group-hover:opacity-100 shrink-0 self-center"
                   title={t('chat.newChat')}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -367,7 +366,7 @@ export default function ProjectListPanel() {
                         key={session.id}
                         className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
                           isActive
-                            ? 'bg-white/40 dark:bg-white/10 border border-nova-accent/20'
+                            ? 'bg-white/40 dark:bg-white/10 border border-accent-20'
                             : 'hover:bg-white/40 dark:hover:bg-white/10'
                         }`}
                         onClick={(e) => {
@@ -400,7 +399,7 @@ export default function ProjectListPanel() {
 
                   {projectSessions.length > 5 && (
                     <button
-                      className="flex items-center gap-1 pl-2 py-1 text-xs text-nova-accent hover:text-nova-accent/80 transition-colors"
+                      className="flex items-center gap-1 pl-2 py-1 text-xs text-nova-accent hover:text-accent-80 transition-colors"
                       onClick={(e) => {
                         e.stopPropagation()
                         setShowMoreSessions((prev) => {
@@ -440,7 +439,7 @@ export default function ProjectListPanel() {
                       key={session.id}
                       className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-colors border ${
                         isActive
-                          ? 'bg-white/40 dark:bg-white/10 border-nova-accent/20'
+                          ? 'bg-white/40 dark:bg-white/10 border-accent-20'
                           : 'border-transparent hover:bg-white/50 dark:hover:bg-white/10 hover:border-glass-border'
                       }`}
                       onClick={() => handleSessionClick(session.id)}

@@ -417,7 +417,7 @@ export default function GitPanel() {
 
         {/* Lifeguard findings (Stitch: warning panel) */}
         {lifeguardError && (
-          <div className="mx-2 mb-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30 flex items-center gap-1.5 text-warning font-semibold text-xs backdrop-blur-md">
+          <div className="mx-2 mb-2 px-3 py-2.5 rounded-lg bg-warning-10 border border-warning-30 flex items-center gap-1.5 text-warning font-semibold text-xs backdrop-blur-md">
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M12 2 1 21h22L12 2zm1 14h-2v2h2v-2zm0-7h-2v5h2V9z" />
             </svg>
@@ -425,7 +425,7 @@ export default function GitPanel() {
           </div>
         )}
         {lifeguardFindings.length > 0 && (
-          <div className="mx-2 mb-2 rounded-lg bg-warning/10 border border-warning/30 backdrop-blur-md overflow-hidden">
+          <div className="mx-2 mb-2 rounded-lg bg-warning-10 border border-warning-30 backdrop-blur-md overflow-hidden">
             <div className="px-3 py-2.5 flex items-center gap-1.5 text-warning font-semibold text-xs">
               <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M12 2 1 21h22L12 2zm1 14h-2v2h2v-2zm0-7h-2v5h2V9z" />
@@ -440,7 +440,7 @@ export default function GitPanel() {
               {lifeguardFindings.map((f, i) => (
                 <div
                   key={i}
-                  className="flex items-center justify-between text-[11px] text-warning/90 hover:bg-warning/5 rounded px-2 py-1 transition-colors"
+                  className="flex items-center justify-between text-[11px] text-warning-90 hover:bg-warning-5 rounded px-2 py-1 transition-colors"
                 >
                   <span className="font-code truncate max-w-[230px]">
                     {f.file ? `${f.file}${f.line ? `:${f.line}` : ''}` : ''} — {f.message}

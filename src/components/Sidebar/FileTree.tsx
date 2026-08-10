@@ -164,7 +164,7 @@ export default function FileTree({ rootPath }: FileTreeProps) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('sidebar.searchFiles')}
-            className="w-full bg-nova-input-bg border border-nova-border rounded-full py-1.5 pl-9 pr-4 text-[11px] text-nova-text-primary placeholder-nova-text-muted focus:border-nova-accent/60 focus:ring-2 focus:ring-nova-accent/20 focus:outline-none transition-all"
+            className="w-full bg-nova-input-bg border border-nova-border rounded-full py-1.5 pl-9 pr-4 text-[11px] text-nova-text-primary placeholder-nova-text-muted focus:border-accent-60 focus:ring-2 focus:ring-accent-20 focus:outline-none transition-all"
           />
         </div>
       </div>

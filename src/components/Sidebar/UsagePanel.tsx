@@ -218,7 +218,7 @@ export default function UsagePanel() {
                         </div>
                         <button
                           onClick={() => runSkill(s.name, s.description)}
-                          className="shrink-0 ml-2 bg-nova-accent/10 text-nova-accent hover:bg-nova-accent hover:text-white transition-colors text-[10px] font-medium px-2 py-1 rounded-full"
+                          className="shrink-0 ml-2 bg-accent-10 text-nova-accent hover:bg-nova-accent hover:text-white transition-colors text-[10px] font-medium px-2 py-1 rounded-full"
                         >
                           {t('usage.runSkill')}
                         </button>
@@ -303,7 +303,7 @@ function EmptyState({ onRefresh }: { onRefresh: () => void }) {
       <div className="text-xs text-nova-text-muted">{t('usage.empty')}</div>
       <button
         onClick={onRefresh}
-        className="px-2.5 py-1 rounded text-[11px] text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 transition-colors"
+        className="px-2.5 py-1 rounded text-[11px] text-nova-accent bg-accent-10 hover:bg-accent-20 transition-colors"
       >
         {t('usage.refresh')}
       </button>

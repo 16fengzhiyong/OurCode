@@ -24,10 +24,10 @@ const STATUS_KEY: Record<AgentRun['status'], TranslationKey> = {
 
 /** Status pill styles — map each run status to the Stitch glass-light palette */
 const STATUS_PILL: Record<AgentRun['status'], string> = {
-  running: 'bg-nova-accent/10 text-nova-accent',
-  creating_plan: 'bg-nova-accent/10 text-nova-accent',
-  waiting_plan: 'bg-warning/10 text-warning',
-  approved_running: 'bg-nova-accent/10 text-nova-accent',
+  running: 'bg-accent-10 text-nova-accent',
+  creating_plan: 'bg-accent-10 text-nova-accent',
+  waiting_plan: 'bg-warning-10 text-warning',
+  approved_running: 'bg-accent-10 text-nova-accent',
   done: 'bg-green-100 text-success dark:bg-green-500/10',
   stopped: 'bg-gray-200 text-nova-text-muted dark:bg-white/10',
   error: 'bg-error-container text-error dark:bg-red-500/10',
@@ -190,7 +190,7 @@ function TaskCard({
   if (isActive) {
     // ── 当前运行 (Stitch: pulsing dot, running pill, split actions) ──
     return (
-      <div className="relative bg-white/90 dark:bg-white/10 border border-nova-accent/20 rounded-md p-3.5 flex flex-col gap-2.5 shadow-sm transition-all duration-300 hover:shadow-md hover:border-nova-accent/40">
+      <div className="relative bg-white/90 dark:bg-white/10 border border-accent-20 rounded-md p-3.5 flex flex-col gap-2.5 shadow-sm transition-all duration-300 hover:shadow-md hover:border-accent-40">
         {/* Pulsing dot top-right with glow */}
         <span
           className="absolute top-3.5 right-3.5 w-2 h-2 rounded-full bg-primary animate-pulse-dot shrink-0"
@@ -216,7 +216,7 @@ function TaskCard({
         <div className="flex items-center gap-2 mt-0.5">
           <button
             onClick={onOpen}
-            className="flex-1 py-1.5 rounded-full bg-nova-accent/10 text-nova-accent text-xs font-bold hover:bg-nova-accent/20 transition-colors flex items-center justify-center gap-1"
+            className="flex-1 py-1.5 rounded-full bg-accent-10 text-nova-accent text-xs font-bold hover:bg-accent-20 transition-colors flex items-center justify-center gap-1"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <path d="M4 5h16v11H8l-4 4V5z" />

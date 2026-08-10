@@ -216,9 +216,9 @@ export default function FileTreeNode({
       <div
         className={`group relative flex items-center h-[26px] px-2 cursor-pointer rounded-md mx-2 transition-colors ${
           isDragOver
-            ? 'bg-nova-accent/15 ring-1 ring-nova-accent/50'
+            ? 'bg-accent-15 ring-1 ring-accent-50'
             : isActive
-              ? 'bg-nova-accent/10'
+              ? 'bg-accent-10'
               : 'hover:bg-nova-hover'
         }`}
         style={{ paddingLeft }}
