@@ -179,9 +179,10 @@ export default function FileChangesPanel() {
       <div className="flex-1 overflow-y-auto">
         {groupedChanges.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-nova-text-muted opacity-40 mb-3">
-              <circle cx="12" cy="12" r="9" />
-              <polyline points="12 7 12 12 15 15" />
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="text-nova-text-muted opacity-40 mb-3">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
+              <path d="M14 2v6h6" />
+              <path d="M12.2 17.8l.9-2.6 4.2-4.2 1.7 1.7-4.2 4.2-2.6.9z" />
             </svg>
             <div className="text-nova-text-muted text-xs">暂无 AI 文件变更记录</div>
             <div className="text-nova-text-muted/60 text-[10px] mt-1">开始一个对话让 AI 修改文件后，变更会显示在这里</div>
@@ -191,9 +192,10 @@ export default function FileChangesPanel() {
             <div key={group.sessionId} className="mb-1 mx-2">
               {/* Group header */}
               <div className="flex items-center gap-1.5 px-2 py-2 text-[10px] font-semibold text-nova-text-muted uppercase tracking-wider">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                  <circle cx="12" cy="12" r="9" />
-                  <polyline points="12 7 12 12 15 15" />
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z" />
+                  <path d="M14 2v6h6" />
+                  <path d="M12.2 17.8l.9-2.6 4.2-4.2 1.7 1.7-4.2 4.2-2.6.9z" />
                 </svg>
                 <span className="font-normal normal-case tracking-normal text-nova-text-secondary">
                   {group.title} — {formatTime(group.time)}
@@ -251,7 +253,7 @@ export default function FileChangesPanel() {
           onClick={() => { setDiffContent(null); setDiffSession(null) }}
         >
           <div
-            className="w-[700px] max-w-[90vw] max-h-[80vh] glass-chrome rounded-2xl flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
+            className="w-[700px] max-w-[90vw] max-h-[80vh] glass-modal rounded-2xl flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-nova-border">

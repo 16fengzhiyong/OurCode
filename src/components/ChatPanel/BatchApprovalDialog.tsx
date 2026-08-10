@@ -55,7 +55,7 @@ export default function BatchApprovalDialog() {
       aria-label={t('agent.batchTitle')}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
     >
-      <div className="glass-chrome rounded-2xl w-full max-w-lg mx-4 overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}>
+      <div className="glass-modal rounded-2xl w-full max-w-lg mx-4 overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}>
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-nova-border bg-nova-bg/50">
           <span className="text-lg">🤖</span>

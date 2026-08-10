@@ -284,7 +284,7 @@ export default function SettingsModal() {
   // ───────────── RENDER ─────────────
   return (
     <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" className="fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="glass-panel rounded-xl shadow-2xl w-[1120px] max-w-[96vw] max-h-[90vh] flex flex-col overflow-hidden" style={{ animation: 'fadeIn 0.2s ease-out' }}>
+      <div className="glass-modal rounded-xl shadow-2xl w-[1120px] max-w-[96vw] max-h-[90vh] flex flex-col overflow-hidden" style={{ animation: 'fadeIn 0.2s ease-out' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-7 py-5 border-b border-nova-border shrink-0">
           <div className="flex items-center gap-3">

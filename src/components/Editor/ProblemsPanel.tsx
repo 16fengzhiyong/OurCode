@@ -67,16 +67,17 @@ export default function ProblemsPanel() {
       {/* Header */}
       <div className="flex items-center gap-1 px-2 py-1 border-b border-nova-border shrink-0">
         <span className="font-medium text-nova-text-secondary mr-2">{t('editor.problems')}</span>
-        <span className="px-1.5 rounded text-[10px] text-red-400 bg-red-500/10" title={t('editor.severityError')}>{count('error')}</span>
-        <span className="px-1.5 rounded text-[10px] text-yellow-400 bg-yellow-500/10" title={t('editor.severityWarning')}>{count('warning')}</span>
-        <span className="px-1.5 rounded text-[10px] text-[#3b82f6] bg-[#3b82f6]/10" title={t('editor.severityInfo')}>{count('info')}</span>
+        <span className="px-2 rounded-full text-[10px] font-medium text-red-400 bg-red-500/10" title={t('editor.severityError')}>{count('error')}</span>
+        <span className="px-2 rounded-full text-[10px] font-medium text-yellow-400 bg-yellow-500/10" title={t('editor.severityWarning')}>{count('warning')}</span>
+        <span className="px-2 rounded-full text-[10px] font-medium text-[#3b82f6] bg-[#3b82f6]/10" title={t('editor.severityInfo')}>{count('info')}</span>
         <span className="flex-1" />
         <button
           onClick={explainAndFix}
-          className="px-2 py-0.5 text-[10px] text-nova-accent hover:bg-nova-accent/15 rounded transition-colors"
+          className="px-2.5 py-0.5 text-[10px] text-white rounded-full hover:opacity-90 transition-all shadow-sm"
+          style={{ background: 'var(--grad-brand)' }}
           title={t('editor.explainFixHint')}
         >
-          {t('editor.explainFix')}
+          ✨ {t('editor.explainFix')}
         </button>
         <button
           onClick={toggle}

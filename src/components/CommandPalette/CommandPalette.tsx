@@ -121,11 +121,14 @@ export default function CommandPalette() {
   return (
     <div role="dialog" aria-modal="true" aria-label={t('palette.dialog')} className="fixed inset-0 bg-black/60 flex items-start justify-center pt-[15%] z-[100] backdrop-blur-sm" onClick={closeCommandPalette}>
       <div
-        className="w-[550px] glass-chrome rounded-2xl overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
+        className="w-[550px] glass-modal rounded-2xl overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Input */}
-        <div className="p-3 border-b border-nova-border">
+        {/* Input — design: search icon + electric-blue underline */}
+        <div className="p-3 pb-2 flex items-center gap-2 border-b border-nova-border" style={{ boxShadow: 'inset 0 -2px 0 var(--accent, #0058bc)' }}>
+          <svg className="w-4 h-4 text-nova-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
           <input
             ref={inputRef}
             type="text"
@@ -150,7 +153,7 @@ export default function CommandPalette() {
                 key={cmd.id}
                 className={`
                   flex items-center justify-between px-4 py-2 cursor-pointer mx-1 rounded-lg
-                  ${index === selectedIndex ? 'bg-nova-accent/20' : 'hover:bg-nova-hover'}
+                  ${index === selectedIndex ? 'bg-nova-accent/15 border-l-2 border-l-nova-accent' : 'hover:bg-nova-hover border-l-2 border-l-transparent'}
                 `}
                 onClick={cmd.action}
                 onMouseEnter={() => setSelectedIndex(index)}

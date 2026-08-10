@@ -105,7 +105,7 @@ export default function WorkflowModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
-      <div className="w-[720px] max-w-[94vw] max-h-[85vh] flex flex-col rounded-2xl glass-chrome" style={{ boxShadow: 'var(--shadow-xl)' }}>
+      <div className="w-[720px] max-w-[94vw] max-h-[85vh] flex flex-col rounded-2xl glass-modal" style={{ boxShadow: 'var(--shadow-xl)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-nova-border shrink-0">
           <div className="flex items-center gap-2">

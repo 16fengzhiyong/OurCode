@@ -43,7 +43,7 @@ export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalP
       onClick={onClose}
     >
       <div
-        className="glass-chrome rounded-2xl w-[560px] max-h-[70vh] flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
+        className="glass-modal rounded-2xl w-[560px] max-h-[70vh] flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-3.5 border-b border-nova-border flex items-center justify-between">

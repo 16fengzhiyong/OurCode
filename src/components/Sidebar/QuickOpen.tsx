@@ -116,7 +116,7 @@ export default function QuickOpen({ rootPath }: { rootPath?: string }) {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-[15%] z-50" onClick={closeQuickOpen}>
       <div
-        className="w-[550px] glass-chrome rounded-xl overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
+        className="w-[550px] glass-modal rounded-xl overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Input */}

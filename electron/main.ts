@@ -18,6 +18,11 @@ import type { UsageEvent } from '../shared/types'
 
 const DEFAULT_EXCLUDE_FOLDERS = ['node_modules', '.git', 'dist', 'build', 'out']
 
+// Window/taskbar icon. build/ is shipped in the package (see package.json
+// "build.files") and resolves to <app>/build/icon.png both in dev and when
+// packaged, because __dirname is <app>/dist-electron in both cases.
+const APP_ICON = join(__dirname, '..', 'build', 'icon.png')
+
 // Files larger than this are skipped by search:inFiles (reading + splitting a
 // multi-hundred-MB file to search it would block the main process)
 const SEARCH_MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -213,6 +218,7 @@ function createWindow(): void {
     frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#1e1e1e',
+    icon: APP_ICON,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       // Renderers are sandboxed (like VS Code): the preload only uses the
@@ -253,6 +259,7 @@ function createNewWindow(): void {
     frame: false,
     titleBarStyle: 'hidden',
     backgroundColor: '#1e1e1e',
+    icon: APP_ICON,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       sandbox: true,

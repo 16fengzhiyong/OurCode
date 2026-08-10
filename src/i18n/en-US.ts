@@ -382,6 +382,7 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.archivedSuffix': ' · archived',
   'chat.exportMarkdown': 'Export Markdown',
   'chat.exportJson': 'Export JSON',
+  'chat.moreActions': 'More actions',
   'chat.editHistoryPrompt': 'Edit this history entry:',
   'chat.deleteHistoryConfirm': 'Delete this history entry?',
   'chat.historyEditor': 'Chat History (editable / re-run)',

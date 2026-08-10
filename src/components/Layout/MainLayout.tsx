@@ -209,7 +209,7 @@ export default function MainLayout() {
   }, [])
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-nova-bg text-nova-text-primary overflow-hidden p-2 gap-2">
+    <div className="h-full min-h-0 flex flex-col bg-nova-bg text-nova-text-primary overflow-hidden p-2 gap-2 isolate">
       <TitleBar />
       <div className="flex-1 h-full min-h-0 flex gap-2 overflow-hidden">
         <ActivityBar />
@@ -282,13 +282,13 @@ export default function MainLayout() {
             )}
           </div>
           {isProblemsOpen && (
-            <div className="shrink-0 rounded-xl overflow-hidden glass-chrome" style={{ height: 160 }}><ProblemsPanel /></div>
+            <div className="shrink-0 rounded-xl overflow-hidden glass-chrome relative z-[6]" style={{ height: 160 }}><ProblemsPanel /></div>
           )}
           {isDebugOpen && (
-            <div className="shrink-0 rounded-xl overflow-hidden glass-chrome" style={{ height: 200 }}><DebugPanel /></div>
+            <div className="shrink-0 rounded-xl overflow-hidden glass-chrome relative z-[6]" style={{ height: 200 }}><DebugPanel /></div>
           )}
           {isTerminalVisible && (
-            <div style={{ height: isCompact ? Math.min(terminalHeight, 180) : Math.min(terminalHeight, windowWidth < 800 ? 200 : 500) }} className="rounded-xl overflow-hidden glass-chrome shrink-0"><TerminalPanel rootPath={rootPath} /></div>
+            <div style={{ height: isCompact ? Math.min(terminalHeight, 180) : Math.min(terminalHeight, windowWidth < 800 ? 200 : 500) }} className="rounded-xl overflow-hidden glass-chrome shrink-0 relative z-[6]"><TerminalPanel rootPath={rootPath} /></div>
           )}
         </div>
       </div>

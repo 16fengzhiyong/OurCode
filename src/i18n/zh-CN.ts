@@ -379,6 +379,7 @@ export const zhCN = {
   'chat.archivedSuffix': ' · 已归档',
   'chat.exportMarkdown': '导出 Markdown',
   'chat.exportJson': '导出 JSON',
+  'chat.moreActions': '更多操作',
   'chat.editHistoryPrompt': '编辑该条历史记录:',
   'chat.deleteHistoryConfirm': '删除此条对话历史？',
   'chat.historyEditor': '对话历史 (可编辑/重跑)',

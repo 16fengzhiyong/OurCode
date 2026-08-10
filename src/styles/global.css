@@ -680,6 +680,19 @@ body.app-dragging .drag-region * {
   box-shadow: var(--shadow-sm);
 }
 
+/* Modal popups — frosted glass, but with an opaque-enough surface so the
+   panel reads white (light) / slate (dark) even over the bg-black/50
+   dimming overlay, instead of blending into gray. Keeps the blur, border
+   and soft shadow of the glass look (Stitch: surface-container-lowest for
+   dialogs, slightly translucent). */
+.glass-modal {
+  background: color-mix(in srgb, var(--surface, #ffffff) 92%, transparent);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xl);
+}
+
 /* Floating glass chrome — the default surface for window chrome panels
    (title bar, activity rail, sidebars, chat, bottom panels, status bar).
    Uses --card (white glass in light, deep-slate glass in dark) at ~60% so the

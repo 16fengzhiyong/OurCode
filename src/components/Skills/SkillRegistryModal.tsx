@@ -106,7 +106,7 @@ export default function SkillRegistryModal() {
   return (
     <div role="dialog" aria-modal="true" aria-label={t('skillRegistry.dialog')} className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={closeSkillRegistry}>
       <div
-        className="glass-chrome rounded-2xl w-[760px] max-h-[80vh] flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
+        className="glass-modal rounded-2xl w-[760px] max-h-[80vh] flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -287,7 +287,7 @@ export default function SkillRegistryModal() {
       {/* Uninstall confirmation */}
       {confirmUninstall && (
         <div role="dialog" aria-modal="true" aria-label={t('skillRegistry.uninstallConfirm', { name: confirmUninstall })} className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60" onClick={() => setConfirmUninstall(null)}>
-          <div className="glass-chrome rounded-2xl p-6 w-[400px]" style={{ boxShadow: 'var(--shadow-xl)' }} onClick={(e) => e.stopPropagation()}>
+          <div className="glass-modal rounded-2xl p-6 w-[400px]" style={{ boxShadow: 'var(--shadow-xl)' }} onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-nova-text-primary mb-2">
               {t('skillRegistry.uninstallConfirm', { name: confirmUninstall })}
             </h3>

@@ -55,7 +55,7 @@ export default function ConfirmDialog({
 
   return (
     <div role="dialog" aria-modal="true" aria-label={resolvedConfirm} className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="glass-panel rounded-xl shadow-2xl w-full max-w-md mx-4 animate-fade-in">
+      <div className="glass-modal rounded-xl shadow-2xl w-full max-w-md mx-4 animate-fade-in">
         <div className="p-5">
           <h3 className="text-lg font-semibold text-nova-text-primary mb-2">{title}</h3>
           <p className="text-nova-text-secondary text-sm">{message}</p>

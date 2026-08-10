@@ -73,13 +73,15 @@
     },
     "files": [
       "dist-electron",
-      "dist"
+      "dist",
+      "build"
     ],
     "win": {
       "target": [
         "nsis",
         "portable"
       ],
+      "icon": "build/icon.ico",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "nsis": {
@@ -96,6 +98,7 @@
         "dmg",
         "zip"
       ],
+      "icon": "build/icon.png",
       "artifactName": "${productName}-${version}.${ext}"
     },
     "linux": {
@@ -103,6 +106,7 @@
         "AppImage",
         "deb"
       ],
+      "icon": "build/icon.png",
       "artifactName": "${productName}-${version}.${ext}"
     },
     "publish": {

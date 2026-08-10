@@ -104,27 +104,45 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
     URL.revokeObjectURL(url)
   }
 
+  // Full per-session menu (design: 重命名 / 导出 Markdown / 导出 JSON /
+  // 归档 / 置顶 / 删除) — shared by the right-click menu and the hover ⋯
+  // button so both surfaces expose the same actions.
+  const buildSessionMenu = (session: {
+    id: string; pinnedAt?: number | null; archivedAt?: number | null
+  }) => [
+    {
+      label: session.pinnedAt ? t('chat.unpin') : t('chat.pin'),
+      icon: '📌',
+      action: () => togglePin(session.id),
+    },
+    { separator: true, label: '' },
+    { label: t('common.rename'), icon: '✏️', action: () => handleRename(session.id) },
+    { label: t('chat.exportMarkdown'), icon: '📄', action: () => handleExport(session.id) },
+    { label: t('chat.exportJson'), icon: '🧾', action: () => handleExportJson(session.id) },
+    { separator: true, label: '' },
+    {
+      label: session.archivedAt ? t('chat.unarchive') : t('chat.archive'),
+      icon: '📦',
+      action: () => toggleArchive(session.id),
+    },
+    { separator: true, label: '' },
+    { label: t('common.delete'), icon: '🗑️', action: () => handleDelete(session.id) },
+  ]
+
   const handleContextMenu = (e: React.MouseEvent, sessionId: string) => {
     e.preventDefault()
     e.stopPropagation()
     const session = sessions.find((s) => s.id === sessionId)
     if (!session) return
+    showContextMenu(e.clientX, e.clientY, buildSessionMenu(session))
+  }
 
-    const items = [
-      {
-        label: session.pinnedAt ? t('chat.unpin') : t('chat.pin'),
-        icon: '📌',
-        action: () => togglePin(sessionId),
-      },
-      { separator: true, label: '' },
-      {
-        label: session.archivedAt ? t('chat.unarchive') : t('chat.archive'),
-        icon: '📦',
-        action: () => toggleArchive(sessionId),
-      },
-    ]
-
-    showContextMenu(e.clientX, e.clientY, items)
+  // Hover "⋯" — opens the same menu anchored at the button.
+  const handleMoreMenu = (e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation()
+    const session = sessions.find((s) => s.id === sessionId)
+    if (!session) return
+    showContextMenu(e.clientX, e.clientY, buildSessionMenu(session))
   }
 
   const handleImport = () => {
@@ -178,17 +196,13 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
     <div className="w-[220px] border-r border-nova-border bg-transparent flex flex-col shrink-0">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-nova-border">
-        <span className="text-xs font-semibold text-nova-text-secondary">{t('chat.sessionList')}</span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-xs font-semibold text-nova-text-secondary">{t('chat.sessionList')}</span>
+          <span className="text-[9px] px-1.5 py-px rounded-full bg-nova-accent/12 text-nova-accent font-medium shrink-0">
+            {sessions.length}
+          </span>
+        </div>
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => setShowArchived(!showArchived)}
-            className={`p-1 rounded transition-colors ${showArchived ? 'text-nova-accent bg-nova-accent/10' : 'text-nova-text-muted hover:text-nova-accent'}`}
-            title={showArchived ? t('chat.hideArchive') : t('chat.showArchive')}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-            </svg>
-          </button>
           <button
             onClick={handleImport}
             className="p-1 text-nova-text-muted hover:text-nova-accent rounded transition-colors"
@@ -302,42 +316,18 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
                     )}
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  {/* Actions — single ⋯ button opens the full session menu
+                      (design: hover shows ⋯, menu carries rename/export/etc.) */}
+                  <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleRename(session.id) }}
-                      className="p-0.5 text-nova-text-muted hover:text-nova-text-primary rounded"
-                      title={t('common.rename')}
+                      onClick={(e) => handleMoreMenu(e, session.id)}
+                      className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded-full hover:bg-nova-hover"
+                      title={t('chat.moreActions')}
                     >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleExport(session.id) }}
-                      className="p-0.5 text-nova-text-muted hover:text-nova-text-primary rounded"
-                      title={t('chat.exportMarkdown')}
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleExportJson(session.id) }}
-                      className="p-0.5 text-nova-text-muted hover:text-nova-text-primary rounded"
-                      title={t('chat.exportJson')}
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(session.id) }}
-                      className="p-0.5 text-nova-text-muted hover:text-red-400 rounded"
-                      title={t('common.delete')}
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="5" r="1.6" />
+                        <circle cx="12" cy="12" r="1.6" />
+                        <circle cx="12" cy="19" r="1.6" />
                       </svg>
                     </button>
                   </div>
@@ -347,6 +337,28 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
           })
         )}
       </div>
+
+      {/* Archive toggle — bottom footer with count (design: 显示已归档 (N)) */}
+      {sessions.some((s) => s.archivedAt) && (
+        <div className="shrink-0 px-2 py-1.5 border-t border-nova-border">
+          <button
+            onClick={() => setShowArchived(!showArchived)}
+            className={`w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-full text-[10px] transition-colors ${
+              showArchived
+                ? 'text-nova-accent bg-nova-accent/10'
+                : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'
+            }`}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            {showArchived
+              ? t('chat.hideArchive')
+              : `${t('chat.showArchive')} (${sessions.filter((s) => s.archivedAt).length})`}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
