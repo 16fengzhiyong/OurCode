@@ -100,13 +100,13 @@ export default function AgentTimeline({ toolCalls, toolResults, thinking }: Agen
       {!expanded ? (
         <button
           onClick={() => setExpanded(true)}
-          className="workflow-toggle w-full text-left"
+          className="timeline-toggle w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[var(--hl-bg)] hover:bg-[var(--hl-bg-hover)] transition-colors"
         >
-          <span className="arrow">▶</span>
-          <span>🤖 {t('chat.agentExecutionFlow')}</span>
+          <span className="arrow text-[10px] text-nova-text-muted">▶</span>
+          <span className="text-[13px] text-nova-text-muted">🤖 {t('chat.agentExecutionFlow')}</span>
           <span
-            className="text-[11px] px-1.5 py-px rounded-full"
-            style={{ background: 'var(--hl-bg)', color: 'var(--hl-text)' }}
+            className="text-[11px] px-2 py-px rounded-full font-semibold"
+            style={{ background: 'color-mix(in srgb, var(--accent-purple, #7c3aed) 12%, transparent)', color: 'var(--accent-purple, #7c3aed)' }}
           >
             {t('chat.totalSteps', { count: stepCount })}
           </span>
@@ -117,13 +117,13 @@ export default function AgentTimeline({ toolCalls, toolResults, thinking }: Agen
         <>
           <button
             onClick={() => setExpanded(false)}
-            className="workflow-toggle open w-full text-left"
+            className="timeline-toggle open w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[var(--hl-bg)] hover:bg-[var(--hl-bg-hover)] transition-colors"
           >
-            <span className="arrow">▶</span>
-            <span>🤖 {t('chat.agentExecutionFlow')}</span>
+            <span className="arrow open text-[10px] text-nova-text-muted">▶</span>
+            <span className="text-[13px] text-nova-text-muted">🤖 {t('chat.agentExecutionFlow')}</span>
             <span
-              className="text-[11px] px-1.5 py-px rounded-full"
-              style={{ background: 'var(--hl-bg)', color: 'var(--hl-text)' }}
+              className="text-[11px] px-2 py-px rounded-full font-semibold"
+              style={{ background: 'color-mix(in srgb, var(--accent-purple, #7c3aed) 12%, transparent)', color: 'var(--accent-purple, #7c3aed)' }}
             >
               {t('chat.totalSteps', { count: stepCount })}
             </span>
@@ -162,13 +162,18 @@ export default function AgentTimeline({ toolCalls, toolResults, thinking }: Agen
                           e.stopPropagation()
                           setDetailId(isDetailOpen ? null : tc.id)
                         }}
-                        className={`tool-chip ${isDetailOpen ? 'active' : ''}`}
+                        className={`${
+                          result?.isError ? 'tool-chip-err' : result ? 'tool-chip-ok' : 'tool-chip-run'
+                        } ${isDetailOpen ? 'active' : ''}`}
                       >
-                        {tc.name}
+                        <span className="shrink-0">
+                          {result?.isError ? '✗' : result ? '✓' : '⏳'}
+                        </span>
+                        <span>{tc.name}</span>
                         {key && (
                           <>
                             {' '}
-                            <span className="param">&quot;{key}&quot;</span>
+                            <span className="param opacity-70">&quot;{key}&quot;</span>
                           </>
                         )}
                       </button>

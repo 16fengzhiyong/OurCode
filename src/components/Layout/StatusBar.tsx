@@ -171,7 +171,7 @@ export default function StatusBar() {
   const encodings = ['UTF-8', 'GBK', 'GB2312', 'GB18030', 'ASCII', 'ISO-8859-1', 'UTF-16']
 
   return (
-    <div className="h-[24px] text-nova-text-muted text-[11px] flex items-center px-3 select-none shrink-0 rounded-xl glass-chrome">
+    <div className="h-[24px] text-nova-text-muted text-[11px] flex items-center px-3 select-none shrink-0 rounded-xl glass-flat">
       {/* Left side */}
       <div className="flex items-center gap-3">
         {/* Git branch */}

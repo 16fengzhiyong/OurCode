@@ -80,6 +80,10 @@ module.exports = {
           'input-light': 'rgba(255,255,255,0.6)',
         },
       },
+      backgroundImage: {
+        'gradient-blue-violet': 'linear-gradient(135deg, #0ea5e9, #6366f1, #a855f7)',
+        'gradient-sunset-peach': 'linear-gradient(135deg, #f97316, #fb7185)',
+      },
       fontFamily: {
         sans: ['Plus Jakarta Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
         mono: ['JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'monospace'],
@@ -90,6 +94,8 @@ module.exports = {
         'pulse-dot': 'pulseDot 1.5s infinite',
         'logo-pulse': 'logoPulse 2.5s ease-in-out infinite',
         'think-bounce': 'thinkBounce 1.2s ease-in-out infinite',
+        'spin-slow': 'spin 3s linear infinite',
+        'pulse-soft': 'pulseSoft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
       },
       keyframes: {
         slideIn: {
@@ -103,6 +109,10 @@ module.exports = {
         pulseDot: {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.5' },
+        },
+        pulseSoft: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.55' },
         },
         logoPulse: {
           '0%, 100%': { boxShadow: '0 0 6px #0058bc88' },

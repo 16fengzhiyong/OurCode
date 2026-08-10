@@ -298,7 +298,7 @@ export default function TitleBar() {
   }
 
   return (
-    <div className="h-12 flex items-center drag-region select-none shrink-0 rounded-xl glass-chrome px-1">
+    <div className="h-12 flex items-center drag-region select-none shrink-0 rounded-xl glass-flat px-1">
       {/* Logo */}
       <div className="flex items-center pl-3 pr-2 gap-2 no-drag">
         <div

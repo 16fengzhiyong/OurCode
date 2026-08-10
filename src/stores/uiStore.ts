@@ -29,6 +29,9 @@ interface UIState {
   activeSidebarTab: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage'
   rootPath: string | null
   recentProjects: string[]
+  /** Last time each recent project was opened (ms epoch) — lets the project
+   *  list show a real "last opened" time instead of a synthetic one. */
+  recentProjectTimes: Record<string, number>
 
   // Chat Panel
   isChatVisible: boolean
@@ -166,6 +169,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   activeSidebarTab: 'files',
   rootPath: null,
   recentProjects: (() => { try { return JSON.parse(localStorage.getItem('recentProjects') || '[]') } catch { return [] } })(),
+  recentProjectTimes: (() => { try { return JSON.parse(localStorage.getItem('recentProjectTimes') || '{}') } catch { return {} } })(),
 
   // Chat Panel — wider default since the AI panel is the primary interface
   isChatVisible: true,
@@ -240,7 +244,11 @@ export const useUIStore = create<UIState>((set, get) => ({
         const filtered = s.recentProjects.filter((p) => p !== path)
         const updated = [path, ...filtered].slice(0, 20) // keep last 20
         localStorage.setItem('recentProjects', JSON.stringify(updated))
-        return { recentProjects: updated }
+        // Record when this project was (re)opened so the list can show a real
+        // "last opened" time.
+        const times = { ...s.recentProjectTimes, [path]: Date.now() }
+        localStorage.setItem('recentProjectTimes', JSON.stringify(times))
+        return { recentProjects: updated, recentProjectTimes: times }
       })
     }
   },
@@ -248,9 +256,13 @@ export const useUIStore = create<UIState>((set, get) => ({
     set((s) => {
       const updated = s.recentProjects.filter((p) => p !== path)
       localStorage.setItem('recentProjects', JSON.stringify(updated))
+      // Drop the recorded open-time too so a removed project never resurrects a stale date
+      const times = { ...s.recentProjectTimes }
+      delete times[path]
+      localStorage.setItem('recentProjectTimes', JSON.stringify(times))
       // If removing the current project, clear rootPath too
       const newRoot = s.rootPath === path ? null : s.rootPath
-      return { recentProjects: updated, rootPath: newRoot }
+      return { recentProjects: updated, recentProjectTimes: times, rootPath: newRoot }
     })
   },
 

@@ -69,7 +69,7 @@ function SessionStatusDot({ running, needsAttention, hasError, color }: {
 
 export default function ProjectListPanel() {
   const {
-    rootPath, setRootPath, recentProjects, projectListView, activeProjectPath,
+    rootPath, setRootPath, recentProjects, recentProjectTimes, projectListView, activeProjectPath,
     enterProject, backToProjectList, setActiveSidebarTab,
   } = useUIStore()
   const sessions = useChatStore((s) => s.sessions)
@@ -113,9 +113,11 @@ export default function ProjectListPanel() {
 
     // Recently opened projects keep their open-order (most recent first) with a
     // stable recency key, so creating/updating sessions never re-sorts the list.
-    recentProjects.forEach((rp, idx) => {
+    // lastOpened is the REAL open time recorded in setRootPath (recentProjectTimes);
+    // installs that predate timestamps fall back to session activity below.
+    recentProjects.forEach((rp) => {
       const name = rp.split(/[/\\]/).pop() || rp
-      map.set(rp, { name, path: rp, lastOpened: (recentProjects.length - idx) * 1000, sessionCount: 0 })
+      map.set(rp, { name, path: rp, lastOpened: recentProjectTimes[rp] || 0, sessionCount: 0 })
     })
 
     // Projects only known from chat sessions go after the recent ones, ordered
@@ -126,7 +128,11 @@ export default function ProjectListPanel() {
     for (const s of sessions) {
       if (!s.projectPath) continue
       if (map.has(s.projectPath)) {
-        map.get(s.projectPath)!.sessionCount++
+        const entry = map.get(s.projectPath)!
+        entry.sessionCount++
+        // Projects opened before open-times were recorded have lastOpened 0 —
+        // use the latest session activity as the displayed time.
+        if (entry.lastOpened === 0 && s.updatedAt > entry.lastOpened) entry.lastOpened = s.updatedAt
         continue
       }
       let entry = byPath.get(s.projectPath)
@@ -149,7 +155,7 @@ export default function ProjectListPanel() {
       ...Array.from(map.entries()).map(([path, info]) => ({ ...info, path })),
       ...sessionOnly,
     ]
-  }, [recentProjects, sessions])
+  }, [recentProjects, recentProjectTimes, sessions])
 
   // Filter by search
   const filteredProjects = useMemo(() => {
@@ -322,9 +328,11 @@ export default function ProjectListPanel() {
                     当前
                   </span>
                 ) : (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-nova-hover text-nova-text-muted shrink-0">
-                    {formatTime(project.lastOpened)}
-                  </span>
+                  project.lastOpened > 0 && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-nova-hover text-nova-text-muted shrink-0">
+                      {formatTime(project.lastOpened)}
+                    </span>
+                  )
                 )}
               </div>
 

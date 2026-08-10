@@ -28,7 +28,8 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
-/** Ghost icon/label button (hover action toolbar) */
+/** Ghost icon/label button (hover action toolbar) — vibrant-gradient variant:
+ *  glass pill buttons that reveal a brand-colored gradient glow on hover. */
 function GhostButton({
   onClick,
   title,
@@ -42,15 +43,24 @@ function GhostButton({
   accent?: boolean
   children: React.ReactNode
 }) {
-  const base = 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] transition-colors'
+  const base =
+    'group relative overflow-hidden inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold ' +
+    'border border-nova-border bg-nova-surface/60 backdrop-blur transition-all duration-300 ' +
+    'hover:scale-[1.05] ease-[cubic-bezier(0.34,1.56,0.64,1)]'
   const tone = danger
-    ? 'text-[#F48771] hover:bg-[#F48771]/15'
+    ? 'text-[#F48771] hover:text-[#F48771] hover:border-[#F48771]/50'
     : accent
-      ? 'text-nova-accent hover:bg-nova-accent/15'
-      : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'
+      ? 'text-nova-accent hover:text-nova-accent hover:border-nova-accent/50'
+      : 'text-nova-text-muted hover:text-nova-text-primary hover:border-nova-border'
+  const glow = danger
+    ? 'bg-gradient-sunset-peach'
+    : accent
+      ? 'bg-gradient-blue-violet'
+      : 'bg-gradient-blue-violet'
   return (
     <button onClick={onClick} title={title} className={`${base} ${tone}`}>
-      {children}
+      <span className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity ${glow}`} />
+      <span className="relative z-[1] inline-flex items-center gap-1">{children}</span>
     </button>
   )
 }
@@ -226,13 +236,13 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
         </label>
       )}
 
-      {/* Assistant avatar */}
+      {/* Assistant avatar — brand gradient + soft violet glow */}
       {!isUser && (
         <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
+          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 avatar-glow"
           style={{ background: 'var(--grad-brand)' }}
         >
-          <WaveLogo size={14} />
+          <WaveLogo size={16} />
         </div>
       )}
 
@@ -241,9 +251,12 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
         {/* Assistant meta header */}
         {!isUser && (
           <div className="flex items-center gap-1.5 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
-            <span>OurCode AI</span>
+            <span className="font-bold text-nova-text-primary">OurCode AI</span>
             {agentBadge && (
-              <span className={agentBadge.cls}>
+              <span className={`flex items-center gap-1 ${agentBadge.cls}`}>
+                {agentBadge.icon === '⏳' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
+                )}
                 · {agentBadge.icon} {agentBadge.label}
                 {agentBadge.elapsed !== undefined && ` ${agentBadge.elapsed}s`}
                 {agentBadge.tokens !== undefined && ` · ${formatTokens(agentBadge.tokens)} ${t('statusBar.tokens')}`}
@@ -256,28 +269,17 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
           <ErrorCard error={message.error} onRetry={handleRegenerate} />
         ) : (
           <>
-            {/* Bubble / content card */}
+            {/* Bubble / content card — user: gradient tinted glass; AI: glass panel */}
             <div
-              className={isUser ? 'px-4 py-2.5 rounded-2xl rounded-tr-sm' : 'px-4 py-3 rounded-xl border'}
+              className={isUser ? 'px-4 py-2.5 bubble-user' : 'px-4 py-3 rounded-xl border'}
               style={
                 isUser
-                  ? {
-                      background: 'var(--bubble-user)',
-                      border: '1px solid var(--border-strong)',
-                      color: 'var(--text-primary)',
-                      transition: 'background 0.15s',
-                    }
+                  ? { color: 'var(--text-primary)' }
                   : {
                       background: 'var(--ai-surface)',
                       borderColor: 'var(--border-strong)',
                     }
               }
-              onMouseEnter={(e) => {
-                if (isUser) e.currentTarget.style.background = 'var(--bubble-user-hover)'
-              }}
-              onMouseLeave={(e) => {
-                if (isUser) e.currentTarget.style.background = 'var(--bubble-user)'
-              }}
             >
               {/* Agent execution timeline (thinking + tool calls) */}
               {hasProcess && (

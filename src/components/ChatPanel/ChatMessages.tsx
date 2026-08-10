@@ -272,23 +272,28 @@ export default function ChatMessages() {
       {/* Agent todo (overview pinned above the conversation) */}
       <TodoPanel sessionId={activeSession.id} />
 
-      {/* Queued messages while the agent is working */}
+      {/* Queued messages while the agent is working — violet gradient banner */}
       {queuedMessages.length > 0 && (
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-nova-accent/10 border border-nova-accent/25 text-xs text-nova-accent">
-          <span>⏳ {t('chat.queuedBanner', { count: queuedMessages.length })}</span>
-          <button onClick={() => clearQueue(activeSessionId)} className="ml-auto hover:text-nova-text-primary transition-colors">{t('common.cancel')}</button>
+        <div className="banner-queue flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs shrink-0">
+          <svg className="w-[15px] h-[15px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 22h14M5 2h14" />
+            <path d="M17 2v4a5 5 0 0 1-5 5 5 5 0 0 1-5-5V2" />
+            <path d="M17 22v-4a5 5 0 0 0-5-5 5 5 0 0 0-5 5v4" />
+          </svg>
+          <span className="font-medium">{t('chat.queuedBanner', { count: queuedMessages.length })}</span>
+          <button onClick={() => clearQueue(activeSessionId)} className="ml-auto font-semibold transition-colors">{t('common.cancel')}</button>
         </div>
       )}
 
-      {/* Context truncation warning */}
+      {/* Context truncation warning — amber gradient banner (critical stays red) */}
       {tokenWarning && (
-        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+        <div className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs shrink-0 ${
           tokenWarning.level === 'critical'
             ? 'bg-red-500/10 border border-red-500/30 text-red-400'
-            : 'bg-yellow-500/10 border border-yellow-500/30 text-yellow-400'
+            : 'banner-warning'
         }`}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          <span>{t('chat.tokenWarning', {
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span className="font-medium">{t('chat.tokenWarning', {
             percent: tokenWarning.percent,
             used: (tokenWarning.totalTokens / 1000).toFixed(1),
             total: (tokenWarning.contextWindow / 1000).toFixed(0),
@@ -300,10 +305,7 @@ export default function ChatMessages() {
         <div className="flex-1 flex flex-col">
           {/* Welcome card (design: centered icon + title + description) */}
           <div className="flex-1 flex flex-col items-center justify-center text-center px-4 min-h-0">
-            <div
-              className="w-14 h-14 rounded-2xl overflow-hidden mb-4"
-              style={{ boxShadow: '0 8px 24px rgba(59,130,246,0.3)' }}
-            >
+            <div className="w-14 h-14 rounded-2xl overflow-hidden mb-4 avatar-glow">
               <img src={projectLogo} alt="OurCode AI" className="w-full h-full object-cover" />
             </div>
             <div className="text-base font-semibold text-nova-text-primary">OurCode AI</div>
@@ -347,12 +349,13 @@ export default function ChatMessages() {
 
       {isThisSessionLoading && (
         <div className="flex gap-2.5 animate-fade-in">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ background: 'var(--grad-brand)' }}>
-            <WaveLogo size={14} />
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 avatar-glow" style={{ background: 'var(--grad-brand)' }}>
+            <WaveLogo size={16} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
-              <span>OurCode AI</span>
+              <span className="font-bold text-nova-text-primary">OurCode AI</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
             </div>
             {stream?.thinking && <ThinkingBlock content={stream.thinking} defaultExpanded />}
             {stream?.content ? (

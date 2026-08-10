@@ -705,6 +705,18 @@ body.app-dragging .drag-region * {
   box-shadow: var(--shadow-md);
 }
 
+/* Chrome bars that host ABSOLUTE dropdown menus (title bar, status bar) must
+   NOT use backdrop-filter: it creates a stacking context that traps the
+   dropdown (z-100) inside the bar, so later sibling panels (sidebar/chat/
+   terminal, all z-auto glass) paint over it and the menu becomes unclickable.
+   This variant keeps the glass look but stays at the root stacking level so
+   dropdowns escape above the content panels. */
+.glass-flat {
+  background: color-mix(in srgb, var(--card, rgba(255, 255, 255, 0.75)) 60%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+}
+
 /* Pill section (top-bar button groups) */
 .pill-section {
   display: flex;
@@ -825,12 +837,14 @@ body.app-dragging .drag-region * {
   background: var(--hover);
 }
 
-.workflow-toggle .arrow {
+.workflow-toggle .arrow,
+.timeline-toggle .arrow {
   transition: transform 0.2s ease;
   font-size: 10px;
 }
 
-.workflow-toggle.open .arrow {
+.workflow-toggle.open .arrow,
+.timeline-toggle.open .arrow {
   transform: rotate(90deg);
 }
 
@@ -854,4 +868,114 @@ body.app-dragging .drag-region * {
   text-align: center;
   flex-shrink: 0;
   line-height: 1.5;
+}
+
+/* ── 2026 ChatMessages — "Vibrant Gradient" (selected variant) ─────────────
+   Gradient accents + soft glows for the chat message area. All colors are
+   theme-aware via CSS variables so light & dark keep working. */
+
+/* Slow spinner + soft pulse (agent running indicators) */
+@keyframes spinSlow {
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spinSlow 3s linear infinite;
+}
+
+@keyframes pulseSoft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.animate-pulse-soft {
+  animation: pulseSoft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* User message bubble — blue→violet tinted glass with brand-colored edge */
+.bubble-user {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.10), rgba(168, 85, 247, 0.10));
+  border: 1px solid color-mix(in srgb, var(--accent, #0058bc) 35%, transparent);
+  border-radius: 18px 18px 0 18px;
+  transition: background 0.15s;
+}
+.bubble-user:hover {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.16), rgba(168, 85, 247, 0.16));
+}
+:root.dark .bubble-user {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.16), rgba(168, 85, 247, 0.16));
+  border-color: color-mix(in srgb, var(--accent, #4d94ff) 45%, transparent);
+}
+:root.dark .bubble-user:hover {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.22), rgba(168, 85, 247, 0.22));
+}
+
+/* AI avatar — brand gradient + soft violet glow */
+.avatar-glow {
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.28);
+}
+:root.dark .avatar-glow {
+  box-shadow: 0 8px 28px rgba(99, 102, 241, 0.38);
+}
+
+/* Todo panel — gradient accent bar */
+.todo-gradient-bar {
+  background: linear-gradient(90deg, #0ea5e9, #6366f1, #a855f7);
+}
+
+/* Tool chips — status-tinted pills (mono, bold, colored) */
+.tool-chip-ok,
+.tool-chip-run,
+.tool-chip-warn,
+.tool-chip-err {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: filter 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+.tool-chip-ok { background: color-mix(in srgb, var(--green, #16a34a) 10%, transparent); border: 1px solid color-mix(in srgb, var(--green, #16a34a) 25%, transparent); color: var(--green, #16a34a); }
+.tool-chip-run { background: color-mix(in srgb, var(--accent, #0058bc) 10%, transparent); border: 1px solid color-mix(in srgb, var(--accent, #0058bc) 28%, transparent); color: var(--accent, #0058bc); }
+.tool-chip-warn { background: color-mix(in srgb, var(--yellow, #d97706) 10%, transparent); border: 1px solid color-mix(in srgb, var(--yellow, #d97706) 28%, transparent); color: var(--yellow, #d97706); }
+.tool-chip-err { background: color-mix(in srgb, var(--red, #dc2626) 10%, transparent); border: 1px solid color-mix(in srgb, var(--red, #dc2626) 28%, transparent); color: var(--red, #dc2626); }
+.tool-chip-ok:hover, .tool-chip-run:hover, .tool-chip-warn:hover, .tool-chip-err:hover { filter: brightness(1.08); }
+.tool-chip-ok.active, .tool-chip-run.active, .tool-chip-warn.active, .tool-chip-err.active { box-shadow: inset 0 0 0 1px currentColor; }
+
+/* Inline banners — amber warning + violet queue (gradient fade) */
+.banner-warning {
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.12) 0%, rgba(217, 119, 6, 0.02) 100%);
+  border: 1px solid color-mix(in srgb, var(--yellow, #d97706) 22%, transparent);
+  color: var(--yellow, #d97706);
+}
+.banner-queue {
+  background: linear-gradient(90deg, rgba(124, 58, 237, 0.10) 0%, rgba(124, 58, 237, 0.02) 100%);
+  border: 1px solid color-mix(in srgb, var(--accent-purple, #7c3aed) 22%, transparent);
+  color: var(--accent-purple, #7c3aed);
+}
+.banner-warning button, .banner-queue button { color: inherit; }
+.banner-warning button:hover, .banner-queue button:hover { color: var(--text-primary); }
+
+/* Thinking block — violet-accent glass card. Border/background use color-mix
+   because Tailwind can't apply opacity modifiers to var()-backed colors. */
+.thinking-card {
+  background: color-mix(in srgb, var(--surface, #ffffff) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-purple, #7c3aed) 20%, transparent);
+  transition: border-color 0.3s;
+}
+.thinking-card:hover {
+  border-color: color-mix(in srgb, var(--accent-purple, #7c3aed) 40%, transparent);
+}
+.thinking-card.open {
+  border-color: color-mix(in srgb, var(--accent-purple, #7c3aed) 30%, transparent);
+}
+.thinking-card.open:hover {
+  border-color: color-mix(in srgb, var(--accent-purple, #7c3aed) 50%, transparent);
+}
+.thinking-card button:hover {
+  background: color-mix(in srgb, var(--accent-purple, #7c3aed) 5%, transparent);
 }
