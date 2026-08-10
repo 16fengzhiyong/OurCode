@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import ChatMessages from './ChatMessages'
 import ChatInput from './ChatInput'
 import ChatSidebar from './ChatSidebar'
+import QuestionConfirmBar from './QuestionConfirmBar'
 import ArenaModal from './ArenaModal'
 import WorkflowModal from './WorkflowModal'
 import ModelSelector from './ModelSelector'
@@ -397,6 +398,7 @@ export default function ChatPanel() {
               </div>
 
               <ChatInput />
+              <QuestionConfirmBar />
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center p-4">

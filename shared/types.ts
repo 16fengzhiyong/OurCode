@@ -76,7 +76,7 @@ export interface ChatSession {
   todos?: TodoItem[]
   // Plan awaiting approval (set by submit_plan)
   planContent?: string
-  planStatus?: 'none' | 'pending_approval' | 'approved'
+  planStatus?: 'none' | 'pending_approval' | 'approved' | 'canceled'
   // Project workspace path this session belongs to (captured at creation time)
   projectPath?: string
 }
@@ -115,6 +115,10 @@ export interface AgentRun {
   fileChangeCount: number
   stepCount: number
   lastError?: string
+  // Real token usage reported by the provider, accumulated across the run's
+  // LLM requests (0 / absent when the provider reported no usage).
+  tokensIn?: number
+  tokensOut?: number
 }
 
 // One file's content snapshot inside a checkpoint

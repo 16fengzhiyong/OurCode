@@ -40,6 +40,11 @@ export class GroqAdapter implements LLMAdapter {
       presence_penalty: req.presencePenalty,
       stream: req.stream,
     }
+    // Groq streams omit usage unless asked — without this the run badge
+    // never sees token counts.
+    if (req.stream) {
+      (body as any).stream_options = { include_usage: true }
+    }
     // Add tools if provided
     if (req.tools && req.tools.length > 0) {
       (body as any).tools = req.tools

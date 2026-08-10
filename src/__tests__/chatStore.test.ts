@@ -21,7 +21,7 @@ const mockApi = {
 }
 vi.stubGlobal('window', { electronAPI: mockApi })
 
-import { useChatStore, stopGitBranchPolling, trimHistoryForContext, generateSessionTitle, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
+import { useChatStore, stopGitBranchPolling, trimHistoryForContext, generateSessionTitle, generateAiSessionTitle, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { createToolRegistry } from '@/services/tools/ToolRegistry'
@@ -220,6 +220,12 @@ describe('chatStore generateSessionTitle', () => {
     expect(generateSessionTitle(long)).toBe('这'.repeat(30) + '…')
   })
 
+  it('generateAiSessionTitle returns "" when no API is configured', async () => {
+    // The test env has no config groups → the LLM call is skipped entirely
+    const title = await generateAiSessionTitle('修复登录页按钮样式')
+    expect(title).toBe('')
+  })
+
   it('returns the raw first line when stripping leaves nothing', () => {
     expect(generateSessionTitle('---')).toBe('---')
   })
@@ -408,6 +414,19 @@ describe('chatStore agent run state', () => {
     expect(run.toolCallCount).toBe(2)
     expect(run.fileChangeCount).toBe(1) // only the edit kind
     expect(st2.batchApprovedBySession['s1']).toBe(false)
+  })
+
+  it('finishAgentRun persists the run token totals', () => {
+    makeSession()
+    useChatStore.getState().startAgentRun('s1', '任务')
+    const runId = useChatStore.getState().activeRuns['s1']!.runId
+
+    useChatStore.getState().finishAgentRun('s1', runId, 'done', { tokensIn: 1200, tokensOut: 340 })
+
+    const run = useChatStore.getState().sessions.find((s) => s.id === 's1')!.agentRuns!.find((r) => r.id === runId)!
+    expect(run.status).toBe('done')
+    expect(run.tokensIn).toBe(1200)
+    expect(run.tokensOut).toBe(340)
   })
 
   it('decideBatchApproval clears the dialog and approveBatchRun sets the flag', () => {
@@ -608,5 +627,57 @@ describe('chatStore cross-session messaging', () => {
     expect(res).toContain('s2')
     // The caller itself must not appear as a peer row
     expect(res).not.toContain('| s1 |')
+  })
+})
+
+describe('chatStore questionGate (off-session ask confirm)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useChatStore.setState({
+      ...initialState,
+      sessions: [],
+      activeSessionId: null,
+      undoStack: [],
+      queuedMessagesBySession: {},
+      pendingQuestion: null,
+      questionGate: {},
+    })
+  })
+
+  it('setQuestionGate stores the per-session gate', () => {
+    useChatStore.getState().setQuestionGate('s1', 'confirm')
+    expect(useChatStore.getState().questionGate.s1).toBe('confirm')
+  })
+
+  it('answerQuestion clears the gate alongside the pending question', () => {
+    useChatStore.getState().setQuestionGate('s1', 'confirm')
+    useChatStore.setState({ pendingQuestion: { sessionId: 's1', id: 'q1', question: 'test?' } })
+    useChatStore.getState().answerQuestion('yes')
+    expect(useChatStore.getState().pendingQuestion).toBeNull()
+    expect(useChatStore.getState().questionGate.s1).toBeUndefined()
+  })
+
+  it('setActiveSession re-arms a dismissed gate for a session with a pending question', () => {
+    makeSession('s1')
+    makeSession('s2')
+    useChatStore.getState().setQuestionGate('s2', 'dismissed')
+    useChatStore.setState({ pendingQuestion: { sessionId: 's2', id: 'q1', question: 'test?' } })
+    useChatStore.getState().setActiveSession('s2')
+    expect(useChatStore.getState().questionGate.s2).toBe('confirm')
+  })
+
+  it('setActiveSession leaves an auto gate untouched', () => {
+    makeSession('s1')
+    makeSession('s2')
+    useChatStore.getState().setQuestionGate('s2', 'auto')
+    useChatStore.setState({ pendingQuestion: { sessionId: 's2', id: 'q1', question: 'test?' } })
+    useChatStore.getState().setActiveSession('s2')
+    expect(useChatStore.getState().questionGate.s2).toBe('auto')
+  })
+
+  it('stopGeneration clears the gate for the session', () => {
+    useChatStore.getState().setQuestionGate('s1', 'confirm')
+    useChatStore.getState().stopGeneration('s1')
+    expect(useChatStore.getState().questionGate.s1).toBeUndefined()
   })
 })

@@ -132,3 +132,26 @@ describe('restoreLastProject', () => {
     expect(useUIStore.getState().activeProjectPath).toBeNull()
   })
 })
+
+describe('setRootPath', () => {
+  it('registers the workspace root in the allowlist via fs:authorize', () => {
+    const authorize = vi.fn(async () => {})
+    vi.stubGlobal('window', { electronAPI: { authorize } })
+
+    useUIStore.getState().setRootPath('D:/gitee/pubgg502')
+
+    // The file tree only mounts in tree view — list-view opens never mount it,
+    // so the root must be authorized here or fs:* calls get rejected.
+    expect(authorize).toHaveBeenCalledWith('D:/gitee/pubgg502')
+    expect(useUIStore.getState().rootPath).toBe('D:/gitee/pubgg502')
+  })
+
+  it('does not authorize when the root is cleared', () => {
+    const authorize = vi.fn(async () => {})
+    vi.stubGlobal('window', { electronAPI: { authorize } })
+
+    useUIStore.getState().setRootPath(null)
+
+    expect(authorize).not.toHaveBeenCalled()
+  })
+})

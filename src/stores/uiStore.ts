@@ -83,7 +83,7 @@ interface UIState {
 
   // Notifications (transient toast stack — surfaced by NotificationToasts)
   notifications: AppNotification[]
-  showNotification: (message: string, type?: AppNotification['type']) => void
+  showNotification: (message: string, type?: AppNotification['type'], opts?: { position?: AppNotification['position']; sessionId?: string; duration?: number }) => void
   dismissNotification: (id: number) => void
 
   // Actions
@@ -145,6 +145,13 @@ export interface AppNotification {
   id: number
   message: string
   type: 'info' | 'warning' | 'error' | 'success'
+  /** Which corner the toast stacks in — session events use the bottom-right
+   *  (requirement: task-done / needs-input popups), plugin calls stay top-right. */
+  position?: 'top-right' | 'bottom-right'
+  /** Session this notification refers to — clicking the toast jumps to it. */
+  sessionId?: string
+  /** Auto-dismiss delay in ms (defaults per position: 5s top / 8s bottom). */
+  duration?: number
 }
 
 /** Monotonic id source for notifications (never reused within a session). */
@@ -223,6 +230,12 @@ export const useUIStore = create<UIState>((set, get) => ({
   setRootPath: (path) => {
     set({ rootPath: path })
     if (path) {
+      // Register the workspace root in the main-process allowlist up front.
+      // The file tree only mounts in tree view, so opening a project from the
+      // list view (new session / saved session / settings picker) never mounts
+      // it — without this, every fs:*/search:* call for the workspace would be
+      // rejected with "路径不在允许范围内".
+      window.electronAPI?.authorize?.(path)
       set((s) => {
         const filtered = s.recentProjects.filter((p) => p !== path)
         const updated = [path, ...filtered].slice(0, 20) // keep last 20
@@ -312,6 +325,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   enterProject: (path) => {
     set({ projectListView: 'tree', activeProjectPath: path, rootPath: path })
     localStorage.setItem(LAST_PROJECT_KEY, JSON.stringify({ path, view: 'tree' }))
+    // Belt-and-suspenders for the allowlist (see setRootPath).
+    window.electronAPI?.authorize?.(path)
   },
   backToProjectList: () => {
     set({ projectListView: 'list', activeProjectPath: null })
@@ -344,11 +359,16 @@ export const useUIStore = create<UIState>((set, get) => ({
   showContextMenu: (x, y, items) => set({ contextMenu: { x, y, items } }),
   hideContextMenu: () => set({ contextMenu: null }),
 
-  showNotification: (message, type = 'info') => {
+  showNotification: (message, type = 'info', opts) => {
     const text = (message || '').trim()
     if (!text) return
     // Cap the visible stack at 5 — drop the oldest when exceeded.
-    set((s) => ({ notifications: [...s.notifications, { id: _nextNotificationId++, message: text, type }].slice(-5) }))
+    set((s) => ({
+      notifications: [
+        ...s.notifications,
+        { id: _nextNotificationId++, message: text, type, ...(opts || {}) },
+      ].slice(-5),
+    }))
   },
   dismissNotification: (id) => set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) })),
 }))

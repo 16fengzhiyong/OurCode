@@ -5,7 +5,7 @@ import ChatMessage from './ChatMessage'
 import ThinkingBlock from './ThinkingBlock'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
 import BranchTreeModal from './BranchTreeModal'
-import { TodoPanel, PlanCard } from './AgentPanel'
+import { TodoPanel } from './AgentPanel'
 import WaveLogo from './WaveLogo'
 import projectLogo from '@/assets/ourcode-logo.png'
 import { useI18n } from '@/i18n/useI18n'
@@ -269,9 +269,8 @@ export default function ChatMessages() {
         <BranchTreeModal sessionId={activeSession.id} onClose={() => setShowBranchTree(false)} />
       )}
 
-      {/* Agent todo & plan cards */}
+      {/* Agent todo (overview pinned above the conversation) */}
       <TodoPanel sessionId={activeSession.id} />
-      <PlanCard sessionId={activeSession.id} />
 
       {/* Queued messages while the agent is working */}
       {queuedMessages.length > 0 && (
@@ -345,7 +344,6 @@ export default function ChatMessages() {
         </div>
             )
           })}
-
 
       {isThisSessionLoading && (
         <div className="flex gap-2.5 animate-fade-in">

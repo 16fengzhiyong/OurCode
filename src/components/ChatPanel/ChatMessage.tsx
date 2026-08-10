@@ -7,6 +7,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { EXHAUSTED_MARKER } from '@shared/constants'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
 import AgentTimeline from './AgentTimeline'
+import { PlanCard } from './AgentPanel'
 import WaveLogo from './WaveLogo'
 import ErrorCard from './ErrorCard'
 import MemoryPreviewModal from './MemoryPreviewModal'
@@ -18,6 +19,13 @@ interface ChatMessageProps {
   isSelectMode?: boolean
   isSelected?: boolean
   onToggleSelect?: (id: string) => void
+}
+
+/** Compact token count for the agent header badge (1.2K / 3.4M / 512) */
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K'
+  return String(n)
 }
 
 /** Ghost icon/label button (hover action toolbar) */
@@ -66,11 +74,19 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
   // own run; a non-running session falls back to its latest run record.
   const activeRun = useChatStore((s) => s.activeRuns[sessionId])
   const session = useChatStore((s) => s.sessions.find((x) => x.id === sessionId))
-  const lastRun = session?.agentRuns?.slice(-1)[0]
+  // agentRuns is newest-first (startAgentRun prepends); when no run is live
+  // (restored sessions start with an empty activeRuns) fall back to the NEWEST
+  // record — the oldest one would show stale status/tokens.
+  const lastRun = session?.agentRuns?.[0]
   const run = activeRun
     ? session?.agentRuns?.find((r) => r.id === activeRun.runId)
     : lastRun
-  const isLive = run && (run.status === 'running' || run.status === 'creating_plan' || run.status === 'approved_running' || run.status === 'waiting_plan')
+  // A run paused for plan approval is NOT actively running — lumping it into
+  // isLive rendered a forever-ticking "⏳ 运行中" after submit_plan, which read
+  // as stuck/failed (and hid the fact that the plan was actually submitted).
+  // waiting_plan gets its own label and no elapsed counter.
+  const isLive = run && (run.status === 'running' || run.status === 'creating_plan' || run.status === 'approved_running')
+  const isWaitingPlan = run?.status === 'waiting_plan'
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     if (!isLive) return
@@ -78,13 +94,25 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
     return () => clearInterval(timer)
   }, [isLive])
 
-  let agentBadge: { icon: string; label: string; cls: string; elapsed?: number } | null = null
+  let agentBadge: { icon: string; label: string; cls: string; elapsed?: number; tokens?: number } | null = null
   if (isLive) {
     agentBadge = { icon: '⏳', label: t('agent.runStatus.running'), cls: 'text-[#3B82F6]', elapsed: Math.floor((now - run!.startedAt) / 1000) }
-  } else if (run?.status === 'done') {
-    agentBadge = { icon: '✓', label: t('agent.runStatus.done'), cls: 'text-green-400', elapsed: run.finishedAt ? Math.floor((run.finishedAt - run.startedAt) / 1000) : undefined }
-  } else if (run?.status === 'error') {
-    agentBadge = { icon: '✗', label: t('agent.runStatus.error'), cls: 'text-red-400' }
+  } else if (isWaitingPlan) {
+    agentBadge = { icon: '📋', label: t('agent.runStatus.waitingPlan'), cls: 'text-yellow-400' }
+  } else if (run?.status === 'done' || run?.status === 'stopped' || run?.status === 'error') {
+    const runTokens = (run.tokensIn || 0) + (run.tokensOut || 0)
+    const statusLabel = run.status === 'done'
+      ? t('agent.runStatus.done')
+      : run.status === 'stopped'
+        ? t('agent.runStatus.stopped')
+        : t('agent.runStatus.error')
+    agentBadge = {
+      icon: run.status === 'error' ? '✗' : '✓',
+      label: statusLabel,
+      cls: run.status === 'error' ? 'text-red-400' : 'text-green-400',
+      elapsed: run.finishedAt ? Math.floor((run.finishedAt - run.startedAt) / 1000) : undefined,
+      tokens: runTokens > 0 ? runTokens : undefined,
+    }
   }
 
   const handleSaveEdit = () => {
@@ -218,6 +246,7 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
               <span className={agentBadge.cls}>
                 · {agentBadge.icon} {agentBadge.label}
                 {agentBadge.elapsed !== undefined && ` ${agentBadge.elapsed}s`}
+                {agentBadge.tokens !== undefined && ` · ${formatTokens(agentBadge.tokens)} ${t('statusBar.tokens')}`}
               </span>
             )}
           </div>
@@ -300,6 +329,12 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
                 </div>
               )}
             </div>
+
+            {/* Submitted plan — rendered inline inside the assistant message
+                that called submit_plan (approve/cancel, or the kept record) */}
+            {isAssistant && (message.toolCalls || []).some((tc) => tc.name === 'submit_plan') && (
+              <PlanCard sessionId={sessionId} />
+            )}
 
             {/* Actions — hover-reveal ghost toolbar */}
             {!isEditing && (

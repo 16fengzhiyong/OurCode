@@ -80,6 +80,9 @@ export interface ElectronAPI {
   openNewWindow: () => Promise<void>
   onMaximized: (callback: (isMaximized: boolean) => void) => () => void
 
+  // OS-level notification (session events while the window is unfocused)
+  showSystemNotification: (title: string, body: string) => Promise<void>
+
   // Terminal
   termCreate: (id: string, cwd?: string) => Promise<void>
   termWrite: (id: string, data: string) => Promise<void>

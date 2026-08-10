@@ -56,6 +56,54 @@ export function generateSessionTitle(content: string): string {
   return cleaned.length > MAX_TITLE_LEN ? cleaned.slice(0, MAX_TITLE_LEN) + '…' : cleaned
 }
 
+/** System prompt for the AI-summarized conversation title (first user message) */
+const TITLE_SYSTEM_PROMPT = `你是对话标题生成器。根据用户的第一条消息，用与消息相同的语言生成一个简洁的对话标题。
+要求：
+- 不超过 15 个字符
+- 概括消息的主题或意图，不要复述原文
+- 不要引号、书名号、句号等标点符号
+- 只输出标题本身，不要任何解释或前缀`
+
+/**
+ * Ask the model to summarize a short title from the first user message.
+ * Non-streaming with a bounded output; returns '' on any failure (no API
+ * config, provider error, empty reply) so callers fall back to the heuristic.
+ * Exported for unit tests.
+ */
+export async function generateAiSessionTitle(userContent: string, preferredModel?: string): Promise<string> {
+  try {
+    const group = useConfigStore.getState().getActiveConfigGroup()
+    if (!group) return ''
+    const model = (preferredModel || group.defaultModel || '').trim()
+    if (!model) return ''
+    let title = ''
+    for await (const chunk of sendLLMRequest(
+      {
+        model,
+        messages: [
+          { role: 'system', content: TITLE_SYSTEM_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+        stream: false,
+        temperature: 0,
+        maxTokens: 50,
+        topP: 1,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+      },
+      group,
+      15_000,
+    )) {
+      if (chunk.content) title += chunk.content
+      if (chunk.done) break
+    }
+    // Defensive cleanup: strip wrapping quotes/braces, cap the length.
+    return title.trim().replace(/^[\s"'「『【《]+|[\s"'」』】》]+$/g, '').slice(0, 30)
+  } catch {
+    return ''
+  }
+}
+
 export async function refreshGitBranch(): Promise<void> {
   const rootPath = getWorkspaceRoot()
   if (!rootPath) return
@@ -359,6 +407,17 @@ interface ChatState {
   pendingQuestion: (UserQuestion & { sessionId: string }) | null
   answerQuestion: (answer: string) => void
 
+  /** Per-session gate for the ask_user_question dialog — req: don't pop the
+   *  modal in the user's face when they're on another session; instead show a
+   *  confirm bar when they switch back, and only then reveal the dialog.
+   *  'auto'      — question fired while the user was already on the session,
+   *                the dialog may show immediately.
+   *  'confirm'   — question fired off-session; show the confirm bar when the
+   *                user switches to the session (default for off-session).
+   *  'dismissed' — user clicked "later"; bar hidden until they leave & re-enter. */
+  questionGate: Record<string, 'auto' | 'confirm' | 'dismissed'>
+  setQuestionGate: (sessionId: string, gate: 'auto' | 'confirm' | 'dismissed') => void
+
   // ── Agent run (transient) state — per session (parallel runs) ─────────
   /** Active (or most recent) agent run per session (sessionId → run ref) */
   activeRuns: Record<string, { runId: string; sessionId: string }>
@@ -376,7 +435,7 @@ interface ChatState {
   setRunStatus: (runId: string, status: AgentRun['status'], patch?: Partial<AgentRun>) => void
   appendTrace: (sessionId: string, entry: AgentTraceEntry) => void
   setTraceStatus: (sessionId: string, toolCallId: string, status: AgentTraceEntry['status']) => void
-  finishAgentRun: (sessionId: string, runId: string, status: AgentRun['status'], extra?: { error?: string }) => void
+  finishAgentRun: (sessionId: string, runId: string, status: AgentRun['status'], extra?: { error?: string; tokensIn?: number; tokensOut?: number }) => void
   approveBatchRun: (sessionId: string) => void
   decideBatchApproval: (decision: 'confirm' | 'all' | 'reject') => void
   allowToolPermanently: (toolName: string) => void
@@ -576,6 +635,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   undoStack: [],
   pendingApproval: null,
   pendingQuestion: null,
+  questionGate: {},
   queuedMessagesBySession: {},
   inboundQueue: [],
   checkpoints: [],
@@ -610,8 +670,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       _questionResolves.get(pendingQuestion.sessionId)?.(answer)
       _questionResolves.delete(pendingQuestion.sessionId)
     }
-    set({ pendingQuestion: null })
+    // Clear the per-session gate together with the question itself
+    set((s) => {
+      const questionGate = { ...s.questionGate }
+      if (pendingQuestion) delete questionGate[pendingQuestion.sessionId]
+      return { pendingQuestion: null, questionGate }
+    })
   },
+
+  setQuestionGate: (sessionId, gate) => set((s) => ({
+    questionGate: { ...s.questionGate, [sessionId]: gate },
+  })),
 
   // ───────────── Agent run (transient) state ─────────────
 
@@ -707,6 +776,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                       fileChangeCount: trace.filter((t) => t.kind === 'edit').length,
                       stepCount,
                       lastError: extra?.error || r.lastError,
+                      tokensIn: extra?.tokensIn ?? r.tokensIn,
+                      tokensOut: extra?.tokensOut ?? r.tokensOut,
                     }
                   : r
               ),
@@ -958,6 +1029,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     }
     localStorage.setItem(LAST_SESSION_KEY, sessionId)
+    // Re-entering a session with a deferred question re-arms its confirm bar
+    // ("later" only defers while the user is away — the bar comes back when
+    // they switch to the session again).
+    if (get().pendingQuestion?.sessionId === sessionId && get().questionGate[sessionId] === 'dismissed') {
+      get().setQuestionGate(sessionId, 'confirm')
+    }
     set({ activeSessionId: sessionId })
     get().loadCheckpoints(sessionId)
   },
@@ -1049,7 +1126,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   approvePlan: async (sessionId) => {
     const session = get().sessions.find((s) => s.id === sessionId)
-    if (!session || !session.planContent || session.planStatus !== 'pending_approval') return
+    // 'canceled' plans can be re-approved — the plan stays on record after a
+    // cancel, so the user can review/adjust and approve it again later.
+    if (!session || !session.planContent || (session.planStatus !== 'pending_approval' && session.planStatus !== 'canceled')) return
 
     set((s) => ({
       sessions: s.sessions.map((sess) =>
@@ -1073,13 +1152,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   dismissPlan: (sessionId) => {
+    // Cancel keeps the plan on record (status 'canceled') instead of wiping it
+    // — the user may want to manually adjust or re-approve it, and the chat
+    // must still show that a plan existed and was canceled.
+    const activeRun = get().activeRuns[sessionId]
     set((s) => ({
       sessions: s.sessions.map((sess) =>
         sess.id === sessionId
-          ? { ...sess, planStatus: 'none', planContent: undefined, updatedAt: Date.now() }
+          ? { ...sess, planStatus: 'canceled', planContent: sess.planContent, updatedAt: Date.now() }
           : sess
       ),
     }))
+    if (activeRun?.sessionId === sessionId) {
+      get().setRunStatus(activeRun.runId, 'rejected')
+    }
     get().saveSession(sessionId)
   },
 
@@ -1286,11 +1372,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // Auto-title on the first message — and only then: a title the user renamed
     // (or that was already generated) is never overwritten, and regenerating
-    // the first message must not re-truncate the title.
+    // the first message must not re-truncate the title. The heuristic below is
+    // the instant placeholder; the AI summary (when an API is configured)
+    // refines it in the background so the sidebar shows a real summary instead
+    // of the raw user input.
     const session = get().sessions.find((s) => s.id === sessionId)
     if (session && session.messages.length === 1 && (!session.title || session.title === DEFAULT_SESSION_TITLE)) {
       const autoTitle = generateSessionTitle(content)
       if (autoTitle) get().renameSession(sessionId, autoTitle)
+      void (async () => {
+        const aiTitle = await generateAiSessionTitle(content, session?.model)
+        if (!aiTitle) return
+        const s = get().sessions.find((x) => x.id === sessionId)
+        // Overwrite only if the user hasn't renamed in the meantime.
+        if (s && s.title === (autoTitle || DEFAULT_SESSION_TITLE)) {
+          get().renameSession(sessionId, aiTitle)
+        }
+      })()
     }
 
     await runAgentLoop(sessionId)
@@ -1355,9 +1453,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
     set((s) => {
       const abortControllers = { ...s.abortControllers }
+      const questionGate = { ...s.questionGate }
       delete abortControllers[sessionId]
+      delete questionGate[sessionId]
       return {
         abortControllers,
+        questionGate,
         pendingQuestion: s.pendingQuestion?.sessionId === sessionId ? null : s.pendingQuestion,
         batchApproval: s.batchApproval?.sessionId === sessionId ? null : s.batchApproval,
         pendingApproval: s.pendingApproval?.sessionId === sessionId ? null : s.pendingApproval,
@@ -1621,6 +1722,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       abortControllers: {},
       pendingApproval: null,
       pendingQuestion: null,
+      questionGate: {},
       queuedMessagesBySession: {},
       inboundQueue: [],
       checkpoints: [],
@@ -1734,6 +1836,10 @@ async function runAgentLoop(
 
   let runId: string | undefined
   const usageEvents: UsageEvent[] = []
+  // Accumulated real token usage for the agent run record (badge shows it once
+  // the run finishes). Providers may omit usage — the totals just stay 0.
+  let runTokensIn = 0
+  let runTokensOut = 0
 
   try {
     // Refresh dynamic tools (MCP servers + workspace skills) before building the tool list
@@ -1840,6 +1946,15 @@ async function runAgentLoop(
       batchApprovedBySession: { ...s.batchApprovedBySession, [sessionId]: true },
     }))
     runId = useChatStore.getState().activeRuns[sessionId]?.runId
+    // A resumed run (plan approval / continue) keeps its previous token totals
+    // — the loop below adds this leg's usage on top instead of starting fresh.
+    if (opts?.resumeRunId && runId) {
+      const rec = useChatStore.getState().sessions.find((s) => s.id === sessionId)?.agentRuns?.find((r) => r.id === runId)
+      if (rec) {
+        runTokensIn = rec.tokensIn || 0
+        runTokensOut = rec.tokensOut || 0
+      }
+    }
   }
 
   // Whether a tool needs manual approval in this run. Order of exemptions:
@@ -1947,6 +2062,9 @@ async function runAgentLoop(
         tokensOut: cacheHit ? 0 : reqTokensOut,
         cacheHit,
       }))
+      // Cache hits billed nothing — only add the real tokens to the run total.
+      runTokensIn += cacheHit ? 0 : reqTokensIn
+      runTokensOut += cacheHit ? 0 : reqTokensOut
 
       // No tool calls - we're done
       if (toolCalls.length === 0) {
@@ -2104,12 +2222,20 @@ async function runAgentLoop(
           const answer = await new Promise<string>((resolve) => {
             if (_questionResolves.has(sessionId)) { _questionResolves.get(sessionId)!('（用户取消了上一次提问）'); _questionResolves.delete(sessionId) }
             _questionResolves.set(sessionId, resolve)
+            // Gate: if the user is already viewing this session the dialog may
+            // show immediately ('auto'); otherwise wait until they switch to it
+            // and confirm via the QuestionConfirmBar ('confirm').
+            const onSession = useChatStore.getState().activeSessionId === sessionId
             useChatStore.setState({
               pendingQuestion: {
                 sessionId,
                 id: tc.id,
                 question: String(tc.arguments.question || '请确认'),
                 options: Array.isArray(tc.arguments.options) ? tc.arguments.options.map(String) : undefined,
+              },
+              questionGate: {
+                ...useChatStore.getState().questionGate,
+                [sessionId]: onSession ? 'auto' : 'confirm',
               },
             })
           })
@@ -2279,12 +2405,21 @@ async function runAgentLoop(
   } finally {
     // Finalize the agent run record (status / counts) for the tasks panel
     if (runId) {
+      // Don't let the finally block downgrade an errored run back to 'done' —
+      // the unconditional overwrite used to put a green "已完成" badge next to
+      // the red error card the chat just showed.
+      const rec = useChatStore.getState().sessions.find((s) => s.id === sessionId)?.agentRuns?.find((r) => r.id === runId)
       const finalStatus: AgentRun['status'] = abortController.signal.aborted
         ? 'stopped'
-        : planWasSubmitted(sessionId)
-          ? 'waiting_plan'
-          : 'done'
-      useChatStore.getState().finishAgentRun(sessionId, runId, finalStatus)
+        : rec?.status === 'error'
+          ? 'error'
+          : planWasSubmitted(sessionId)
+            ? 'waiting_plan'
+            : 'done'
+      useChatStore.getState().finishAgentRun(sessionId, runId, finalStatus, {
+        tokensIn: runTokensIn,
+        tokensOut: runTokensOut,
+      })
     }
     // Clear ONLY this session's run state — parallel conversations keep their
     // own running flags / controllers / dialogs untouched.
@@ -2296,11 +2431,14 @@ async function runAgentLoop(
       delete abortControllers[sessionId]
       const batchApprovedBySession = { ...s.batchApprovedBySession }
       delete batchApprovedBySession[sessionId]
+      const questionGate = { ...s.questionGate }
+      delete questionGate[sessionId]
       return {
         runningSessionIds,
         streamingBySession,
         abortControllers,
         batchApprovedBySession,
+        questionGate,
         pendingApproval: s.pendingApproval?.sessionId === sessionId ? null : s.pendingApproval,
         pendingQuestion: s.pendingQuestion?.sessionId === sessionId ? null : s.pendingQuestion,
         batchApproval: s.batchApproval?.sessionId === sessionId ? null : s.batchApproval,

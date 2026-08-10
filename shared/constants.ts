@@ -70,6 +70,9 @@ export const IPC_CHANNELS = {
   WINDOW_IS_MAXIMIZED: 'window:isMaximized',
   WINDOW_OPEN_DEV_TOOLS: 'window:openDevTools',
 
+  // Notifications (OS-level, shown when the window is not focused)
+  NOTIFICATION_SHOW: 'notification:show',
+
   // Dialog
   DIALOG_OPEN_FILE: 'dialog:openFile',
   DIALOG_OPEN_FOLDER: 'dialog:openFolder',

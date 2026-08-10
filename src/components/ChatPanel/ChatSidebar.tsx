@@ -13,6 +13,9 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
     sessions,
     activeSessionId,
     runningSessionIds,
+    pendingQuestion,
+    pendingApproval,
+    batchApproval,
     setActiveSession,
     deleteSession,
     renameSession,
@@ -26,6 +29,18 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
   const t = useI18n()
   const [searchQuery, setSearchQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
+
+  // Sessions waiting on the user (question / tool approval / batch approval /
+  // plan approval) — bubble icon next to the title (same signal as the left
+  // project list).
+  const attentionSessionIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (pendingQuestion?.sessionId) ids.add(pendingQuestion.sessionId)
+    if (pendingApproval?.sessionId) ids.add(pendingApproval.sessionId)
+    if (batchApproval?.sessionId) ids.add(batchApproval.sessionId)
+    for (const s of sessions) if (s.planStatus === 'pending_approval') ids.add(s.id)
+    return ids
+  }, [pendingQuestion, pendingApproval, batchApproval, sessions])
 
   // Filter sessions based on search query, archive status, and pin sorting
   const filteredSessions = useMemo(() => {
@@ -252,8 +267,13 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className={`text-xs truncate flex items-center gap-1 ${isActive ? 'text-nova-accent font-medium' : 'text-nova-text-primary'}`}>
-                      {/* Status indicator: spinning for running, red dot for error */}
-                      {runningSessionIds.includes(session.id) ? (
+                      {/* Status indicator: bubble (needs input) > spinning
+                          (running) > red dot (error) */}
+                      {attentionSessionIds.has(session.id) ? (
+                        <svg className="w-3 h-3 shrink-0 text-nova-accent" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                        </svg>
+                      ) : runningSessionIds.includes(session.id) ? (
                         <span className="w-2.5 h-2.5 border-2 border-nova-accent/40 border-t-nova-accent rounded-full animate-spin shrink-0" />
                       ) : session.agentRuns?.some((r) => r.status === 'error') ? (
                         <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" />

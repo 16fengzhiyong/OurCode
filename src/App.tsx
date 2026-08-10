@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import MainLayout from './components/Layout/MainLayout'
 import ErrorBoundary from './components/Common/ErrorBoundary'
+import SessionEventNotifier from './components/Common/SessionEventNotifier'
 import ToolApprovalDialog from './components/ChatPanel/ToolApprovalDialog'
 import BatchApprovalDialog from './components/ChatPanel/BatchApprovalDialog'
 import QuestionDialog from './components/ChatPanel/QuestionDialog'
@@ -103,6 +104,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
+      <SessionEventNotifier />
       <MainLayout />
       <ToolApprovalDialog />
       <BatchApprovalDialog />

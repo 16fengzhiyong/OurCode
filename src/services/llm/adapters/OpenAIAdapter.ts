@@ -52,6 +52,11 @@ export class OpenAIAdapter implements LLMAdapter {
       frequency_penalty: req.frequencyPenalty,
       presence_penalty: req.presencePenalty,
     }
+    // OpenAI-compatible streams omit usage by default — ask for the final
+    // usage chunk so token tracking works (deepseek/groq/etc. all accept it).
+    if (req.stream) {
+      body.stream_options = { include_usage: true }
+    }
 
     if (req.maxTokens > 0) {
       body.max_tokens = req.maxTokens
@@ -107,6 +112,9 @@ export class OpenAIAdapter implements LLMAdapter {
     const decoder = new TextDecoder()
     let buffer = ''
     const toolCallsAcc: Map<number, { id: string; name: string; arguments: string }> = new Map()
+    // Usage arrives in a dedicated final chunk (empty choices) — capture it on
+    // ANY chunk and surface it on the done yield, not just content chunks.
+    let lastUsage: { promptTokens: number; completionTokens: number } | undefined
 
     try {
       while (true) {
@@ -122,7 +130,7 @@ export class OpenAIAdapter implements LLMAdapter {
           if (!trimmed || !trimmed.startsWith('data: ')) continue
           const data = trimmed.slice(6)
           if (data === '[DONE]') {
-            yield { content: '', done: true }
+            yield { content: '', done: true, usage: lastUsage }
             return
           }
 
@@ -130,6 +138,12 @@ export class OpenAIAdapter implements LLMAdapter {
             const json = JSON.parse(data)
             const delta = json.choices?.[0]?.delta
             const usage = json.usage
+            if (usage) {
+              lastUsage = {
+                promptTokens: usage.prompt_tokens,
+                completionTokens: usage.completion_tokens,
+              }
+            }
 
             if (delta?.content) {
               yield {
@@ -173,7 +187,7 @@ export class OpenAIAdapter implements LLMAdapter {
                   arguments: tc.arguments,
                 },
               }))
-              yield { content: '', toolCalls, done: true }
+              yield { content: '', toolCalls, done: true, usage: lastUsage }
               return
             }
           } catch {

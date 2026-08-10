@@ -63,7 +63,11 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
   const isRunning = useChatStore((s) => s.runningSessionIds.includes(sessionId))
   const t = useI18n()
 
-  if (!session || session.planStatus !== 'pending_approval' || !session.planContent) return null
+  // A canceled plan stays on record (planContent kept, status 'canceled') so
+  // the conversation still shows what was submitted and later canceled — the
+  // user may want to manually adjust or re-approve it.
+  if (!session || !session.planContent || session.planStatus === 'none') return null
+  const status = session.planStatus
 
   let title = t('agent.executePlan')
   const steps: Array<{ summary: string; detail?: string }> = []
@@ -73,6 +77,66 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
     if (Array.isArray(plan.steps)) steps.push(...plan.steps)
   } catch { /* plain text plan */ }
 
+  const renderSteps = () =>
+    steps.length > 0 ? (
+      <ol className="space-y-1.5">
+        {steps.map((step, i) => (
+          <li key={i} className="flex gap-2 text-xs">
+            <span className="shrink-0 w-4 h-4 rounded-full bg-nova-accent/20 text-nova-accent text-[10px] flex items-center justify-center font-medium">
+              {i + 1}
+            </span>
+            <div className="min-w-0">
+              <div className="text-nova-text-primary">{step.summary}</div>
+              {step.detail && <div className="text-nova-text-muted text-[11px]">{step.detail}</div>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    ) : (
+      <pre className="text-xs text-nova-text-secondary whitespace-pre-wrap">{session.planContent}</pre>
+    )
+
+  // Approved — read-only record of the executed plan
+  if (status === 'approved') {
+    return (
+      <div className="rounded-xl border border-green-500/30 bg-green-500/5 overflow-hidden shrink-0">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-green-500/20">
+          <span className="text-xs">✅</span>
+          <span className="text-xs font-medium text-green-400">{title}</span>
+          <span className="ml-auto text-[10px] text-green-400/80">{t('agent.planApproved')}</span>
+        </div>
+        <div className="px-3 py-2">{renderSteps()}</div>
+      </div>
+    )
+  }
+
+  // Canceled — the plan stays visible as a record, with a re-approve action
+  if (status === 'canceled') {
+    return (
+      <div className="rounded-xl border border-nova-border bg-nova-surface/50 overflow-hidden shrink-0 opacity-85">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-nova-border/60">
+          <span className="text-xs">🗑️</span>
+          <span className="text-xs font-medium text-nova-text-muted">{title}</span>
+          <span className="ml-auto text-[10px] text-nova-text-muted">{t('agent.planCanceled')}</span>
+        </div>
+        <div className="px-3 py-2">
+          {renderSteps()}
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              onClick={() => approvePlan(sessionId)}
+              disabled={isRunning}
+              className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-40 hover:opacity-90 transition-opacity"
+              style={{ background: 'var(--grad-brand)' }}
+            >
+              {t('agent.reapprovePlan')}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // pending_approval — the interactive approve / cancel card
   return (
     <div className="rounded-xl border border-nova-accent/30 bg-nova-accent/5 overflow-hidden shrink-0">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-nova-accent/20">
@@ -81,23 +145,7 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
         <span className="ml-auto text-[10px] text-nova-text-muted">{t('agent.awaitingApproval')}</span>
       </div>
       <div className="px-3 py-2">
-        {steps.length > 0 ? (
-          <ol className="space-y-1.5">
-            {steps.map((step, i) => (
-              <li key={i} className="flex gap-2 text-xs">
-                <span className="shrink-0 w-4 h-4 rounded-full bg-nova-accent/20 text-nova-accent text-[10px] flex items-center justify-center font-medium">
-                  {i + 1}
-                </span>
-                <div className="min-w-0">
-                  <div className="text-nova-text-primary">{step.summary}</div>
-                  {step.detail && <div className="text-nova-text-muted text-[11px]">{step.detail}</div>}
-                </div>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <pre className="text-xs text-nova-text-secondary whitespace-pre-wrap">{session.planContent}</pre>
-        )}
+        {renderSteps()}
         <div className="flex items-center gap-2 mt-3">
           <button
             onClick={() => approvePlan(sessionId)}

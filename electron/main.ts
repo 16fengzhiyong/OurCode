@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, session, type WebContents, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, session, Notification, type WebContents, type IpcMainInvokeEvent } from 'electron'
 import { join, resolve, dirname, sep, relative, isAbsolute } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
@@ -45,8 +45,14 @@ function registerRoot(p: string): void {
 /** Check whether a path is inside any registered root */
 function isPathAllowed(p: string): boolean {
   const normalized = normalizePath(p)
+  // Windows paths are case-insensitive, but resolve() keeps the input's case —
+  // roots and requests can legitimately differ in case (OS dialog vs stored
+  // session string), so compare case-insensitively on win32.
+  const win = process.platform === 'win32'
+  const probe = win ? normalized.toLowerCase() : normalized
   for (const root of allowedRoots) {
-    if (normalized === root || normalized.startsWith(root + sep)) return true
+    const r = win ? root.toLowerCase() : root
+    if (probe === r || probe.startsWith(r + sep)) return true
   }
   return false
 }
@@ -624,6 +630,22 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('window:openDevTools', (event) => {
     windowFromEvent(event)?.webContents.openDevTools()
+  })
+
+  // OS-level notification (session events fired while the window is not
+  // focused — the renderer shows its own in-app toast when focused). Clicking
+  // the notification focuses/restores the main window.
+  ipcMain.handle('notification:show', (_event, { title, body }: { title: string; body: string }) => {
+    if (!Notification.isSupported()) return
+    const notification = new Notification({ title: title || 'OurCode AI', body: body || '', silent: true })
+    notification.on('click', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore()
+        mainWindow.show()
+        mainWindow.focus()
+      }
+    })
+    notification.show()
   })
 
   ipcMain.handle('window:openNewWindow', () => {

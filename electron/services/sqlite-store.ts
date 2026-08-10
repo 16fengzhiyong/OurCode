@@ -393,7 +393,7 @@ export class SQLiteStore {
         agentMode: (session.agent_mode === 'plan' ? 'agent' : session.agent_mode || 'chat') as 'chat' | 'agent',
         todos: parseJsonField<TodoItem[]>(session.todos, []),
         planContent: session.plan_content || undefined,
-        planStatus: (session.plan_status || 'none') as 'none' | 'pending_approval' | 'approved',
+        planStatus: (session.plan_status || 'none') as 'none' | 'pending_approval' | 'approved' | 'canceled',
         projectPath: session.project_path || undefined,
         agentRuns: parseJsonField<AgentRun[]>(session.agent_runs, []).length
           ? parseJsonField<AgentRun[]>(session.agent_runs, [])

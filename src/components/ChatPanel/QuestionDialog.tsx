@@ -12,10 +12,19 @@ export default function QuestionDialog() {
   // Parallel conversations: only the active session's question is shown —
   // switching to the owning session reveals it again.
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  // The confirm gate (questionGate === 'confirm'/'dismissed') keeps the modal
+  // hidden until the user arms it via the QuestionConfirmBar — questions that
+  // fired while the user was on another session must not pop up unannounced.
+  const questionGate = useChatStore((s) => s.questionGate)
   const [customAnswer, setCustomAnswer] = useState('')
   const t = useI18n()
 
   if (!pendingQuestion || pendingQuestion.sessionId !== activeSessionId) return null
+  // Only explicit 'confirm'/'dismissed' block the dialog (until the user arms
+  // it via the QuestionConfirmBar) — any other value, including undefined from
+  // a question set without a gate, must still show or the loop would hang.
+  const gate = questionGate[pendingQuestion.sessionId]
+  if (gate === 'confirm' || gate === 'dismissed') return null
 
   const options = pendingQuestion.options || []
 

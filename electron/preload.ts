@@ -120,6 +120,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
+  // OS-level notification (used for session events while the window is unfocused)
+  showSystemNotification: (title: string, body: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.NOTIFICATION_SHOW, { title, body }),
+
   // Terminal
   termCreate: (id: string, cwd?: string) => ipcRenderer.invoke(IPC_CHANNELS.TERM_CREATE, id, cwd),
   termWrite: (id: string, data: string) => ipcRenderer.invoke(IPC_CHANNELS.TERM_WRITE, id, data),

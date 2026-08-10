@@ -29,18 +29,61 @@ function formatTime(ts: number): string {
   return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
 }
 
+/** Leading status indicator for a session row — priority: needs-input bubble
+ *  (需求 3) > running spinner (需求 2) > plain dot. */
+function SessionStatusDot({ running, needsAttention, color }: {
+  running: boolean
+  needsAttention: boolean
+  color?: string
+}) {
+  if (needsAttention) {
+    // Message-bubble icon: this conversation is waiting for the user
+    return (
+      <span className="shrink-0" style={{ color: color || 'var(--accent)' }} title="该会话需要处理">
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+        </svg>
+      </span>
+    )
+  }
+  if (running) {
+    return <span className="w-2 h-2 border-2 border-nova-accent/40 border-t-nova-accent rounded-full animate-spin shrink-0" />
+  }
+  return (
+    <span
+      className={`w-1.5 h-1.5 rounded-full shrink-0 ${color ? '' : 'bg-nova-text-muted/50'}`}
+      style={color ? { background: color } : undefined}
+    />
+  )
+}
+
 export default function ProjectListPanel() {
   const {
     rootPath, setRootPath, recentProjects, projectListView, activeProjectPath,
     enterProject, backToProjectList, setActiveSidebarTab,
   } = useUIStore()
   const sessions = useChatStore((s) => s.sessions)
+  const runningSessionIds = useChatStore((s) => s.runningSessionIds)
+  const pendingQuestion = useChatStore((s) => s.pendingQuestion)
+  const pendingApproval = useChatStore((s) => s.pendingApproval)
+  const batchApproval = useChatStore((s) => s.batchApproval)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
   const createSession = useChatStore((s) => s.createSession)
   const t = useI18n()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [showMoreSessions, setShowMoreSessions] = useState<Set<string>>(new Set())
+
+  // Sessions waiting on the user (question / tool approval / batch approval /
+  // plan approval) — shown as a message-bubble icon in the list (需求 3).
+  const attentionSessionIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (pendingQuestion?.sessionId) ids.add(pendingQuestion.sessionId)
+    if (pendingApproval?.sessionId) ids.add(pendingApproval.sessionId)
+    if (batchApproval?.sessionId) ids.add(batchApproval.sessionId)
+    for (const s of sessions) if (s.planStatus === 'pending_approval') ids.add(s.id)
+    return ids
+  }, [pendingQuestion, pendingApproval, batchApproval, sessions])
 
   // Collect unique projects from recentProjects + sessions' projectPath.
   // Recently opened projects keep their open-order (most recent first) so the
@@ -279,9 +322,10 @@ export default function ProjectListPanel() {
                         handleSessionClick(session.id)
                       }}
                     >
-                      <span
-                        className="w-1.5 h-1.5 rounded-full shrink-0"
-                        style={{ background: color.fg }}
+                      <SessionStatusDot
+                        running={runningSessionIds.includes(session.id)}
+                        needsAttention={attentionSessionIds.has(session.id)}
+                        color={color.fg}
                       />
                       <span className="flex-1 truncate text-nova-text-secondary">
                         {session.title}
@@ -327,7 +371,10 @@ export default function ProjectListPanel() {
                 className="flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded cursor-pointer hover:bg-nova-hover transition-colors text-[11px]"
                 onClick={() => handleSessionClick(session.id)}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-nova-text-muted/50 shrink-0" />
+                <SessionStatusDot
+                  running={runningSessionIds.includes(session.id)}
+                  needsAttention={attentionSessionIds.has(session.id)}
+                />
                 <span className="flex-1 truncate text-nova-text-secondary">
                   {session.title}
                 </span>
