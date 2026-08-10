@@ -145,6 +145,15 @@ export default function AgentTimeline({ toolCalls, toolResults, thinking }: Agen
               const result = getResult(tc.id)
               const isDetailOpen = detailId === tc.id
               const isSubAgent = tc.name === 'run_subagent'
+              // Vibrant-gradient status: done=green check, running/queued=amber
+              // pulse + spinning icon, error=red. Matches the Stitch design.
+              const isPending = !result
+              const chipCls = result?.isError
+                ? 'tool-chip-err'
+                : result
+                  ? 'tool-chip-ok'
+                  : 'tool-chip-warn'
+              const chipAnim = isPending ? ' animate-pulse-soft' : ''
 
               return (
                 <div key={tc.id}>
@@ -162,12 +171,18 @@ export default function AgentTimeline({ toolCalls, toolResults, thinking }: Agen
                           e.stopPropagation()
                           setDetailId(isDetailOpen ? null : tc.id)
                         }}
-                        className={`${
-                          result?.isError ? 'tool-chip-err' : result ? 'tool-chip-ok' : 'tool-chip-run'
-                        } ${isDetailOpen ? 'active' : ''}`}
+                        className={`${chipCls}${chipAnim} ${isDetailOpen ? 'active' : ''}`}
                       >
-                        <span className="shrink-0">
-                          {result?.isError ? '✗' : result ? '✓' : '⏳'}
+                        <span className="shrink-0 flex items-center">
+                          {result?.isError ? (
+                            '✗'
+                          ) : result ? (
+                            '✓'
+                          ) : (
+                            <svg className="w-3 h-3 animate-spin-slow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+                              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                            </svg>
+                          )}
                         </span>
                         <span>{tc.name}</span>
                         {key && (

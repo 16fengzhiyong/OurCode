@@ -206,8 +206,19 @@ export default function ChatMessages() {
         const el = scrollRef.current
         if (lock !== null && el && Math.abs(el.scrollTop - lock) > 1) el.scrollTop = lock
       }}
-      className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4"
+      className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4 relative"
     >
+      {/* Decorative gradient glow (vibrant-gradient variant) — top-right aura,
+          matches the Stitch chat design; pointer-events-none so it never
+          blocks scrolling or message interactions. */}
+      <div
+        className="pointer-events-none absolute top-[-80px] right-[-60px] w-[360px] h-[280px] rounded-full opacity-[0.14]"
+        style={{ background: 'radial-gradient(ellipse at center, #0ea5e9 0%, #6366f1 45%, transparent 70%)' }}
+      />
+      <div
+        className="pointer-events-none absolute top-[120px] right-[-100px] w-[280px] h-[220px] rounded-full opacity-[0.08]"
+        style={{ background: 'radial-gradient(ellipse at center, #a855f7 0%, transparent 70%)' }}
+      />
       {/* Batch select toolbar — only in history-edit mode */}
       {editEnabled && displayMessages.length > 0 && (
         <div className="flex items-center gap-2">

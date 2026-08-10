@@ -416,18 +416,19 @@ body.app-dragging .drag-region * {
   background: var(--primary-color-10);
 }
 
-/* Code block in chat */
+/* Code block in chat — vibrant-gradient variant: always a dark slate panel
+   (a deliberate inversion that anchors the light workspace), with a subtle
+   gradient header and mono language label. Matches the Stitch design. */
 .code-block {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-lg);
   overflow: hidden;
   margin: 8px 0;
 }
 
-:root:not(.dark) .code-block {
-  background: var(--surface);
-  border-color: var(--border);
+:root.dark .code-block {
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .code-header {
@@ -435,20 +436,17 @@ body.app-dragging .drag-region * {
   justify-content: space-between;
   align-items: center;
   padding: 6px 12px;
-  background: transparent;
-  border-bottom: 1px solid var(--border);
+  background: linear-gradient(90deg, #1e293b, #0f172a);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   font-size: 11px;
 }
 
-:root:not(.dark) .code-header {
-  background: var(--hover);
-  border-bottom-color: var(--border);
-}
-
 .code-lang {
-  color: var(--text-muted);
+  color: #bfdbfe; /* primary-container-ish light blue on the dark header */
   text-transform: uppercase;
-  font-weight: 500;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .copy-btn {
@@ -457,13 +455,15 @@ body.app-dragging .drag-region * {
   color: var(--text-muted);
   cursor: pointer;
   font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
   padding: 2px 8px;
   border-radius: var(--radius-sm);
+  transition: color 0.15s, background 0.15s;
 }
 
 .copy-btn:hover {
-  background: var(--hover);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
 }
 
 .code-block pre {
@@ -482,92 +482,88 @@ body.app-dragging .drag-region * {
    blends into the dark chrome instead of its own #0d1117 */
 .code-block .hljs {
   background: transparent;
+  color: #c9d1d9; /* github-dark base text */
 }
 
 .code-block pre,
 .code-block .hljs {
-  background: var(--surface);
+  background: #0f172a;
 }
 
-/* Light theme — GitHub "github" (light) syntax colors for highlight.js.
-   MarkdownRenderer imports the dark theme globally, so in light mode the
-   pale syntax colors vanish on the white code-block surface. Scoped overrides
-   restore readable (GitHub light) colors without touching dark mode. */
-:root:not(.dark) .hljs {
-  color: #24292e;
+/* ── Code block syntax colors (github-dark) — the code block is ALWAYS dark
+   regardless of theme, so these apply in both light & dark modes. ── */
+.code-block .hljs-doctag,
+.code-block .hljs-keyword,
+.code-block .hljs-meta .hljs-keyword,
+.code-block .hljs-template-tag,
+.code-block .hljs-template-variable,
+.code-block .hljs-type,
+.code-block .hljs-variable.language_ {
+  color: #ff7b72;
 }
-:root:not(.dark) .hljs-doctag,
-:root:not(.dark) .hljs-keyword,
-:root:not(.dark) .hljs-meta .hljs-keyword,
-:root:not(.dark) .hljs-template-tag,
-:root:not(.dark) .hljs-template-variable,
-:root:not(.dark) .hljs-type,
-:root:not(.dark) .hljs-variable.language_ {
-  color: #d73a49;
+.code-block .hljs-title,
+.code-block .hljs-title.class_,
+.code-block .hljs-title.class_.inherited__,
+.code-block .hljs-title.function_ {
+  color: #d2a8ff;
 }
-:root:not(.dark) .hljs-title,
-:root:not(.dark) .hljs-title.class_,
-:root:not(.dark) .hljs-title.class_.inherited__,
-:root:not(.dark) .hljs-title.function_ {
-  color: #6f42c1;
+.code-block .hljs-attr,
+.code-block .hljs-attribute,
+.code-block .hljs-literal,
+.code-block .hljs-meta,
+.code-block .hljs-number,
+.code-block .hljs-operator,
+.code-block .hljs-selector-attr,
+.code-block .hljs-selector-class,
+.code-block .hljs-selector-id,
+.code-block .hljs-selector-pseudo,
+.code-block .hljs-variable {
+  color: #79c0ff;
 }
-:root:not(.dark) .hljs-attr,
-:root:not(.dark) .hljs-attribute,
-:root:not(.dark) .hljs-literal,
-:root:not(.dark) .hljs-meta,
-:root:not(.dark) .hljs-number,
-:root:not(.dark) .hljs-operator,
-:root:not(.dark) .hljs-selector-attr,
-:root:not(.dark) .hljs-selector-class,
-:root:not(.dark) .hljs-selector-id,
-:root:not(.dark) .hljs-variable {
-  color: #005cc5;
+.code-block .hljs-meta .hljs-string,
+.code-block .hljs-regexp,
+.code-block .hljs-string {
+  color: #a5d6ff;
 }
-:root:not(.dark) .hljs-meta .hljs-string,
-:root:not(.dark) .hljs-regexp,
-:root:not(.dark) .hljs-string {
-  color: #032f62;
+.code-block .hljs-built_in,
+.code-block .hljs-symbol {
+  color: #ffa657;
 }
-:root:not(.dark) .hljs-built_in,
-:root:not(.dark) .hljs-symbol {
-  color: #e36209;
+.code-block .hljs-code,
+.code-block .hljs-comment,
+.code-block .hljs-formula {
+  color: #8b949e;
 }
-:root:not(.dark) .hljs-code,
-:root:not(.dark) .hljs-comment,
-:root:not(.dark) .hljs-formula {
-  color: #6a737d;
+.code-block .hljs-name,
+.code-block .hljs-quote,
+.code-block .hljs-selector-tag {
+  color: #7ee787;
 }
-:root:not(.dark) .hljs-name,
-:root:not(.dark) .hljs-quote,
-:root:not(.dark) .hljs-selector-tag,
-:root:not(.dark) .hljs-selector-pseudo {
-  color: #22863a;
+.code-block .hljs-subst {
+  color: #c9d1d9;
 }
-:root:not(.dark) .hljs-subst {
-  color: #24292e;
-}
-:root:not(.dark) .hljs-section {
-  color: #005cc5;
+.code-block .hljs-section {
+  color: #1f6feb;
   font-weight: 700;
 }
-:root:not(.dark) .hljs-bullet {
-  color: #735c0f;
+.code-block .hljs-bullet {
+  color: #f2cc60;
 }
-:root:not(.dark) .hljs-emphasis {
-  color: #24292e;
+.code-block .hljs-emphasis {
+  color: #c9d1d9;
   font-style: italic;
 }
-:root:not(.dark) .hljs-strong {
-  color: #24292e;
+.code-block .hljs-strong {
+  color: #c9d1d9;
   font-weight: 700;
 }
-:root:not(.dark) .hljs-addition {
-  color: #22863a;
-  background-color: #f0fff4;
+.code-block .hljs-addition {
+  color: #aff5b4;
+  background-color: #033a16;
 }
-:root:not(.dark) .hljs-deletion {
-  color: #b31d28;
-  background-color: #ffeef0;
+.code-block .hljs-deletion {
+  color: #ffdcd7;
+  background-color: #67060c;
 }
 
 /* Light theme — hover whitening (a dark-theme hover emphasis: file-tree rows,
