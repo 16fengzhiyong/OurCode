@@ -37,6 +37,11 @@ module.exports = {
           'btn-primary': 'var(--accent, #0058bc)',
           'btn-send': 'var(--accent, #0058bc)',
         },
+        // Stitch Glass Light tokens — glassmorphism surfaces & hairline borders
+        glass: {
+          border: 'rgba(255,255,255,0.6)',
+          bg: 'rgba(255,255,255,0.4)',
+        },
         text: {
           primary: 'var(--text-primary, #0f172a)',
           secondary: 'var(--text-secondary, #334155)',

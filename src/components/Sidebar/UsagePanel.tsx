@@ -99,46 +99,52 @@ export default function UsagePanel() {
 
   return (
     <div className="h-full flex flex-col overflow-y-auto">
-      <div className="p-3 space-y-4">
-        {/* Header: range + refresh + clear */}
-        <div className="flex items-center gap-1">
-          <div className="flex items-center rounded-full border border-nova-border bg-white/40 dark:bg-white/10 backdrop-blur-xl p-1 gap-0.5">
-            {RANGE_OPTIONS.map((opt) => (
+      <div className="p-4 flex flex-col gap-4">
+        {/* Header (Stitch: title + refresh/clear, sliding-white-pill range control) */}
+        <div className="flex flex-col gap-2.5 shrink-0">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-[15px] font-semibold text-nova-text-primary">{t('usage.panelTitle')}</h2>
+            <div className="flex gap-1">
               <button
-                key={opt.labelKey}
-                onClick={() => setRange(opt.days)}
-                className={`px-2.5 py-1 text-[10px] font-semibold rounded-full transition-all ${
-                  rangeDays === opt.days
-                    ? 'bg-nova-accent text-white shadow-sm'
-                    : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-white/60 dark:hover:bg-white/10'
-                }`}
+                onClick={() => load()}
+                disabled={loading}
+                className="w-7 h-7 flex items-center justify-center rounded-full text-nova-text-muted hover:text-nova-accent hover:bg-white/60 dark:hover:bg-white/10 transition-colors"
+                title={t('usage.refresh')}
               >
-                {t(opt.labelKey)}
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
               </button>
-            ))}
+              <button
+                onClick={handleClear}
+                disabled={clearing || loading}
+                className="w-7 h-7 flex items-center justify-center rounded-full text-nova-text-muted hover:text-error hover:bg-white/60 dark:hover:bg-white/10 transition-colors"
+                title={t('usage.clear')}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <div className="ml-auto flex items-center gap-0.5">
-            <button
-              onClick={() => load()}
-              disabled={loading}
-              className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
-              title={t('usage.refresh')}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <polyline points="23 4 23 10 17 10" />
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-              </svg>
-            </button>
-            <button
-              onClick={handleClear}
-              disabled={clearing || loading}
-              className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
-              title={t('usage.clear')}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-              </svg>
-            </button>
+          {/* Range segmented control — active gets a sliding white pill */}
+          <div className="bg-black/5 dark:bg-white/10 rounded-full p-1 flex justify-between items-center relative text-[11px] font-medium text-nova-text-muted">
+            {RANGE_OPTIONS.map((opt) => {
+              const active = rangeDays === opt.days
+              return (
+                <button
+                  key={opt.labelKey}
+                  onClick={() => setRange(opt.days)}
+                  className={`flex-1 py-1 text-center relative z-10 transition-colors ${active ? 'text-nova-accent font-semibold' : 'hover:text-nova-text-primary'}`}
+                >
+                  {active && (
+                    <span className="absolute inset-0 bg-white dark:bg-white/20 rounded-full shadow-sm -z-10 border border-black/5 dark:border-white/10" />
+                  )}
+                  {t(opt.labelKey)}
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -155,7 +161,7 @@ export default function UsagePanel() {
           <EmptyState onRefresh={() => load()} />
         ) : (
           <>
-            {/* Summary cards — 2x2 glass grid (Stitch) */}
+            {/* Summary cards — 2x2 glass grid (Stitch: font-code 18px numbers) */}
             <div className="grid grid-cols-2 gap-2">
               <StatCard label={t('usage.requests')} value={String(summary.totals.requests)} accent="text-[#3B82F6]" />
               <StatCard
@@ -172,45 +178,47 @@ export default function UsagePanel() {
               />
             </div>
 
-            {/* Token trend */}
-            <Section title={t('usage.tokenTrend')}>
-              <TrendChart daily={summary.daily} rangeDays={rangeDays} />
-              <div className="flex items-center gap-3 mt-1.5 text-[10px] text-nova-text-muted">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-nova-accent" /> {t('usage.input')}</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-[#8B5CF6]" /> {t('usage.output')}</span>
+            {/* Token trend (Stitch: title + legend + rounded bar chart) */}
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-between items-center px-1">
+                <h3 className="text-[12px] font-semibold text-nova-text-primary">{t('usage.tokenTrend')}</h3>
+                <div className="flex items-center gap-2 text-[10px] text-nova-text-muted">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-nova-accent" />{t('usage.input')}</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-[#8B5CF6]" />{t('usage.output')}</span>
+                </div>
               </div>
-            </Section>
+              <TrendChart daily={summary.daily} rangeDays={rangeDays} />
+            </div>
 
-            {/* By model */}
+            {/* By model (Stitch: 模型分布, primary progress bars) */}
             {summary.byModel.length > 0 && (
-              <Section title={t('usage.byModel')}>
+              <div className="flex flex-col gap-2">
+                <h3 className="text-[12px] font-semibold text-nova-text-primary px-1">{t('usage.byModel')}</h3>
                 <ModelList rows={summary.byModel} />
-              </Section>
+              </div>
             )}
 
-            {/* Skills: available + ranking */}
-            <Section title={t('usage.skills')}>
+            {/* Skills: available + ranking (Stitch: 技能统计, 运行 pill) */}
+            <div className="flex flex-col gap-2">
+              <h3 className="text-[12px] font-semibold text-nova-text-primary px-1">{t('usage.skills')}</h3>
               {skills.length === 0 && summary.skills.length === 0 ? (
-                <div className="text-xs text-nova-text-muted">{t('usage.noSkills')}</div>
+                <div className="text-xs text-nova-text-muted px-1">{t('usage.noSkills')}</div>
               ) : (
-                <div className="space-y-1">
+                <div className="flex flex-col gap-2">
                   {skills.map((s) => {
                     const stat = skillRankMap.get(s.name)
                     return (
-                      <div key={s.name} className="flex items-center gap-2 rounded-md border border-nova-border bg-white/60 dark:bg-white/5 backdrop-blur-xl px-2 py-1.5">
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs text-nova-text-primary truncate">{s.name}</div>
+                      <div key={s.name} className="bg-white/50 dark:bg-white/5 border border-glass-border rounded-md p-2 flex items-center justify-between group">
+                        <div className="flex flex-col min-w-0">
+                          <div className="text-[11px] font-medium text-nova-text-primary truncate">{s.name}</div>
                           <div className="text-[10px] text-nova-text-muted truncate">
                             {s.description}
                             {stat && <span className="text-nova-accent"> · {t('usage.calls', { count: stat.count })}</span>}
                           </div>
                         </div>
-                        {stat && (
-                          <span className="shrink-0 text-[10px] text-nova-text-muted">{t('usage.lastUsed', { time: formatClock(stat.lastUsed) })}</span>
-                        )}
                         <button
                           onClick={() => runSkill(s.name, s.description)}
-                          className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-semibold text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 transition-colors"
+                          className="shrink-0 ml-2 bg-nova-accent/10 text-nova-accent hover:bg-nova-accent hover:text-white transition-colors text-[10px] font-medium px-2 py-1 rounded-full"
                         >
                           {t('usage.runSkill')}
                         </button>
@@ -231,31 +239,36 @@ export default function UsagePanel() {
                     ))}
                 </div>
               )}
-            </Section>
+            </div>
 
             {/* Subagents */}
             {summary.subagents.length > 0 && (
-              <Section title={t('usage.subagents')}>
-                <RankList rows={summary.subagents} valueFormatter={(r) => t('usage.calls', { count: r.count })} />
-              </Section>
+              <div className="flex flex-col gap-2">
+                <h3 className="text-[12px] font-semibold text-nova-text-primary px-1">{t('usage.subagents')}</h3>
+                <div className="bg-white/50 dark:bg-white/5 border border-glass-border rounded-md p-2">
+                  <RankList rows={summary.subagents} valueFormatter={(r) => t('usage.calls', { count: r.count })} />
+                </div>
+              </div>
             )}
 
             {/* MCP tools */}
             {summary.mcp.length > 0 && (
-              <Section title={t('usage.mcp')}>
+              <div className="flex flex-col gap-2">
+                <h3 className="text-[12px] font-semibold text-nova-text-primary px-1">{t('usage.mcp')}</h3>
                 <McpList rows={summary.mcp} />
-              </Section>
+              </div>
             )}
 
-            {/* Recent activity */}
+            {/* Recent activity (Stitch: color dot + name + tokens + time) */}
             {summary.recent.length > 0 && (
-              <Section title={t('usage.recent')}>
-                <div className="space-y-0.5">
+              <div className="flex flex-col gap-2">
+                <h3 className="text-[12px] font-semibold text-nova-text-primary px-1">{t('usage.recent')}</h3>
+                <div className="bg-white/50 dark:bg-white/5 border border-glass-border rounded-md p-2 flex flex-col gap-2">
                   {summary.recent.slice(0, 30).map((r) => (
                     <RecentRow key={r.id} row={r} />
                   ))}
                 </div>
-              </Section>
+              </div>
             )}
           </>
         )}
@@ -268,20 +281,11 @@ export default function UsagePanel() {
 
 function StatCard({ label, value, accent, sub }: { label: string; value: string; accent: string; sub?: string }) {
   return (
-    <div className="rounded-lg border border-nova-border bg-white/70 dark:bg-white/5 backdrop-blur-xl p-3 flex flex-col gap-0.5 shadow-sm">
-      <div className="text-[10px] text-nova-text-muted uppercase tracking-[0.08em] font-semibold">{label}</div>
-      <div className={`text-lg font-extrabold leading-tight ${accent}`}>{value}</div>
-      {sub && <div className="text-[10px] text-nova-text-muted mt-0.5">{sub}</div>}
+    <div className="bg-white/50 dark:bg-white/5 border border-glass-border p-2.5 flex flex-col gap-1 rounded-md backdrop-blur-xl">
+      <span className="text-[11px] text-nova-text-muted font-medium">{label}</span>
+      <span className={`font-mono text-[18px] leading-none font-medium ${accent}`}>{value}</span>
+      {sub && <span className="font-mono text-[9px] text-nova-text-muted">{sub}</span>}
     </div>
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <div className="text-[11px] font-bold text-nova-text-muted uppercase tracking-[0.08em] mb-1.5">{title}</div>
-      {children}
-    </section>
   )
 }
 
@@ -331,26 +335,30 @@ function TrendChart({ daily, rangeDays }: { daily: UsageDailyRow[]; rangeDays: n
   }, [daily, rangeDays])
 
   const max = Math.max(...days.map((d) => d.tokensIn + d.tokensOut), 1)
-  const W = 100
-  const H = 60
-  const bw = W / days.length
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-20 rounded-lg border border-nova-border bg-white/40 dark:bg-white/5 backdrop-blur-xl">
-      {days.map((d, i) => {
-        const hIn = (d.tokensIn / max) * (H - 6)
-        const hOut = (d.tokensOut / max) * (H - 6)
-        const x = i * bw + 0.4
-        const w = Math.max(bw - 0.8, 0.5)
-        return (
-          <g key={d.day}>
-            <title>{`${d.day}: ↑${formatTokens(d.tokensIn)} ↓${formatTokens(d.tokensOut)}`}</title>
-            <rect x={x} y={H - hIn} width={w} height={hIn} fill="var(--primary-color, #0058bc)" opacity={0.85} />
-            <rect x={x} y={H - hIn - hOut} width={w} height={hOut} fill="#8B5CF6" opacity={0.85} />
-          </g>
-        )
-      })}
-    </svg>
+    <div className="h-[80px] flex items-end justify-between px-2 pt-2 pb-1 gap-1 border-b border-black/5 dark:border-white/10">
+      <svg
+        className="w-full h-full"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+      >
+        {days.map((d, i) => {
+          const hIn = (d.tokensIn / max) * 88
+          const hOut = (d.tokensOut / max) * 88
+          const x = 2 + i * ((96 - 2) / days.length)
+          const w = Math.max((96 - 2) / days.length - 2, 1)
+          return (
+            <g key={d.day}>
+              <title>{`${d.day}: ↑${formatTokens(d.tokensIn)} ↓${formatTokens(d.tokensOut)}`}</title>
+              {/* output on top (tertiary), input below (primary) — Stitch chart */}
+              <rect x={x} y={96 - hIn - hOut} width={w} height={hOut} rx={2} fill="#8B5CF6" />
+              <rect x={x} y={96 - hIn} width={w} height={hIn} rx={2} fill="var(--primary-color, #0058bc)" />
+            </g>
+          )
+        })}
+      </svg>
+    </div>
   )
 }
 
@@ -358,22 +366,24 @@ function ModelList({ rows }: { rows: UsageRankRow[] }) {
   const max = Math.max(...rows.map((r) => r.tokensIn + r.tokensOut), 1)
   const t = useI18n()
   return (
-    <div className="space-y-2">
-      {rows.slice(0, 8).map((r) => {
+    <div className="bg-white/50 dark:bg-white/5 border border-glass-border rounded-md p-2 flex flex-col gap-2">
+      {rows.slice(0, 8).map((r, idx) => {
         const total = r.tokensIn + r.tokensOut
         const pct = Math.max((total / max) * 100, total > 0 ? 3 : 0)
+        // Decreasing primary opacity per rank (Stitch: 100% → 70% → 50%)
+        const opacities = [1, 0.7, 0.5, 0.35, 0.25, 0.2, 0.15, 0.12]
         return (
-          <div key={r.name}>
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-xs font-bold text-nova-text-primary truncate">{r.name}</span>
-              <span className="text-[10px] text-nova-text-muted shrink-0">
+          <div key={r.name} className="flex flex-col gap-1">
+            <div className="flex justify-between items-center text-[11px]">
+              <span className="text-nova-text-primary font-medium truncate">{r.name}</span>
+              <span className="font-mono text-[9px] text-nova-text-muted shrink-0">
                 {t('usage.calls', { count: r.count })} · {formatTokens(total)}
               </span>
             </div>
-            <div className="mt-1 h-1.5 rounded-full bg-nova-hover dark:bg-white/10 overflow-hidden">
+            <div className="h-1.5 w-full bg-black/5 dark:bg-white/10 rounded-full overflow-hidden">
               <div
-                className="h-full rounded-full"
-                style={{ width: `${pct}%`, background: 'linear-gradient(90deg, var(--primary-color, #0058bc), #7c3aed)' }}
+                className="h-full bg-primary rounded-full"
+                style={{ width: `${pct}%`, opacity: opacities[idx] ?? 0.12 }}
               />
             </div>
           </div>
@@ -414,11 +424,11 @@ function McpList({ rows }: { rows: UsageRankRow[] }) {
   }, [rows])
 
   return (
-    <div className="space-y-1.5">
+    <div className="bg-white/50 dark:bg-white/5 border border-glass-border rounded-md p-2 flex flex-col gap-2">
       {groups.slice(0, 10).map(([server, { tools, connections }]) => {
         const connErrors = connections.reduce((s, r) => s + r.errors, 0)
         return (
-          <div key={server} className="rounded-md border border-nova-border bg-white/60 dark:bg-white/5 backdrop-blur-xl px-2 py-1.5">
+          <div key={server} className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-nova-text-primary truncate">{server}</span>
               {connErrors > 0 && (
@@ -456,21 +466,25 @@ function RecentRow({ row }: { row: UsageRecentRow }) {
   const meta = CATEGORY_META[row.category] || CATEGORY_META.llm
   const label = t(meta.labelKey)
   return (
-    <div className="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-nova-hover/40">
-      <span
-        className="shrink-0 w-1.5 h-1.5 rounded-full"
-        style={{ background: row.ok ? meta.color : '#EF4444' }}
-        title={row.ok ? label : `${label} · ${row.error || ''}`}
-      />
-      <span className="min-w-0 flex-1 text-xs text-nova-text-primary truncate">{row.name}</span>
-      <span className="shrink-0 text-[10px] text-nova-text-muted">
-        {row.tokensIn + row.tokensOut > 0
-          ? formatTokens(row.tokensIn + row.tokensOut)
-          : row.durationMs > 0
-            ? formatDuration(row.durationMs)
-            : ''}
-      </span>
-      <span className="shrink-0 text-[10px] text-nova-text-muted">{formatClock(row.startedAt)}</span>
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2 min-w-0">
+        <span
+          className="shrink-0 w-1.5 h-1.5 rounded-full"
+          style={{ background: row.ok ? meta.color : '#EF4444' }}
+          title={row.ok ? label : `${label} · ${row.error || ''}`}
+        />
+        <span className="min-w-0 flex-1 text-[11px] text-nova-text-primary truncate">{row.name}</span>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <span className="font-mono text-[9px] text-nova-text-muted">
+          {row.tokensIn + row.tokensOut > 0
+            ? `${formatTokens(row.tokensIn + row.tokensOut)} t`
+            : row.durationMs > 0
+              ? formatDuration(row.durationMs)
+              : ''}
+        </span>
+        <span className="text-[9px] text-nova-text-muted w-10 text-right">{formatClock(row.startedAt)}</span>
+      </div>
     </div>
   )
 }

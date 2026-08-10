@@ -176,7 +176,7 @@ export default function FileChangesPanel() {
   return (
     <div className="h-full flex flex-col">
       {/* Body */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto" data-changes-scroll>
         {groupedChanges.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="text-nova-text-muted opacity-40 mb-3">
@@ -189,66 +189,78 @@ export default function FileChangesPanel() {
           </div>
         ) : (
           groupedChanges.map((group) => (
-            <div key={group.sessionId} className="mb-2 mx-2 flex flex-col gap-1.5">
-              {/* Session header (Stitch: title + time) */}
-              <div className="flex items-baseline gap-1.5 px-1 pt-1">
-                <span className="text-xs font-bold text-nova-text-primary truncate">
-                  {group.title}
-                </span>
-                <span className="text-[10px] text-nova-text-muted shrink-0">
-                  · {formatTime(group.time)}
-                </span>
+            <div key={group.sessionId} className="space-y-2">
+              {/* Session header (Stitch: primary-container chat avatar + title + time) */}
+              <div className="flex items-center gap-2.5 px-2">
+                <div className="w-8 h-8 rounded-full bg-nova-accent/10 flex items-center justify-center text-primary shrink-0">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 5h16v11H8l-4 4V5z" />
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xs font-bold text-nova-text-primary truncate">
+                    {group.title}
+                  </h3>
+                  <p className="text-[11px] text-nova-text-muted">
+                    {formatTime(group.time)}
+                  </p>
+                </div>
               </div>
 
-              {/* File rows in a glass card (Stitch glass-card) */}
-              <div className="rounded-lg border border-nova-border bg-nova-surface/50 p-1 flex flex-col gap-0.5">
+              {/* File rows (Stitch: hover reveals 查看变更/回退 action pill) */}
+              <div className="space-y-0.5 pl-4">
                 {group.changes.map((change, i) => {
                   const st = getStatusIcon(change.toolName)
                   return (
                     <div
                       key={`${change.filePath}-${i}`}
-                      className="group flex items-center justify-between p-1.5 rounded-md hover:bg-nova-hover transition-colors cursor-pointer"
+                      className="file-row group relative flex items-center justify-between p-2 rounded-xl hover:bg-white/50 dark:hover:bg-white/10 transition-colors cursor-pointer"
                       onClick={() => openFile(resolvePath(change.filePath))}
                     >
-                      <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
                         <span
-                          className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded"
-                          style={{ color: st.color, background: `color-mix(in srgb, ${st.color} 12%, transparent)` }}
+                          className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-mono font-bold shrink-0"
+                          style={{
+                            color: st.color,
+                            background: `color-mix(in srgb, ${st.color} 10%, transparent)`,
+                            border: `1px solid color-mix(in srgb, ${st.color} 20%, transparent)`,
+                          }}
                         >
                           {st.icon}
                         </span>
-                        <span className={`flex-1 truncate text-[12px] font-mono text-nova-text-primary ${change.toolName === 'delete_file' ? 'line-through text-nova-text-muted' : ''}`}>
+                        <span className={`text-[12px] font-mono text-nova-text-primary truncate ${change.toolName === 'delete_file' ? 'line-through text-nova-text-muted' : ''}`}>
                           {change.fileName}
                         </span>
-                        <span className="text-[10px] text-nova-text-muted shrink-0 opacity-70">
-                          · {formatTime(group.time)}
-                        </span>
                       </div>
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                      {/* Hover action pill — slides in from the right */}
+                      <div
+                        className="absolute right-2 flex items-center gap-2 bg-white/90 dark:bg-white/10 px-2 py-1 rounded-full shadow-sm border border-glass-border opacity-0 translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300"
+                        style={{ transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                      >
                         <button
-                          className="p-1 text-nova-text-muted hover:text-nova-accent hover:bg-nova-accent/10 rounded-full transition-colors"
+                          className="text-[11px] text-primary font-medium whitespace-nowrap"
                           title="查看差异"
                           onClick={(e) => {
                             e.stopPropagation()
                             handleViewDiff(change)
                           }}
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M4 12h16M4 6h16M4 18h16" />
-                          </svg>
+                          查看变更
                         </button>
+                        <span className="w-px h-3 bg-nova-border" />
                         <button
-                          className="p-1 text-nova-text-muted hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors"
+                          className="text-[11px] text-nova-text-muted hover:text-error flex items-center gap-0.5 whitespace-nowrap"
                           title="回滚"
                           onClick={(e) => {
                             e.stopPropagation()
                             handleRevert(change)
                           }}
                         >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M3 12a9 9 0 1 0 3-6.7" />
                             <path d="M3 4v5h5" />
                           </svg>
+                          回退
                         </button>
                       </div>
                     </div>
@@ -259,6 +271,28 @@ export default function FileChangesPanel() {
           ))
         )}
       </div>
+
+      {/* Footer (Stitch: 查看完整历史) — only when there are records */}
+      {groupedChanges.length > 0 && (
+        <div className="p-3 border-t border-glass-border shrink-0">
+          <button
+            className="w-full py-2.5 rounded-xl text-primary font-bold text-xs hover:bg-nova-accent/10 transition-colors flex items-center justify-center gap-1.5"
+            onClick={() => {
+              const ui = useUIStore.getState()
+              if (ui.activeSidebarTab === 'changes' && ui.isSidebarVisible) {
+                // Scroll the list to the top — "full history" lands on the latest group
+                const el = document.querySelector('[data-changes-scroll]')
+                el?.scrollTo({ top: 0, behavior: 'smooth' })
+              }
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" />
+            </svg>
+            查看完整历史
+          </button>
+        </div>
+      )}
 
       {/* Diff modal */}
       {diffContent && diffSession && (

@@ -22,15 +22,16 @@ const STATUS_KEY: Record<AgentRun['status'], TranslationKey> = {
   rejected: 'agent.runStatus.rejected',
 }
 
-const STATUS_STYLE: Record<AgentRun['status'], string> = {
-  running: 'text-nova-accent border-nova-accent/40 bg-nova-accent/10',
-  creating_plan: 'text-nova-accent border-nova-accent/40 bg-nova-accent/10',
-  waiting_plan: 'text-yellow-400 border-yellow-500/40 bg-yellow-500/10',
-  approved_running: 'text-nova-accent border-nova-accent/40 bg-nova-accent/10',
-  done: 'text-green-400 border-green-500/40 bg-green-500/10',
-  stopped: 'text-nova-text-muted border-nova-border bg-nova-hover/30',
-  error: 'text-red-400 border-red-500/40 bg-red-500/10',
-  rejected: 'text-nova-text-muted border-nova-border bg-nova-hover/30',
+/** Status pill styles — map each run status to the Stitch glass-light palette */
+const STATUS_PILL: Record<AgentRun['status'], string> = {
+  running: 'bg-nova-accent/10 text-nova-accent',
+  creating_plan: 'bg-nova-accent/10 text-nova-accent',
+  waiting_plan: 'bg-warning/10 text-warning',
+  approved_running: 'bg-nova-accent/10 text-nova-accent',
+  done: 'bg-green-100 text-success dark:bg-green-500/10',
+  stopped: 'bg-gray-200 text-nova-text-muted dark:bg-white/10',
+  error: 'bg-error-container text-error dark:bg-red-500/10',
+  rejected: 'bg-gray-200 text-nova-text-muted dark:bg-white/10',
 }
 
 const isRunningStatus = (s: AgentRun['status']) =>
@@ -86,14 +87,14 @@ export default function AgentTasksPanel() {
 
   return (
     <div className="h-full flex flex-col overflow-y-auto">
-      <div className="p-3 space-y-4">
-        {/* Current run(s) — parallel conversations each show their live run */}
-        <section>
-          <div className="text-[11px] font-bold text-nova-text-muted uppercase tracking-[0.08em] mb-1.5">
+      <div className="p-4 flex flex-col gap-5">
+        {/* Section 1: 当前运行 */}
+        <section className="flex flex-col gap-2.5">
+          <h3 className="text-[11px] uppercase text-nova-text-muted font-bold tracking-widest pl-1">
             {t('agent.currentRun')}
-          </div>
+          </h3>
           {currentRuns.length > 0 ? (
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-2.5">
               {currentRuns.map(({ session, run }) => (
                 <TaskCard
                   key={run.id}
@@ -108,17 +109,17 @@ export default function AgentTasksPanel() {
               ))}
             </div>
           ) : (
-            <div className="text-xs text-nova-text-muted">{t('agent.emptyTasks')}</div>
+            <div className="text-xs text-nova-text-muted pl-1">{t('agent.emptyTasks')}</div>
           )}
         </section>
 
-        {/* History */}
+        {/* Section 2: 历史记录 */}
         {history.length > 0 && (
-          <section>
-            <div className="text-[11px] font-bold text-nova-text-muted uppercase tracking-[0.08em] mb-1.5">
+          <section className="flex flex-col gap-2.5">
+            <h3 className="text-[11px] uppercase text-nova-text-muted font-bold tracking-widest pl-1">
               {t('agent.history')}
-            </div>
-            <div className="space-y-1.5">
+            </h3>
+            <div className="flex flex-col gap-2">
               {history.map(({ session, run }) => (
                 <TaskCard
                   key={run.id}
@@ -134,29 +135,33 @@ export default function AgentTasksPanel() {
           </section>
         )}
 
-        {/* Per-project allowlist manager */}
-        <section>
-          <div className="text-[11px] font-bold text-nova-text-muted uppercase tracking-[0.08em] mb-1.5">
-            {t('agent.allowlistTitle')}
+        {/* Section 3: 工具白名单 */}
+        <section className="flex flex-col gap-2.5 pb-2">
+          <div className="flex items-center justify-between pl-1">
+            <h3 className="text-[11px] uppercase text-nova-text-muted font-bold tracking-widest">
+              {t('agent.allowlistTitle')}
+            </h3>
+            {allowlist.length > 0 && (
+              <button
+                onClick={() => rootPath && clearToolAllowlist(rootPath)}
+                className="text-[10px] text-nova-text-muted border border-glass-border px-2 py-0.5 rounded-full hover:bg-white/50 dark:hover:bg-white/10 transition-colors"
+              >
+                {t('agent.clearAllowlist')}
+              </button>
+            )}
           </div>
           {allowlist.length === 0 ? (
-            <div className="text-xs text-nova-text-muted">{t('agent.allowlistEmpty')}</div>
+            <div className="text-xs text-nova-text-muted pl-1">{t('agent.allowlistEmpty')}</div>
           ) : (
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap gap-2 pl-1">
               {allowlist.map((name) => (
                 <span
                   key={name}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono bg-white/60 border border-nova-border dark:bg-white/10 text-nova-text-primary"
+                  className="font-mono text-[11px] px-2 py-1 bg-green-50 border border-green-200 text-success rounded-md shadow-sm dark:bg-green-500/10 dark:border-green-500/30"
                 >
                   {name}
                 </span>
               ))}
-              <button
-                onClick={() => rootPath && clearToolAllowlist(rootPath)}
-                className="px-2 py-1 rounded text-[10px] text-nova-text-muted hover:text-red-400 hover:bg-red-500/10 border border-nova-border transition-colors"
-              >
-                {t('agent.clearAllowlist')}
-              </button>
             </div>
           )}
         </section>
@@ -182,47 +187,75 @@ function TaskCard({
   onDelete: () => void
   t: (key: TranslationKey, vars?: Record<string, string | number>) => string
 }) {
+  if (isActive) {
+    // ── 当前运行 (Stitch: pulsing dot, running pill, split actions) ──
+    return (
+      <div className="relative bg-white/90 dark:bg-white/10 border border-nova-accent/20 rounded-md p-3.5 flex flex-col gap-2.5 shadow-sm transition-all duration-300 hover:shadow-md hover:border-nova-accent/40">
+        {/* Pulsing dot top-right with glow */}
+        <span
+          className="absolute top-3.5 right-3.5 w-2 h-2 rounded-full bg-primary animate-pulse-dot shrink-0"
+          style={{ boxShadow: '0 0 8px rgba(0,88,188,0.6)' }}
+        />
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${STATUS_PILL[run.status]}`}>
+            {t(STATUS_KEY[run.status])}
+          </span>
+          <span className="font-mono text-[10px] text-nova-text-muted">{formatElapsed(run, t)}</span>
+        </div>
+        <p className="text-xs text-nova-text-primary leading-relaxed line-clamp-2 break-words">{run.task}</p>
+        <div className="text-[10px] text-nova-text-muted flex items-center gap-1.5 flex-wrap">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4L15 12l-3-3 2.7-2.7z" />
+          </svg>
+          <span className="truncate max-w-[140px]">{sessionTitle || '—'}</span>
+          <span className="opacity-50">·</span>
+          <span>{t('agent.toolCalls', { count: run.toolCallCount })}</span>
+          <span className="opacity-50">·</span>
+          <span>{t('agent.fileChanges', { count: run.fileChangeCount })}</span>
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <button
+            onClick={onOpen}
+            className="flex-1 py-1.5 rounded-full bg-nova-accent/10 text-nova-accent text-xs font-bold hover:bg-nova-accent/20 transition-colors flex items-center justify-center gap-1"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 5h16v11H8l-4 4V5z" />
+            </svg>
+            {t('agent.openSession')}
+          </button>
+          {isRunningStatus(run.status) && (
+            <button
+              onClick={onStop}
+              className="flex-1 py-1.5 rounded-full bg-red-500/10 text-red-500 text-xs font-bold hover:bg-red-500/20 transition-colors flex items-center justify-center gap-1"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+              {t('agent.stop')}
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── 历史记录 (Stitch: status pill + task + hover-revealed actions) ──
   return (
-    <div
-      className={`rounded-lg border p-2.5 space-y-1.5 transition-colors backdrop-blur-xl ${
-        isActive
-          ? 'border-nova-accent/30 bg-white/80 dark:bg-white/10'
-          : 'border-nova-border bg-white/60 dark:bg-white/5 hover:bg-white/80 dark:hover:bg-white/10'
-      }`}
-    >
-      <div className="flex items-center gap-1.5 min-w-0">
-        <span className={`shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${STATUS_STYLE[run.status]}`}>
-          {t(STATUS_KEY[run.status])}
-        </span>
-        <span className="text-[10px] text-nova-text-muted shrink-0">{formatElapsed(run, t)}</span>
-        {isActive && <span className="w-1.5 h-1.5 rounded-full bg-nova-accent animate-pulse-dot shrink-0" />}
+    <div className="bg-white/70 dark:bg-white/5 border border-glass-border rounded-md p-3 flex flex-col gap-2 hover:bg-white/90 dark:hover:bg-white/10 transition-colors cursor-pointer group">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-0.5 rounded-full font-bold text-[11px] ${STATUS_PILL[run.status]}`}>
+            {t(STATUS_KEY[run.status])}
+          </span>
+          <span className="font-mono text-[10px] text-nova-text-muted">{formatElapsed(run, t)}</span>
+        </div>
       </div>
-      <div className="text-xs text-nova-text-primary leading-snug line-clamp-2 break-words">{run.task}</div>
-      <div className="flex items-center gap-1 text-[10px] text-nova-text-muted">
-        <span className="truncate">{sessionTitle || '—'}</span>
-        <span className="shrink-0">
-          {t('agent.toolCalls', { count: run.toolCallCount })} · {t('agent.fileChanges', { count: run.fileChangeCount })}
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <button
-          onClick={onOpen}
-          className="px-2 py-0.5 rounded-full text-[10px] font-semibold text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 transition-colors"
-        >
+      <p className="text-xs text-nova-text-primary line-clamp-2 break-words">{run.task}</p>
+      <div className="flex items-center justify-between mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button onClick={onOpen} className="text-primary text-xs font-bold hover:underline">
           {t('agent.openSession')}
         </button>
-        {isRunningStatus(run.status) && (
-          <button
-            onClick={onStop}
-            className="px-2.5 py-0.5 rounded-full text-[10px] font-bold text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors"
-          >
-            {t('agent.stop')}
-          </button>
-        )}
-        <button
-          onClick={onDelete}
-          className="ml-auto px-1.5 py-0.5 rounded-full text-[10px] text-nova-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
-        >
+        <button onClick={onDelete} className="text-nova-text-muted text-xs hover:text-error transition-colors">
           {t('agent.deleteRecord')}
         </button>
       </div>

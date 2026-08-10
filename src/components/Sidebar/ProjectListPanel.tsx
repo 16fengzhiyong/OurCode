@@ -3,19 +3,37 @@ import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import FileTree from './FileTree'
-import projectLogo from '@/assets/ourcode-logo.png'
 import { useI18n } from '@/i18n/useI18n'
 
-/** Color palette for project icons */
-const PROJECT_COLORS = [
-  { bg: 'rgba(37,99,235,0.15)', fg: '#2563eb' },
-  { bg: 'rgba(168,85,247,0.15)', fg: '#a855f7' },
-  { bg: 'rgba(34,197,94,0.15)', fg: '#22c55e' },
-  { bg: 'rgba(251,146,60,0.15)', fg: '#fb923c' },
-  { bg: 'rgba(244,114,182,0.15)', fg: '#f472b6' },
-  { bg: 'rgba(34,211,238,0.15)', fg: '#22d3ee' },
-  { bg: 'rgba(250,204,21,0.15)', fg: '#facc15' },
+/** Project icon tiles — gradient backgrounds cycling per project (Stitch:
+ *  brand blue-violet / sunset orange / green), each with a symbol. */
+const PROJECT_TILES = [
+  { bg: 'linear-gradient(135deg, #0ea5e9, #6366f1, #a855f7)', icon: 'bolt' },
+  { bg: 'linear-gradient(135deg, #f97316, #fb7185)', icon: 'terminal' },
+  { bg: 'linear-gradient(135deg, #10b981, #34d399)', icon: 'language' },
 ]
+
+/** Material-symbol-like inline SVG icons used across the panel */
+function TileIcon({ name, size = 18 }: { name: string; size?: number }) {
+  const paths: Record<string, React.ReactNode> = {
+    bolt: <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z" />,
+    terminal: <path d="M4 6h16M4 6l5 5-5 5M9 16h11" strokeLinecap="round" strokeLinejoin="round" />,
+    language: <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2c2.5 2.5 4 6.2 4 10s-1.5 7.5-4 10c-2.5-2.5-4-6.2-4-10s1.5-7.5 4-10z" />,
+    chat: <path d="M4 5h16v11H8l-4 4V5z" strokeLinecap="round" strokeLinejoin="round" />,
+    robot: <path d="M12 8V4M9 4h6M6 9h.01M18 9h.01M6 13h.01M18 13h.01M7 17c1 1 3 1.5 5 1.5s4-.5 5-1.5" strokeLinecap="round" strokeLinejoin="round" />,
+    forum: <path d="M4 6h13v9H8l-4 3V6z" strokeLinecap="round" strokeLinejoin="round" />,
+    pin: <path d="M16 3 21 8l-4.5 1.5L13 13l1.5 6.5L8 13l-4 4 3-8L3 8l6-4L12 8l1.5-4.5L16 3z" strokeLinecap="round" strokeLinejoin="round" />,
+    expandMore: <path d="m9 18 6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />,
+    spinner: <path d="M12 3a9 9 0 1 1-9 9" strokeLinecap="round" />,
+    search: <path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zm10 2-4.3-4.3" strokeLinecap="round" strokeLinejoin="round" />,
+    pending: <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />,
+  }
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      {paths[name]}
+    </svg>
+  )
+}
 
 /** Simple time formatting */
 function formatTime(ts: number): string {
@@ -29,39 +47,32 @@ function formatTime(ts: number): string {
   return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
 }
 
-/** Leading status indicator for a session row — priority: needs-input bubble
- *  (需求 3) > running spinner (需求 2) > error dot > plain dot.
- *  Attention shows as a labeled accent pill (design: 对话历史状态). */
+/** Leading status indicator for a session row (Stitch: spinner while running,
+ *  primary dot when attention needed, red dot on error, slate dot otherwise). */
 function SessionStatusDot({ running, needsAttention, hasError, color }: {
   running: boolean
   needsAttention: boolean
   hasError?: boolean
   color?: string
 }) {
-  if (needsAttention) {
-    // Message-bubble pill: this conversation is waiting for the user
+  if (running) {
     return (
-      <span
-        className="shrink-0 inline-flex items-center gap-1 px-1.5 py-px rounded-full text-[9px] font-medium"
-        style={{ background: 'color-mix(in srgb, var(--accent, #0058bc) 14%, transparent)', color: 'var(--accent)' }}
-        title="该会话需要处理"
-      >
-        <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-        </svg>
-        待处理
+      <span className="w-4 h-4 shrink-0 flex items-center justify-center text-primary animate-spin" title="运行中">
+        <TileIcon name="spinner" size={14} />
       </span>
     )
   }
-  if (running) {
-    return <span className="w-2 h-2 border-2 border-nova-accent/40 border-t-nova-accent rounded-full animate-spin shrink-0" />
+  if (needsAttention) {
+    return (
+      <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 ml-0.5" title="该会话需要处理" />
+    )
   }
   if (hasError) {
-    return <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" title="运行出错" />
+    return <span className="w-1.5 h-1.5 rounded-full bg-error shrink-0 ml-0.5" title="运行出错" />
   }
   return (
     <span
-      className={`w-1.5 h-1.5 rounded-full shrink-0 ${color ? '' : 'bg-nova-text-muted/50'}`}
+      className={`w-1.5 h-1.5 rounded-full shrink-0 ml-0.5 ${color ? '' : 'bg-slate-300 dark:bg-white/30'}`}
       style={color ? { background: color } : undefined}
     />
   )
@@ -291,78 +302,73 @@ export default function ProjectListPanel() {
           const projectSessions = getProjectSessions(project.path)
           const showMore = showMoreSessions.has(project.path)
           const visibleSessions = showMore ? projectSessions : projectSessions.slice(0, 5)
-          const color = PROJECT_COLORS[idx % PROJECT_COLORS.length]
+          const tile = PROJECT_TILES[idx % PROJECT_TILES.length]
 
           return (
-            <div key={project.path}>
-              {/* Project item — click enters file tree. Glass card: hover
-                  white/40, current = primary-container + left accent bar. */}
+            <div key={project.path} className="space-y-1">
+              {/* Project card (Stitch: gradient tile + name + status badge) */}
               <div
-                className={`group relative flex items-center gap-2.5 px-3 py-2.5 mx-1.5 rounded-lg cursor-pointer transition-all border ${
+                className={`group flex items-start gap-3 rounded-xl p-3 cursor-pointer transition-all border ${
                   isCurrent
-                    ? 'bg-nova-accent/10 border-nova-accent/40'
-                    : 'border-transparent hover:bg-nova-hover hover:border-nova-border'
+                    ? 'bg-nova-accent/10 border-nova-accent/60'
+                    : 'border-transparent hover:bg-white/50 dark:hover:bg-white/10 hover:border-glass-border'
                 }`}
                 onClick={() => handleEnterProject(project.path)}
               >
-                {isCurrent && (
-                  <span
-                    className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 bg-nova-accent rounded-r-full"
-                    aria-hidden="true"
-                  />
-                )}
-                <img
-                  src={projectLogo}
-                  alt={project.name}
-                  className="w-8 h-8 rounded-md object-cover shrink-0"
-                />
+                <div
+                  className="w-10 h-10 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm"
+                  style={{ background: tile.bg }}
+                >
+                  <TileIcon name={tile.icon} size={20} />
+                </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-nova-text-primary truncate">
-                    {project.name}
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-sm font-semibold text-nova-text-primary truncate pr-2">
+                      {project.name}
+                    </span>
+                    {isCurrent ? (
+                      <span className="bg-nova-accent text-white text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">
+                        当前
+                      </span>
+                    ) : (
+                      project.lastOpened > 0 && (
+                        <span className="bg-nova-hover text-nova-text-muted text-[9px] font-bold px-2 py-0.5 rounded-full tracking-wider shrink-0">
+                          {formatTime(project.lastOpened)}
+                        </span>
+                      )
+                    )}
                   </div>
-                  <div className="text-[10px] text-nova-text-muted truncate font-mono mt-0.5">
+                  <div className="text-[11px] font-mono text-nova-text-muted truncate">
                     {project.path}
                   </div>
                 </div>
-                {/* 新建对话 — the right-panel new-chat button now lives on each
-                    project item (hover reveals it) */}
+                {/* 新建对话 — hover reveals */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
                     handleNewSessionForProject(project.path)
                   }}
-                  className="p-1 rounded text-nova-text-muted hover:text-nova-accent hover:bg-nova-accent/10 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                  className="p-1 rounded-full text-nova-text-muted hover:text-nova-accent hover:bg-nova-accent/10 transition-colors opacity-0 group-hover:opacity-100 shrink-0 self-center"
                   title={t('chat.newChat')}
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                     <path d="M12 5v14M5 12h14" />
                   </svg>
                 </button>
-                {isCurrent ? (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-nova-accent/15 text-nova-accent shrink-0">
-                    当前
-                  </span>
-                ) : (
-                  project.lastOpened > 0 && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-nova-hover text-nova-text-muted shrink-0">
-                      {formatTime(project.lastOpened)}
-                    </span>
-                  )
-                )}
               </div>
 
-              {/* Sessions under this project — always visible, filtered by projectPath */}
+              {/* Sessions under this project (Stitch: vertical connector line) */}
               {projectSessions.length > 0 && (
-                <div className="ml-6 pl-2 border-l border-nova-border mb-0.5">
+                <div className="pl-5 pr-2 space-y-0.5 relative before:content-[''] before:absolute before:left-3 before:top-2 before:bottom-2 before:w-px before:bg-glass-border">
                   {visibleSessions.map((session) => {
                     const isActive = session.id === activeSessionId
                     return (
                       <div
                         key={session.id}
-                        className={`group relative flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded-md cursor-pointer transition-colors text-[11px] ${
+                        className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
                           isActive
-                            ? 'bg-nova-accent/10 text-nova-accent'
-                            : 'hover:bg-nova-hover'
+                            ? 'bg-white/40 dark:bg-white/10 border border-nova-accent/20'
+                            : 'hover:bg-white/40 dark:hover:bg-white/10'
                         }`}
                         onClick={(e) => {
                           e.stopPropagation()
@@ -370,27 +376,22 @@ export default function ProjectListPanel() {
                         }}
                         title={`${session.title} · ${session.messages.length} 条消息`}
                       >
-                        {isActive && (
-                          <span
-                            className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-3 bg-nova-accent rounded-r-full"
-                            aria-hidden="true"
-                          />
-                        )}
                         <SessionStatusDot
                           running={runningSessionIds.includes(session.id)}
                           needsAttention={attentionSessionIds.has(session.id)}
                           hasError={errorSessionIds.has(session.id)}
-                          color={color.fg}
                         />
                         {session.pinnedAt && (
-                          <svg className="w-2.5 h-2.5 shrink-0 text-nova-accent" viewBox="0 0 24 24" fill="currentColor" aria-label="置顶">
-                            <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
-                          </svg>
+                          <span className="text-nova-accent shrink-0 flex">
+                            <TileIcon name="pin" size={13} />
+                          </span>
                         )}
-                        <span className="flex-1 truncate text-nova-text-secondary">
+                        <span className={`flex-1 truncate text-xs ${
+                          isActive ? 'text-nova-accent font-medium' : 'text-nova-text-secondary'
+                        }`}>
                           {session.title}
                         </span>
-                        <span className="text-[9px] text-nova-text-muted shrink-0">
+                        <span className="text-[10px] font-mono text-nova-text-muted shrink-0">
                           {formatTime(session.updatedAt)}
                         </span>
                       </div>
@@ -399,7 +400,7 @@ export default function ProjectListPanel() {
 
                   {projectSessions.length > 5 && (
                     <button
-                      className="text-[10px] text-nova-accent hover:bg-nova-accent/10 px-2 py-1 rounded transition-colors w-full text-left"
+                      className="flex items-center gap-1 pl-2 py-1 text-xs text-nova-accent hover:text-nova-accent/80 transition-colors"
                       onClick={(e) => {
                         e.stopPropagation()
                         setShowMoreSessions((prev) => {
@@ -410,7 +411,10 @@ export default function ProjectListPanel() {
                         })
                       }}
                     >
-                      {showMore ? '收起 ▲' : `展开剩余 ${projectSessions.length - 5} 条 ▼`}
+                      {showMore ? '收起' : `展开剩余 ${projectSessions.length - 5} 条`}
+                      <span className={`transition-transform ${showMore ? 'rotate-180' : ''}`}>
+                        <TileIcon name="expandMore" size={12} />
+                      </span>
                     </button>
                   )}
                 </div>
@@ -420,51 +424,50 @@ export default function ProjectListPanel() {
         })}
 
         {/* Sessions without a project binding — keep them visible so history
-            never "disappears" from the left panel */}
+            never "disappears" from the left panel (Stitch: divider + section) */}
         {orphanSessions.length > 0 && (
-          <div className="mt-2 pt-2 border-t border-nova-border mx-1.5">
-            <div className="px-2 pb-1 text-[10px] font-medium text-nova-text-muted uppercase tracking-wider">
-              {t('chat.orphanSessions')} ({orphanSessions.length})
+          <>
+            <div className="h-px bg-glass-border w-full my-3" />
+            <div className="pt-1">
+              <h3 className="text-[11px] font-bold text-nova-text-muted tracking-wider uppercase mb-2 px-3">
+                {t('chat.orphanSessions')} ({orphanSessions.length})
+              </h3>
+              <div className="space-y-1 px-1">
+                {orphanSessions.map((session) => {
+                  const isActive = session.id === activeSessionId
+                  return (
+                    <div
+                      key={session.id}
+                      className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-colors border ${
+                        isActive
+                          ? 'bg-white/40 dark:bg-white/10 border-nova-accent/20'
+                          : 'border-transparent hover:bg-white/50 dark:hover:bg-white/10 hover:border-glass-border'
+                      }`}
+                      onClick={() => handleSessionClick(session.id)}
+                      title={`${session.title} · ${session.messages.length} 条消息`}
+                    >
+                      <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/10 flex items-center justify-center text-nova-text-muted shrink-0">
+                        <TileIcon name="forum" size={15} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-xs truncate ${isActive ? 'text-nova-accent font-medium' : 'text-nova-text-primary'}`}>
+                          {session.title}
+                        </div>
+                        <div className="text-[10px] font-mono text-nova-text-muted mt-0.5">
+                          {formatTime(session.updatedAt)}
+                        </div>
+                      </div>
+                      {session.pinnedAt && (
+                        <span className="text-nova-accent shrink-0 flex">
+                          <TileIcon name="pin" size={12} />
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-            {orphanSessions.map((session) => {
-              const isActive = session.id === activeSessionId
-              return (
-                <div
-                  key={session.id}
-                  className={`group relative flex items-center gap-1.5 px-2 py-1 mx-0.5 rounded-md cursor-pointer transition-colors text-[11px] ${
-                    isActive
-                      ? 'bg-nova-accent/10 text-nova-accent'
-                      : 'hover:bg-nova-hover'
-                  }`}
-                  onClick={() => handleSessionClick(session.id)}
-                  title={`${session.title} · ${session.messages.length} 条消息`}
-                >
-                  {isActive && (
-                    <span
-                      className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-3 bg-nova-accent rounded-r-full"
-                      aria-hidden="true"
-                    />
-                  )}
-                  <SessionStatusDot
-                    running={runningSessionIds.includes(session.id)}
-                    needsAttention={attentionSessionIds.has(session.id)}
-                    hasError={errorSessionIds.has(session.id)}
-                  />
-                  {session.pinnedAt && (
-                    <svg className="w-2.5 h-2.5 shrink-0 text-nova-accent" viewBox="0 0 24 24" fill="currentColor" aria-label="置顶">
-                      <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
-                    </svg>
-                  )}
-                  <span className="flex-1 truncate text-nova-text-secondary">
-                    {session.title}
-                  </span>
-                  <span className="text-[9px] text-nova-text-muted shrink-0">
-                    {formatTime(session.updatedAt)}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
+          </>
         )}
       </div>
     </div>

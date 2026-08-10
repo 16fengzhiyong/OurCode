@@ -310,133 +310,144 @@ export default function GitPanel() {
 
   return (
     <div className="h-full flex flex-col text-sm">
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-nova-border">
-        <div className="flex items-center gap-2 min-w-0">
-          <svg className="w-4 h-4 text-nova-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+      {/* Header (Stitch: branch capsule + refresh circle button) */}
+      <div className="flex items-center justify-between px-3 py-2.5">
+        <div className="flex items-center gap-1.5 bg-white/70 dark:bg-white/10 border border-glass-border rounded-full px-3 py-1.5 shadow-sm hover:scale-[1.02] transition-transform cursor-pointer">
+          <svg className="w-3.5 h-3.5 text-primary shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z" />
           </svg>
-          <span className="text-xs font-semibold text-nova-text-secondary truncate">
+          <span className="text-[11px] font-mono font-medium tracking-wide truncate max-w-[180px]">
             {gitBranch || t('git.title')}
           </span>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={refreshStatus}
-            className="p-1 text-nova-text-muted hover:text-nova-text-primary rounded transition-colors"
-            title={t('git.refresh')}
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          </button>
-        </div>
+        <button
+          onClick={refreshStatus}
+          className="w-8 h-8 flex items-center justify-center rounded-full text-nova-text-muted hover:text-nova-text-primary hover:bg-white/70 dark:hover:bg-white/10 transition-colors"
+          title={t('git.refresh')}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
       </div>
 
-      {/* Commit message input — moved to top */}
-      <div className="p-3 border-b border-nova-border bg-nova-bg/50">
+      {/* Commit message input (Stitch: glass block, capsule buttons) */}
+      <div className="mx-2 mb-2 flex flex-col gap-1.5 bg-glass-bg rounded-lg p-3 border border-glass-border">
         <textarea
           value={commitMessage}
           onChange={(e) => setCommitMessage(e.target.value)}
           placeholder={t('git.commitPlaceholder')}
-          className="w-full px-3 py-2 bg-nova-input-bg border border-nova-border rounded-xl text-xs text-nova-text-primary outline-none focus:border-nova-accent/60 focus:ring-2 focus:ring-nova-accent/20 resize-none transition-all"
+          className="w-full bg-white/60 dark:bg-white/10 border border-glass-border rounded-md px-2.5 py-2 text-xs text-nova-text-primary placeholder:text-nova-text-muted/70 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 resize-none transition-all"
           rows={2}
-          style={{ minHeight: 48, lineHeight: 1.5 }}
+          style={{ minHeight: 44, lineHeight: 1.5 }}
           onKeyDown={(e) => {
             if (e.ctrlKey && e.key === 'Enter') {
               handleCommit()
             }
           }}
         />
-        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleCommit}
+            disabled={!commitMessage.trim()}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-white rounded-full hover:scale-[1.02] hover:brightness-110 active:scale-[0.98] disabled:opacity-30 shadow-sm border border-transparent transition-all"
+            style={{ background: 'linear-gradient(135deg, #0ea5e9, #6366f1, #a855f7)' }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            提交
+          </button>
+          <button
+            onClick={handlePush}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-nova-text-secondary rounded-full bg-white/70 dark:bg-white/10 border border-glass-border hover:bg-white/90 dark:hover:bg-white/15 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            title={t('git.pushTitle')}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 19V5M5 12l7-7 7 7" />
+            </svg>
+            推送
+          </button>
+          <button
+            onClick={handlePull}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-nova-text-secondary rounded-full bg-white/70 dark:bg-white/10 border border-glass-border hover:bg-white/90 dark:hover:bg-white/15 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            title={t('git.pullTitle')}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14M19 12l-7 7-7-7" />
+            </svg>
+            拉取
+          </button>
+          <button
+            onClick={() => { showLog ? setShowLog(false) : handleViewLog() }}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-nova-text-secondary rounded-full bg-white/70 dark:bg-white/10 border border-glass-border hover:bg-white/90 dark:hover:bg-white/15 hover:scale-[1.02] active:scale-[0.98] transition-all"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 8v4l2.5 2.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+            </svg>
+            日志
+          </button>
+        </div>
+        <div className="flex flex-col gap-2">
           <button
             onClick={handleGenerateCommitMessage}
             disabled={generatingCommit}
-            className="flex-1 relative overflow-hidden rounded-xl py-1.5 text-xs font-semibold text-nova-text-primary bg-white/50 dark:bg-white/10 border border-nova-border transition-all hover:bg-white/80 dark:hover:bg-white/15 disabled:opacity-40 group inline-flex items-center justify-center gap-1"
+            className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 text-[11px] font-bold rounded-full border transition-all disabled:opacity-40 hover:scale-[1.01] active:scale-[0.99]"
+            style={{ border: '1px solid color-mix(in srgb, var(--accent, #0058bc) 50%, transparent)', background: 'color-mix(in srgb, var(--accent, #0058bc) 5%, transparent)', color: 'var(--accent)' }}
             title={t('git.generateCommitHint')}
           >
-            <span className="absolute inset-0 bg-gradient-to-r from-[#0ea5e9] via-[#6366f1] to-[#a855f7] opacity-15 group-hover:opacity-25 transition-opacity" aria-hidden="true" />
-            <span className="relative z-10">
-              {generatingCommit ? t('git.generating') : '🤖 AI 生成提交消息'}
-            </span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 8V4M9 4h6M6 9h.01M18 9h.01M6 13h.01M18 13h.01M7 17c1 1 3 1.5 5 1.5s4-.5 5-1.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+            {generatingCommit ? t('git.generating') : 'AI 生成提交消息'}
           </button>
           <button
             onClick={handleLifeguard}
             disabled={lifeguardRunning}
-            className="px-3 py-1.5 text-xs text-nova-text-secondary rounded-xl bg-white/40 dark:bg-white/10 border border-nova-border hover:bg-white/70 dark:hover:bg-white/15 transition-colors disabled:opacity-40"
+            className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 text-[11px] font-bold rounded-full border border-nova-border bg-white/30 dark:bg-white/5 text-nova-text-secondary hover:bg-white/60 dark:hover:bg-white/10 transition-all disabled:opacity-40"
             title={t('git.lifeguardHint')}
           >
-            {lifeguardRunning ? t('git.lifeguardRunning') : '🛟 提交前检查'}
-          </button>
-        </div>
-        <div className="flex items-center gap-1.5 mt-2">
-          <button
-            onClick={handleCommit}
-            disabled={!commitMessage.trim()}
-            className="flex-1 py-2 text-xs text-white rounded-xl font-semibold disabled:opacity-30 transition-all inline-flex items-center justify-center gap-1 hover:scale-[1.02] hover:brightness-110 shadow-sm"
-            style={{ background: 'var(--primary-color, #0058bc)' }}
-          >
-            ✓ 提交
-          </button>
-          <button
-            onClick={handlePush}
-            className="px-3 py-2 text-xs bg-nova-hover text-nova-text-secondary rounded-xl hover:text-nova-text-primary transition-colors"
-            title={t('git.pushTitle')}
-          >
-            ↑ 推送
-          </button>
-          <button
-            onClick={handlePull}
-            className="px-3 py-2 text-xs bg-nova-hover text-nova-text-secondary rounded-xl hover:text-nova-text-primary transition-colors"
-            title={t('git.pullTitle')}
-          >
-            ↓ 拉取
-          </button>
-          <button
-            onClick={() => { showLog ? setShowLog(false) : handleViewLog() }}
-            className="px-3 py-2 text-xs bg-nova-hover text-nova-text-secondary rounded-xl hover:text-nova-text-primary transition-colors"
-          >
-            📋 日志
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3z" />
+              <path d="M12 8v5M12 16.5h.01" />
+            </svg>
+            {lifeguardRunning ? t('git.lifeguardRunning') : '提交前检查'}
           </button>
         </div>
 
-        {/* Lifeguard findings */}
+        {/* Lifeguard findings (Stitch: warning panel) */}
         {lifeguardError && (
-          <div className="mt-2 px-2 py-1.5 rounded bg-yellow-500/10 border border-yellow-500/30 text-[11px] text-yellow-400">
+          <div className="mx-2 mb-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30 flex items-center gap-1.5 text-warning font-semibold text-xs backdrop-blur-md">
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 2 1 21h22L12 2zm1 14h-2v2h2v-2zm0-7h-2v5h2V9z" />
+            </svg>
             {lifeguardError}
           </div>
         )}
         {lifeguardFindings.length > 0 && (
-          <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto">
-            <div className="text-[10px] text-nova-text-muted flex items-center gap-1.5">
-              <span>{t('git.lifeguardFindings', { count: lifeguardFindings.length })}</span>
-              <span className="ml-auto">
-                {t('git.errorCount', { count: lifeguardFindings.filter((f) => f.severity === 'error').length })} ·{' '}
-                {t('git.warningCount', { count: lifeguardFindings.filter((f) => f.severity === 'warning').length })}
+          <div className="mx-2 mb-2 rounded-lg bg-warning/10 border border-warning/30 backdrop-blur-md overflow-hidden">
+            <div className="px-3 py-2.5 flex items-center gap-1.5 text-warning font-semibold text-xs">
+              <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2 1 21h22L12 2zm1 14h-2v2h2v-2zm0-7h-2v5h2V9z" />
+              </svg>
+              <span>
+                {t('git.lifeguardFindings', { count: lifeguardFindings.length })} ·{' '}
+                {t('git.errorCount', { count: lifeguardFindings.filter((f) => f.severity === 'error').length })} 错误{' '}
+                {t('git.warningCount', { count: lifeguardFindings.filter((f) => f.severity === 'warning').length })} 警告
               </span>
             </div>
-            {lifeguardFindings.map((f, i) => (
-              <div
-                key={i}
-                className={`rounded-lg border px-2.5 py-1.5 text-[11px] ${
-                  f.severity === 'error'
-                    ? 'border-red-500/30 bg-red-500/5 text-red-300'
-                    : f.severity === 'warning'
-                      ? 'border-yellow-500/30 bg-yellow-500/5 text-yellow-200'
-                      : 'border-sky-500/30 bg-sky-500/5 text-sky-200'
-                }`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span>{f.severity === 'error' ? '✕' : f.severity === 'warning' ? '⚠' : 'ⓘ'}</span>
-                  <span className="font-medium">
-                    {f.severity === 'error' ? t('git.severityError') : f.severity === 'warning' ? t('git.severityWarning') : t('git.severityInfo')}
-                    {f.file && <> · {f.file}{f.line ? `:${f.line}` : ''}</>}
+            <div className="px-1 pb-1">
+              {lifeguardFindings.map((f, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between text-[11px] text-warning/90 hover:bg-warning/5 rounded px-2 py-1 transition-colors"
+                >
+                  <span className="font-code truncate max-w-[230px]">
+                    {f.file ? `${f.file}${f.line ? `:${f.line}` : ''}` : ''} — {f.message}
                   </span>
                 </div>
-                <div className="mt-0.5">{f.message}</div>
-                {f.suggestion && <div className="mt-0.5 opacity-80">{t('git.suggestion', { suggestion: f.suggestion })}</div>}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -459,7 +470,10 @@ export default function GitPanel() {
         {stagedChanges.length > 0 && (
           <div>
             <div className="flex items-center justify-between px-3 py-1.5">
-              <span className="text-[10px] font-bold text-nova-text-muted uppercase tracking-[0.08em]">{t('git.staged')} ({stagedChanges.length})</span>
+              <span className="text-[10px] font-bold tracking-widest uppercase text-nova-text-muted flex items-center gap-1.5">
+                {t('git.staged')}
+                <span className="bg-white/70 dark:bg-white/10 px-1.5 rounded-full text-[9px]">{stagedChanges.length}</span>
+              </span>
               <button
                 onClick={handleUnstageAll}
                 className="text-[10px] text-nova-text-muted hover:text-nova-accent"
@@ -468,43 +482,44 @@ export default function GitPanel() {
                 {t('git.unstageAllShort')}
               </button>
             </div>
-            {stagedChanges.map((item) => {
-              const { icon, color } = getStatusIcon(item.status)
-              const fileName = item.file.split(/[/\\]/).pop() || item.file
-              return (
-                <div
-                  key={item.file}
-                  className="group flex items-center gap-2 px-3 py-1.5 mx-1 rounded-md hover:bg-nova-hover cursor-pointer transition-colors"
-                >
-                  <button
-                    onClick={() => handleToggleStage(item.file, true)}
-                    className="text-[10px] text-nova-text-muted hover:text-nova-text-primary"
-                    title={t('git.unstage')}
+            <div className="flex flex-col gap-0.5">
+              {stagedChanges.map((item) => {
+                const { icon, color } = getStatusIcon(item.status)
+                const fileName = item.file.split(/[/\\]/).pop() || item.file
+                return (
+                  <div
+                    key={item.file}
+                    className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/70 dark:hover:bg-white/10 cursor-pointer transition-colors mx-1"
                   >
-                    -
-                  </button>
-                  <span
-                    className="text-[10px] font-bold w-4 text-center shrink-0 px-1 py-px rounded"
-                    style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)` }}
-                  >
-                    {icon}
-                  </span>
-                  <span
-                    className="text-xs text-nova-text-primary truncate flex-1 font-mono hover:text-nova-accent"
-                    onClick={() => openFile(resolveFilePath(item.file))}
-                  >
-                    {fileName}
-                  </span>
-                  <button
-                    onClick={() => handleViewDiff(item.file)}
-                    className="text-[10px] text-nova-text-muted hover:text-nova-accent opacity-0 group-hover:opacity-100 transition-opacity"
-                    title={t('git.viewDiff')}
-                  >
-                    {t('git.diff')}
-                  </button>
-                </div>
-              )
-            })}
+                    <button
+                      onClick={() => handleToggleStage(item.file, true)}
+                      className="text-nova-text-muted hover:text-nova-text-primary rounded p-0.5 transition-colors"
+                      title={t('git.unstage')}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M5 12h14" />
+                      </svg>
+                    </button>
+                    <span className="font-mono text-[12px] font-medium w-4 text-center" style={{ color }}>
+                      {icon}
+                    </span>
+                    <span
+                      className="font-mono text-[12px] text-nova-text-primary truncate flex-1 hover:text-nova-accent transition-colors"
+                      onClick={() => openFile(resolveFilePath(item.file))}
+                    >
+                      {fileName}
+                    </span>
+                    <button
+                      onClick={() => handleViewDiff(item.file)}
+                      className="hidden group-hover:block text-[10px] text-primary font-medium tracking-wide"
+                      title={t('git.viewDiff')}
+                    >
+                      差异
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 
@@ -512,7 +527,10 @@ export default function GitPanel() {
         {unstagedChanges.length > 0 && (
           <div>
             <div className="flex items-center justify-between px-3 py-1.5">
-              <span className="text-[10px] font-bold text-nova-text-muted uppercase tracking-[0.08em]">{t('git.changes')} ({unstagedChanges.length})</span>
+              <span className="text-[10px] font-bold tracking-widest uppercase text-nova-text-muted flex items-center gap-1.5">
+                {t('git.changes')}
+                <span className="bg-white/70 dark:bg-white/10 px-1.5 rounded-full text-[9px]">{unstagedChanges.length}</span>
+              </span>
               <button
                 onClick={handleStageAll}
                 className="text-[10px] text-nova-text-muted hover:text-nova-accent"
@@ -521,43 +539,44 @@ export default function GitPanel() {
                 {t('git.stageAllShort')}
               </button>
             </div>
-            {unstagedChanges.map((item) => {
-              const { icon, color } = getStatusIcon(item.status)
-              const fileName = item.file.split(/[/\\]/).pop() || item.file
-              return (
-                <div
-                  key={item.file}
-                  className="group flex items-center gap-2 px-3 py-1.5 mx-1 rounded-md hover:bg-nova-hover cursor-pointer transition-colors"
-                >
-                  <button
-                    onClick={() => handleToggleStage(item.file, false)}
-                    className="text-[10px] text-nova-text-muted hover:text-nova-accent"
-                    title={t('git.stage')}
+            <div className="flex flex-col gap-0.5">
+              {unstagedChanges.map((item) => {
+                const { icon, color } = getStatusIcon(item.status)
+                const fileName = item.file.split(/[/\\]/).pop() || item.file
+                return (
+                  <div
+                    key={item.file}
+                    className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/70 dark:hover:bg-white/10 cursor-pointer transition-colors mx-1"
                   >
-                    +
-                  </button>
-                  <span
-                    className="text-[10px] font-bold w-4 text-center shrink-0 px-1 py-px rounded"
-                    style={{ color, background: `color-mix(in srgb, ${color} 12%, transparent)` }}
-                  >
-                    {icon}
-                  </span>
-                  <span
-                    className="text-xs text-nova-text-primary truncate flex-1 font-mono hover:text-nova-accent"
-                    onClick={() => openFile(resolveFilePath(item.file))}
-                  >
-                    {fileName}
-                  </span>
-                  <button
-                    onClick={() => handleViewDiff(item.file)}
-                    className="text-[10px] text-nova-text-muted hover:text-nova-accent opacity-0 group-hover:opacity-100 transition-opacity"
-                    title={t('git.viewDiff')}
-                  >
-                    {t('git.diff')}
-                  </button>
-                </div>
-              )
-            })}
+                    <button
+                      onClick={() => handleToggleStage(item.file, false)}
+                      className="text-nova-text-muted hover:text-nova-accent rounded p-0.5 transition-colors"
+                      title={t('git.stage')}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                    </button>
+                    <span className="font-mono text-[12px] font-medium w-4 text-center" style={{ color }}>
+                      {icon}
+                    </span>
+                    <span
+                      className="font-mono text-[12px] text-nova-text-primary truncate flex-1 hover:text-nova-accent transition-colors"
+                      onClick={() => openFile(resolveFilePath(item.file))}
+                    >
+                      {fileName}
+                    </span>
+                    <button
+                      onClick={() => handleViewDiff(item.file)}
+                      className="hidden group-hover:block text-[10px] text-primary font-medium tracking-wide"
+                      title={t('git.viewDiff')}
+                    >
+                      差异
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 
@@ -565,60 +584,79 @@ export default function GitPanel() {
         {untrackedFiles.length > 0 && (
           <div>
             <div className="flex items-center justify-between px-3 py-1.5">
-              <span className="text-[10px] font-bold text-nova-text-muted uppercase tracking-[0.08em]">{t('git.untracked')} ({untrackedFiles.length})</span>
+              <span className="text-[10px] font-bold tracking-widest uppercase text-nova-text-muted flex items-center gap-1.5">
+                {t('git.untracked')}
+                <span className="bg-white/70 dark:bg-white/10 px-1.5 rounded-full text-[9px]">{untrackedFiles.length}</span>
+              </span>
             </div>
-            {untrackedFiles.map((item) => {
-              const fileName = item.file.split(/[/\\]/).pop() || item.file
-              return (
-                <div
-                  key={item.file}
-                  className="group flex items-center gap-2 px-3 py-1.5 mx-1 rounded-md hover:bg-nova-hover cursor-pointer transition-colors"
-                >
-                  <button
-                    onClick={() => handleToggleStage(item.file, false)}
-                    className="text-[10px] text-nova-text-muted hover:text-nova-accent"
-                    title={t('git.track')}
+            <div className="flex flex-col gap-0.5 opacity-70 hover:opacity-100 transition-opacity">
+              {untrackedFiles.map((item) => {
+                const fileName = item.file.split(/[/\\]/).pop() || item.file
+                return (
+                  <div
+                    key={item.file}
+                    className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/70 dark:hover:bg-white/10 cursor-pointer transition-colors mx-1"
                   >
-                    +
-                  </button>
-                  <span
-                    className="text-[10px] font-bold w-4 text-center shrink-0 px-1 py-px rounded"
-                    style={{ color: 'var(--text-muted, #64748b)', background: 'color-mix(in srgb, var(--text-muted, #64748b) 12%, transparent)' }}
-                  >
-                    U
-                  </span>
-                  <span
-                    className="text-xs text-nova-text-primary truncate flex-1 font-mono hover:text-nova-accent"
-                    onClick={() => openFile(resolveFilePath(item.file))}
-                  >
-                    {fileName}
-                  </span>
-                </div>
-              )
-            })}
+                    <span className="w-[18px]" />
+                    <span className="font-mono text-[12px] font-medium text-nova-text-muted w-4 text-center">U</span>
+                    <span
+                      className="font-mono text-[12px] text-nova-text-muted truncate flex-1 hover:text-nova-accent transition-colors"
+                      onClick={() => openFile(resolveFilePath(item.file))}
+                    >
+                      {fileName}
+                    </span>
+                    <button
+                      onClick={() => handleToggleStage(item.file, false)}
+                      className="hidden group-hover:block text-[10px] text-primary font-medium tracking-wide"
+                      title={t('git.track')}
+                    >
+                      跟踪
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 
-        {/* Recent commit footer (Stitch: history icon + hash + message + time) */}
+        {/* Recent commits (Stitch: footer section with history list) */}
         {lastCommit && (
-          <button
-            onClick={() => { showLog ? setShowLog(false) : handleViewLog() }}
-            className="mt-1 mb-1 flex items-center gap-2 px-3 py-2 mx-1 rounded-lg border border-nova-border bg-nova-surface/40 hover:bg-nova-hover transition-colors text-left w-[calc(100%-8px)]"
-            title={t('git.recentCommits')}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="text-nova-text-muted shrink-0">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l2.5 2.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
-            </svg>
-            <span className="text-[11px] font-mono font-bold text-nova-text-secondary shrink-0">
-              {lastCommit.hash.slice(0, 7)}
-            </span>
-            <span className="text-[11px] text-nova-text-primary truncate flex-1">
-              {lastCommit.message}
-            </span>
-            <span className="text-[10px] text-nova-text-muted shrink-0 opacity-70">
-              {lastCommit.date}
-            </span>
-          </button>
+          <div className="border-t border-glass-border mt-3 pt-3">
+            <button
+              onClick={() => { showLog ? setShowLog(false) : handleViewLog() }}
+              className="text-[10px] font-bold tracking-widest uppercase text-nova-text-muted mb-2 px-1 flex items-center gap-1 hover:text-nova-text-primary transition-colors w-full text-left"
+              title={t('git.recentCommits')}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 8v4l2.5 2.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+              </svg>
+              近期提交
+              <span className={`ml-auto transition-transform ${showLog ? 'rotate-180' : ''}`}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </span>
+            </button>
+            {!showLog && (
+              <div className="flex flex-col gap-0.5">
+                <div
+                  className="flex flex-col gap-0.5 p-2 rounded-md hover:bg-white/70 dark:hover:bg-white/10 transition-colors cursor-pointer"
+                  onClick={() => handleViewLog()}
+                >
+                  <span className="font-mono text-[11px] text-nova-text-primary group-hover:text-primary truncate">
+                    {lastCommit.message}
+                  </span>
+                  <div className="flex items-center gap-1.5 text-[10px] text-nova-text-muted">
+                    <span className="font-mono bg-white/70 dark:bg-white/10 px-1 rounded">{lastCommit.hash.slice(0, 7)}</span>
+                    <span>·</span>
+                    <span className="truncate">{lastCommit.author}</span>
+                    <span>·</span>
+                    <span>{lastCommit.date}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
