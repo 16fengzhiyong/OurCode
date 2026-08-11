@@ -201,3 +201,54 @@ describe('skillManager × skillRegistry integration', () => {
     expect((await listSkills(true, root)).map((s) => s.name)).toContain('deploy')
   })
 })
+
+describe('skillRegistry — global skills (root = <userData>)', () => {
+  // Global skills reuse the SAME API with the userData path as root: config
+  // lands in <userData>/skills.json and installs in <userData>/skills/<name>/.
+  // Each test uses a distinct userData path — the per-root config cache is
+  // keyed by mtime, and the mock stat() returns a constant mtime.
+
+  it('setSkillEnabled persists to <userData>/skills.json and isSkillEnabled reads it', async () => {
+    const root = nextRoot()
+    const globalRoot = 'C:/userData'
+    const { mockApi, writes } = makeMockApi(root)
+    stub(mockApi)
+    expect(await setSkillEnabled('deploy', false, globalRoot)).toBe(true)
+    expect(writes.some((w) => w.path === `${globalRoot}/skills.json`)).toBe(true)
+    expect(await isSkillEnabled('deploy', globalRoot)).toBe(false)
+  })
+
+  it('installSkill writes a global skill into <userData>/skills/<name>/SKILL.md', async () => {
+    const root = nextRoot()
+    const globalRoot = 'C:/userData-b'
+    const index: RegistrySkillInfo[] = [
+      { name: 'code-review', description: '审查', version: '1.0.0', contentUrl: 'https://registry.example/code-review/SKILL.md' },
+    ]
+    const { mockApi, files } = makeMockApi(root, {
+      [`${globalRoot}/skills.json`]: JSON.stringify({ registry: { url: 'https://registry.example/index.json' } }),
+    })
+    mockApi.webFetch = vi.fn(async (url: string) => {
+      if (url.includes('index.json')) return { ok: true, status: 200, text: JSON.stringify(index) }
+      return { ok: true, status: 200, text: '# global skill\n全局步骤\n' }
+    })
+    stub(mockApi)
+
+    const version = await installSkill('code-review', globalRoot)
+    expect(version).toBe('1.0.0')
+    expect(files[`${globalRoot}/skills/code-review/SKILL.md`]).toContain('全局步骤')
+    const cfg = JSON.parse(files[`${globalRoot}/skills.json`] || '{}')
+    expect(cfg.skills['code-review'].version).toBe('1.0.0')
+  })
+
+  it('uninstallSkill removes a global skill and its config entry', async () => {
+    const root = nextRoot()
+    const globalRoot = 'C:/userData-c'
+    const { mockApi, deletions, files } = makeMockApi(root, {
+      [`${globalRoot}/skills.json`]: JSON.stringify({ skills: { deploy: { enabled: false } } }),
+    })
+    stub(mockApi)
+    expect(await uninstallSkill('deploy', globalRoot)).toBe(true)
+    expect(deletions).toContain(`${globalRoot}/skills/deploy`)
+    expect(JSON.parse(files[`${globalRoot}/skills.json`] || '{}').skills.deploy).toBeUndefined()
+  })
+})

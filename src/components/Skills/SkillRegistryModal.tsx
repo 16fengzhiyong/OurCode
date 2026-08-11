@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
-import { listSkills, getWorkspaceRoot, type SkillInfo } from '@/services/skills/skillManager'
+import { listAllSkills, getGlobalRoot, getWorkspaceRoot, type SkillInfo } from '@/services/skills/skillManager'
 import {
   isSkillEnabled,
   setSkillEnabled,
@@ -19,6 +19,11 @@ interface LocalSkillRow extends SkillInfo {
   version?: string
 }
 
+/** Config root whose skills.json governs a skill's enabled flag. */
+async function configRootFor(s: SkillInfo): Promise<string> {
+  return s.source === 'global' ? await getGlobalRoot() : s.projectPath || ''
+}
+
 /**
  * Skill management dialog: local skills (enable/disable/uninstall) + remote
  * registry browser (install/update). Mirrors the PluginMarketplace layout,
@@ -31,7 +36,11 @@ export default function SkillRegistryModal() {
   const { isSkillRegistryOpen, closeSkillRegistry } = useUIStore()
   const t = useI18n()
 
-  const [root, setRoot] = useState('')
+  // The local tab lists ALL skills (global + every recent project's). The
+  // registry tab installs into a chosen target: 全局 (follows the IDE) or the
+  // current project (active session's bound project, browsed folder fallback).
+  const [installTarget, setInstallTarget] = useState<'global' | 'project'>('global')
+  const [projectRoot, setProjectRoot] = useState('')
   const [tab, setTab] = useState<'local' | 'registry'>('local')
   const [search, setSearch] = useState('')
   const [localSkills, setLocalSkills] = useState<LocalSkillRow[]>([])
@@ -39,47 +48,63 @@ export default function SkillRegistryModal() {
   const [registryUrl, setRegistryUrl] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null)
+  const [confirmUninstall, setConfirmUninstall] = useState<LocalSkillRow | null>(null)
   // Synchronous in-flight guard: `busy` state updates are async, so rapid
   // double-clicks on the same toggle/button would run the action twice before
   // the state lands (toggle flips twice = no-op). A ref keeps the check
   // race-free (see run).
   const busyRef = useRef<string | null>(null)
 
-  const reloadLocal = useCallback(async (targetRoot: string) => {
-    const all = await listSkills(true, targetRoot, true)
-    const config = await readSkillConfig(targetRoot)
+  const reloadLocal = useCallback(async () => {
+    const all = await listAllSkills(true)
     const rows: LocalSkillRow[] = []
     for (const s of all) {
+      const configRoot = await configRootFor(s)
+      const config = await readSkillConfig(configRoot)
       rows.push({
         ...s,
-        enabled: await isSkillEnabled(s.name, targetRoot),
+        enabled: await isSkillEnabled(s.name, configRoot),
         version: config.skills[s.name]?.version,
       })
     }
     setLocalSkills(rows)
   }, [])
 
-  const reloadRegistry = useCallback(async (targetRoot: string) => {
-    const list = await fetchRegistryIndex(undefined, targetRoot)
-    const config = await readSkillConfig(targetRoot)
+  const reloadRegistry = useCallback(async (root: string) => {
+    if (!root) {
+      setRegistrySkills([])
+      setRegistryUrl('')
+      return
+    }
+    const list = await fetchRegistryIndex(undefined, root)
+    const config = await readSkillConfig(root)
     setRegistrySkills(list)
     setRegistryUrl(config.registryUrl || '')
   }, [])
 
   useEffect(() => {
     if (!isSkillRegistryOpen) return
-    // The workspace follows the current project (= the active session's bound
-    // project) — the browsed folder only matters when no session exists yet.
-    const activeProject = useChatStore.getState().getActiveSession()?.projectPath
-    const workspace = activeProject || getWorkspaceRoot()
-    setRoot(workspace)
-    if (!workspace) return
-    reloadLocal(workspace)
-    reloadRegistry(workspace)
+    // The current project = the active session's bound project (browsed folder
+    // as fallback) — the "install to project" target.
+    const workspace = useChatStore.getState().getActiveSession()?.projectPath || getWorkspaceRoot() || ''
+    setProjectRoot(workspace)
+    // Skills follow the IDE by default — install target starts at 全局; the
+    // user can switch to 当前项目 in the registry tab.
+    setInstallTarget('global')
+    reloadLocal()
+    void getGlobalRoot().then((globalRoot) => reloadRegistry(globalRoot))
   }, [isSkillRegistryOpen, reloadLocal, reloadRegistry])
 
   if (!isSkillRegistryOpen) return null
+
+  /** Root the registry installs into for the current target. */
+  const targetRoot = async (): Promise<string> =>
+    installTarget === 'global' ? await getGlobalRoot() : projectRoot
+
+  const switchTarget = async (target: 'global' | 'project') => {
+    setInstallTarget(target)
+    await reloadRegistry(target === 'global' ? await getGlobalRoot() : projectRoot)
+  }
 
   const run = async (name: string, fn: () => Promise<unknown>) => {
     if (busyRef.current) return
@@ -93,10 +118,8 @@ export default function SkillRegistryModal() {
     } finally {
       busyRef.current = null
       setBusy(null)
-      if (root) {
-        reloadLocal(root)
-        reloadRegistry(root)
-      }
+      reloadLocal()
+      reloadRegistry(await targetRoot())
     }
   }
 
@@ -190,9 +213,7 @@ export default function SkillRegistryModal() {
             <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-400">{error}</div>
           )}
 
-          {!root ? (
-            <div className="text-center py-16 text-nova-text-muted text-sm">{t('skillRegistry.workspaceRequired')}</div>
-          ) : tab === 'local' ? (
+          {tab === 'local' ? (
             filteredLocal.length === 0 ? (
               <div className="text-center py-16 text-nova-text-muted text-sm">
                 {search ? t('skillRegistry.noMatch') : t('skillRegistry.noLocalSkills')}
@@ -201,7 +222,7 @@ export default function SkillRegistryModal() {
               <div className="space-y-1">
                 {filteredLocal.map((s) => (
                   <div
-                    key={s.name}
+                    key={`${s.source}:${s.projectPath || 'global'}:${s.name}`}
                     className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/50 dark:hover:bg-white/5 transition-colors group"
                   >
                     {/* Status dot */}
@@ -222,14 +243,24 @@ export default function SkillRegistryModal() {
                         }`}>
                           {s.enabled ? t('skillRegistry.installed') : t('plugin.statusDisabled')}
                         </span>
+                        <span
+                          className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-nova-hover text-nova-text-muted"
+                          title={s.source === 'global' ? undefined : s.projectPath}
+                        >
+                          {s.source === 'global' ? t('skillRegistry.globalTag') : s.projectPath?.split(/[/\\]/).pop() || t('skillRegistry.projectTag')}
+                        </span>
                       </div>
                       <p className="text-xs text-nova-text-muted mt-0.5 truncate">
-                        {s.description || s.path} · {s.source === 'workspace' ? '工作区' : '全局'}
+                        {s.description || s.path}
                       </p>
                     </div>
                     {/* Toggle switch (设计稿) */}
                     <button
-                      onClick={() => run(s.name, () => setSkillEnabled(s.name, !s.enabled, root))}
+                      onClick={() => run(s.name, async () => {
+                        const configRoot = await configRootFor(s)
+                        if (!configRoot) throw new Error('无法确定该技能的配置位置')
+                        await setSkillEnabled(s.name, !s.enabled, configRoot)
+                      })}
                       disabled={busy === s.name}
                       aria-label={`${s.enabled ? t('skillRegistry.disable') : t('skillRegistry.enable')} ${s.name}`}
                       className={`relative shrink-0 w-10 h-6 rounded-full transition-colors disabled:opacity-40 ${
@@ -244,7 +275,7 @@ export default function SkillRegistryModal() {
                     </button>
                     {/* Uninstall (icon button, appears on hover to keep the row compact) */}
                     <button
-                      onClick={() => setConfirmUninstall(s.name)}
+                      onClick={() => setConfirmUninstall(s)}
                       disabled={busy === s.name}
                       title={t('skillRegistry.uninstall')}
                       className="shrink-0 p-1.5 text-nova-text-muted opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all disabled:opacity-0"
@@ -259,6 +290,35 @@ export default function SkillRegistryModal() {
             )
           ) : (
             <div>
+              {/* Install target: 全局 (follows the IDE) vs 当前项目 */}
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xs text-nova-text-muted shrink-0">{t('skillRegistry.installTarget')}</span>
+                <div className="flex rounded-full border border-nova-border overflow-hidden text-xs">
+                  <button
+                    onClick={() => switchTarget('global')}
+                    className={`px-3 py-1 transition-colors ${
+                      installTarget === 'global' ? 'bg-[var(--accent)] text-white' : 'text-nova-text-muted hover:bg-nova-hover'
+                    }`}
+                  >
+                    {t('skillRegistry.installGlobal')}
+                  </button>
+                  <button
+                    onClick={() => switchTarget('project')}
+                    disabled={!projectRoot}
+                    title={projectRoot ? undefined : t('skillRegistry.installProjectDisabled')}
+                    className={`px-3 py-1 transition-colors disabled:opacity-40 ${
+                      installTarget === 'project' ? 'bg-[var(--accent)] text-white' : 'text-nova-text-muted hover:bg-nova-hover'
+                    }`}
+                  >
+                    {t('skillRegistry.installProject')}
+                  </button>
+                </div>
+                {installTarget === 'project' && projectRoot && (
+                  <span className="text-[11px] text-nova-text-muted truncate min-w-0" title={projectRoot}>
+                    {projectRoot.split(/[/\\]/).pop()}
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-nova-text-muted mb-3">
                 {registryUrl
                   ? t('skillRegistry.installFromRegistry')
@@ -291,7 +351,11 @@ export default function SkillRegistryModal() {
                           <p className="text-xs text-nova-text-muted mt-0.5 truncate">{r.description}</p>
                         </div>
                         <button
-                          onClick={() => run(r.name, () => installSkill(r.name, root, r))}
+                          onClick={() => run(r.name, async () => {
+                            const root = await targetRoot()
+                            if (!root) throw new Error('未选择安装目标')
+                            await installSkill(r.name, root, r)
+                          })}
                           disabled={busy === r.name}
                           className={`shrink-0 px-3 py-1.5 text-xs font-bold rounded-full transition-all disabled:opacity-40 ${
                             status === 'installed'
@@ -329,13 +393,13 @@ export default function SkillRegistryModal() {
 
       {/* Uninstall confirmation */}
       {confirmUninstall && (
-        <div role="dialog" aria-modal="true" aria-label={t('skillRegistry.uninstallConfirm', { name: confirmUninstall })} className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60" onClick={() => setConfirmUninstall(null)}>
+        <div role="dialog" aria-modal="true" aria-label={t('skillRegistry.uninstallConfirm', { name: confirmUninstall.name })} className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60" onClick={() => setConfirmUninstall(null)}>
           <div className="glass-modal rounded-2xl p-6 w-[400px]" style={{ boxShadow: 'var(--shadow-xl)' }} onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-nova-text-primary mb-2">
-              {t('skillRegistry.uninstallConfirm', { name: confirmUninstall })}
+              {t('skillRegistry.uninstallConfirm', { name: confirmUninstall.name })}
             </h3>
             <p className="text-xs text-nova-text-muted mb-6">
-              {t('skillRegistry.uninstallDesc', { name: confirmUninstall })}
+              {t('skillRegistry.uninstallDesc', { name: confirmUninstall.name })}
             </p>
             <div className="flex items-center justify-end gap-3">
               <button
@@ -346,9 +410,13 @@ export default function SkillRegistryModal() {
               </button>
               <button
                 onClick={() => {
-                  const name = confirmUninstall
+                  const row = confirmUninstall
                   setConfirmUninstall(null)
-                  run(name, () => uninstallSkill(name, root))
+                  run(row.name, async () => {
+                    const configRoot = await configRootFor(row)
+                    if (!configRoot) throw new Error('无法确定该技能的配置位置')
+                    await uninstallSkill(row.name, configRoot)
+                  })
                 }}
                 className="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >

@@ -85,7 +85,9 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
 
   const executor = new ToolExecutor()
   await executor.refreshMcpTools()
-  await executor.refreshSkillTools()
+  // Scope skill tools to the subagent's project (global skills always included)
+  // so its tool list matches the project-scoped skill index below.
+  await executor.refreshSkillTools(opts.projectPath)
   executor.setSessionContext(opts.sessionId, opts.projectPath)
 
   const recordEvent = (event: Partial<UsageEvent>) => {

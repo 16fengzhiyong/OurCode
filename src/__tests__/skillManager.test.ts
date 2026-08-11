@@ -2,10 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   parseSkillFrontmatter,
   listSkills,
+  listAllSkills,
   buildSkillIndex,
   toSkillToolDefinitions,
   loadSkillContent,
 } from '@/services/skills/skillManager'
+import { useUIStore } from '@/stores/uiStore'
 
 /**
  * Skill Manager tests — a mocked workspace filesystem:
@@ -75,7 +77,8 @@ describe('listSkills', () => {
     expect(skills[1].name).toBe('review')
     const design = skills.find((s) => s.name === 'design')!
     expect(design.description).toBe('设计系统规范')
-    expect(design.source).toBe('workspace')
+    expect(design.source).toBe('project')
+    expect(design.projectPath).toBe(root)
     expect(design.content).toContain('# Design')
   })
 
@@ -107,5 +110,61 @@ describe('skill index + tool definitions', () => {
     expect(content).toContain('遵循设计系统的视觉规范')
     expect(content).not.toContain('description:')
     expect(await loadSkillContent('nope', root)).toBeNull()
+  })
+})
+
+describe('global vs project skills', () => {
+  // Global skills live in <userData>/skills (getPath → C:/userData); the mock
+  // also gives the project a same-named "design" skill to exercise precedence.
+  const globalFiles: Record<string, string> = {
+    'C:/userData/skills/base/SKILL.md': '---\nname: base\n---\n# Base\n全局基础技能',
+    'C:/userData/skills/design/SKILL.md': '---\nname: design\ndescription: 全局 design\n---\n# Design global',
+    'C:/workspace/.ourcode/skills/design/SKILL.md': '---\nname: design\ndescription: 设计系统规范\n---\n# Design\n项目技能',
+    'C:/workspace/.claude/skills/review/skill.md': '# Code Review\n逐行审查代码质量。',
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('window', {
+      electronAPI: {
+        listDir: async (dir: string) => {
+          if (dir === 'C:/userData/skills') {
+            return [
+              { name: 'base', isDirectory: true, isHidden: false },
+              { name: 'design', isDirectory: true, isHidden: false },
+            ]
+          }
+          if (dir === `${root}/.ourcode/skills`) return [{ name: 'design', isDirectory: true, isHidden: false }]
+          if (dir === `${root}/.claude/skills`) return [{ name: 'review', isDirectory: true, isHidden: false }]
+          if (dir === `${root}/skills`) return []
+          return []
+        },
+        readFile: async (path: string) => ({ content: globalFiles[path] || '', encoding: 'utf-8' }),
+        stat: async () => ({ size: 1, isFile: true, isDirectory: false, createdAt: 1, modifiedAt: 1000 }),
+        getPath: async () => 'C:/userData',
+      },
+    })
+    useUIStore.setState({ recentProjects: [root] })
+  })
+
+  it('listSkills: a project skill shadows the same-named global skill', async () => {
+    const skills = await listSkills(true, root)
+    expect(skills.map((s) => s.name).sort()).toEqual(['base', 'design', 'review'])
+    const design = skills.find((s) => s.name === 'design')!
+    expect(design.source).toBe('project')
+    expect(design.projectPath).toBe(root)
+    // The shadowed global "design" is gone from the agent-facing list
+    expect(skills.filter((s) => s.name === 'design')).toHaveLength(1)
+    // The global-only skill is still present
+    const base = skills.find((s) => s.name === 'base')!
+    expect(base.source).toBe('global')
+  })
+
+  it('listAllSkills: shows both global and project skills (no cross-source dedup)', async () => {
+    const skills = await listAllSkills(true)
+    const design = skills.filter((s) => s.name === 'design')
+    expect(design).toHaveLength(2)
+    expect(design.some((s) => s.source === 'global')).toBe(true)
+    expect(design.some((s) => s.source === 'project' && s.projectPath === root)).toBe(true)
+    expect(skills.map((s) => s.name).sort()).toEqual(['base', 'design', 'design', 'review'])
   })
 })

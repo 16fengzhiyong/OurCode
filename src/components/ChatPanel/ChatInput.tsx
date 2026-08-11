@@ -197,10 +197,12 @@ export default function ChatInput() {
   }, [])
 
   // Load slash commands (static templates + workspace skills). Skill-derived
-  // commands only carry name/description — the body stays on demand.
+  // commands only carry name/description — the body stays on demand. Skill
+  // commands scope to the active session's project (global skills always listed).
   useEffect(() => {
     let cancelled = false
-    getAllSlashCommands()
+    const projectPath = useChatStore.getState().getActiveSession()?.projectPath
+    getAllSlashCommands(projectPath)
       .then((cmds) => { if (!cancelled) setAllSlashCommands(cmds) })
       .catch(() => { if (!cancelled) setAllSlashCommands([]) })
     return () => { cancelled = true }

@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useUIStore } from '@/stores/uiStore'
-import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
-import { listSkills, getWorkspaceRoot, type SkillInfo } from '@/services/skills/skillManager'
+import { listAllSkills, getGlobalRoot, type SkillInfo } from '@/services/skills/skillManager'
 import { isSkillEnabled, setSkillEnabled, readSkillConfig } from '@/services/skills/skillRegistry'
 
 interface LocalSkillRow extends SkillInfo {
@@ -10,21 +9,26 @@ interface LocalSkillRow extends SkillInfo {
   version?: string
 }
 
+/** Config root whose skills.json governs a skill's enabled flag. */
+async function configRootFor(s: SkillInfo): Promise<string> {
+  return s.source === 'global' ? await getGlobalRoot() : s.projectPath || ''
+}
+
 /**
  * Skill sidebar panel (activity-bar "skills" icon → opens the left sidebar).
  * Quick management: search, enable/disable via toggle. The header "管理" pill
  * opens the full SkillRegistryModal (local + remote registry install).
- * Design: 方案A (紧凑列表型) — status dot + mono "/name" + version + toggle.
+ * Lists ALL skills — global (follow the IDE) + every recent project's own —
+ * each labeled with its source, independent of the active conversation.
  */
 export default function SkillPanel() {
   const t = useI18n()
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
   const openSkillRegistry = useUIStore((s) => s.openSkillRegistry)
-  // Re-resolve the workspace whenever the browsed project changes so the list
-  // tracks the currently active project (like SkillRegistryModal does on open).
-  const rootPath = useUIStore((s) => s.rootPath)
+  // Refresh whenever the recent-project list changes (opening a project brings
+  // its skills into the list) — the list is independent of the active session.
+  const recentProjects = useUIStore((s) => s.recentProjects)
 
-  const [root, setRoot] = useState('')
   const [search, setSearch] = useState('')
   const [skills, setSkills] = useState<LocalSkillRow[]>([])
   const [busy, setBusy] = useState<string | null>(null)
@@ -34,18 +38,15 @@ export default function SkillPanel() {
   // a ref keeps the check race-free (see toggleSkill).
   const busyRef = useRef<string | null>(null)
 
-  const reload = useCallback(async (targetRoot: string) => {
-    if (!targetRoot) {
-      setSkills([])
-      return
-    }
-    const all = await listSkills(true, targetRoot, true)
-    const config = await readSkillConfig(targetRoot)
+  const reload = useCallback(async () => {
+    const all = await listAllSkills(true)
     const rows: LocalSkillRow[] = []
     for (const s of all) {
+      const configRoot = await configRootFor(s)
+      const config = await readSkillConfig(configRoot)
       rows.push({
         ...s,
-        enabled: await isSkillEnabled(s.name, targetRoot),
+        enabled: await isSkillEnabled(s.name, configRoot),
         version: config.skills[s.name]?.version,
       })
     }
@@ -53,23 +54,19 @@ export default function SkillPanel() {
   }, [])
 
   useEffect(() => {
-    // The workspace follows the current project (= the active session's bound
-    // project) — the browsed folder only matters when no session exists yet.
-    const activeProject = useChatStore.getState().getActiveSession()?.projectPath
-    const workspace = activeProject || getWorkspaceRoot() || rootPath || ''
-    setRoot(workspace)
-    if (workspace) reload(workspace)
-    else setSkills([])
-  }, [reload, rootPath])
+    reload().catch(() => setSkills([]))
+  }, [reload, recentProjects])
 
-  const toggleSkill = async (name: string, enabled: boolean) => {
-    if (!root || busyRef.current) return
-    busyRef.current = name
-    setBusy(name)
+  const toggleSkill = async (skill: LocalSkillRow, enabled: boolean) => {
+    if (busyRef.current) return
+    busyRef.current = skill.name
+    setBusy(skill.name)
     setError(null)
     try {
-      await setSkillEnabled(name, !enabled, root)
-      await reload(root)
+      const configRoot = await configRootFor(skill)
+      if (!configRoot) throw new Error('无法确定该技能的配置位置')
+      await setSkillEnabled(skill.name, !enabled, configRoot)
+      await reload()
     } catch (e: any) {
       setError(e.message || String(e))
     } finally {
@@ -165,11 +162,7 @@ export default function SkillPanel() {
 
       {/* List */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {!root ? (
-          <div className="text-center py-10 text-nova-text-muted text-xs px-4">
-            {t('skillRegistry.workspaceRequired')}
-          </div>
-        ) : filtered.length === 0 ? (
+        {filtered.length === 0 ? (
           <div className="text-center py-10 text-nova-text-muted text-xs px-4">
             {search ? t('skillPanel.noMatch') : t('skillPanel.noSkills')}
           </div>
@@ -177,7 +170,7 @@ export default function SkillPanel() {
           <div className="space-y-0.5">
             {filtered.map((s) => (
               <div
-                key={s.name}
+                key={`${s.source}:${s.projectPath || 'global'}:${s.name}`}
                 className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/50 dark:hover:bg-white/5 transition-colors group"
               >
                 {/* Status dot */}
@@ -195,6 +188,12 @@ export default function SkillPanel() {
                     {s.version && (
                       <span className="font-mono text-[10px] text-nova-text-muted shrink-0">v{s.version}</span>
                     )}
+                    <span
+                      className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-nova-hover text-nova-text-muted"
+                      title={s.source === 'global' ? undefined : s.projectPath}
+                    >
+                      {s.source === 'global' ? t('skillRegistry.globalTag') : s.projectPath?.split(/[/\\]/).pop() || t('skillRegistry.projectTag')}
+                    </span>
                   </div>
                   <p className="text-[11px] text-nova-text-muted mt-0.5 truncate">
                     {s.description || s.path}
@@ -202,7 +201,7 @@ export default function SkillPanel() {
                 </div>
                 {/* Toggle */}
                 <button
-                  onClick={() => toggleSkill(s.name, s.enabled)}
+                  onClick={() => toggleSkill(s, s.enabled)}
                   disabled={busy === s.name}
                   aria-label={`${s.enabled ? t('skillRegistry.disable') : t('skillRegistry.enable')} ${s.name}`}
                   className={`relative shrink-0 w-8 h-5 rounded-full transition-colors disabled:opacity-40 ${

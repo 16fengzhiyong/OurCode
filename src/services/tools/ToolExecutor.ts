@@ -47,10 +47,12 @@ export class ToolExecutor {
     }
   }
 
-  /** Refresh skill tool definitions from the workspace SkillManager */
-  async refreshSkillTools(): Promise<void> {
+  /** Refresh skill tool definitions from the workspace SkillManager. `projectPath`
+   *  scopes them to that project (global skills always included); without it the
+   *  browsing root is used as the fallback. */
+  async refreshSkillTools(projectPath?: string): Promise<void> {
     try {
-      this.skillTools = await toSkillToolDefinitions()
+      this.skillTools = await toSkillToolDefinitions(false, projectPath)
     } catch {
       this.skillTools = []
     }
