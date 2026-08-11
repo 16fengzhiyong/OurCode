@@ -10,7 +10,9 @@ import { t } from '@/i18n'
  */
 export function parseLLMError(error: unknown): ChatError {
   const message = error instanceof Error ? error.message : String(error ?? '')
-  const codeMatch = message.match(/\((\d{3})\)/)
+  // Most adapters report `API 请求失败 (400): …`; some relays use the bare
+  // `status_code=400` form — accept both so the code badge still shows.
+  const codeMatch = message.match(/\((\d{3})\)/) ?? message.match(/status_code[=:]\s?(\d{3})/)
   const code = codeMatch ? Number(codeMatch[1]) : undefined
 
   let type: ChatError['type']
@@ -30,6 +32,11 @@ export function parseLLMError(error: unknown): ChatError {
     type = 'rate_limit'
   } else if (code !== undefined && code >= 500) {
     type = 'server'
+  } else if (code !== undefined && code >= 400) {
+    // 400/404/413/415/422… — the provider rejected the payload: context too
+    // long, an incomplete tool-call history, an unsupported body, etc. Show an
+    // actionable hint instead of the generic "unknown error".
+    type = 'bad_request'
   } else {
     type = 'unknown'
   }
@@ -40,6 +47,7 @@ export function parseLLMError(error: unknown): ChatError {
     network: () => t('chat.errorNetwork'),
     rate_limit: () => t('chat.errorRateLimit'),
     server: () => t('chat.errorServer', { code: code ?? 500 }),
+    bad_request: () => t('chat.errorBadRequest', { code: code ?? 400 }),
     unknown: () => t('chat.errorUnknown'),
   }[type]()
 

@@ -416,6 +416,7 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.errorNetwork': 'Could not reach the AI service. Check your network connection and API endpoint configuration.',
   'chat.errorRateLimit': 'Too many requests — rate limited by the service. Try again later.',
   'chat.errorServer': 'The AI service is temporarily unavailable (HTTP {code}). Try again later.',
+  'chat.errorBadRequest': 'The AI service rejected the request (HTTP {code}). The conversation may be too long or contain an incomplete tool-call history — try shortening it or starting a new chat.',
   'chat.errorUnknown': 'An unknown error occurred. Try again later.',
   'chat.errorGoSettings': 'Go to API Key settings',
   'chat.errorRetry': 'Retry',

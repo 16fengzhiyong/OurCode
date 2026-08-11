@@ -413,6 +413,7 @@ export const zhCN = {
   'chat.errorNetwork': '无法连接到 AI 服务，请检查网络连接与 API 地址配置。',
   'chat.errorRateLimit': '请求过于频繁，已被服务限流。请稍后重试。',
   'chat.errorServer': 'AI 服务暂时不可用（HTTP {code}），请稍后重试。',
+  'chat.errorBadRequest': 'AI 服务拒绝了该请求（HTTP {code}）。通常是对话历史过长或包含不完整的工具调用记录，可尝试精简历史或新开对话。',
   'chat.errorUnknown': '发生未知错误，请稍后重试。',
   'chat.errorGoSettings': '前往设置 API Key',
   'chat.errorRetry': '重试',

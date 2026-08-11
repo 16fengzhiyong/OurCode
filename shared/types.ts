@@ -181,7 +181,7 @@ export interface UserQuestion {
 export interface ChatError {
   /** HTTP status code when the upstream service returned one */
   code?: number
-  type: 'auth' | 'timeout' | 'network' | 'rate_limit' | 'server' | 'unknown'
+  type: 'auth' | 'timeout' | 'network' | 'rate_limit' | 'server' | 'bad_request' | 'unknown'
   /** Localized, user-friendly message shown in the error card */
   message: string
   /** Raw upstream detail (e.g. the JSON error body) — shown in a collapsible area */
