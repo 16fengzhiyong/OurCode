@@ -48,12 +48,12 @@ test.describe('Hot Exit', () => {
       }, dir)
       await win1.keyboard.press('Control+o')
       // Ctrl+O opens the folder into the PROJECT LIST (new Stitch flow) — the
-      // file tree only mounts after clicking the project card.
+      // file tree only mounts after double-clicking the project card.
       await expect(async () => {
         await win1.keyboard.press('Control+o')
         await expect(win1.locator(`text=${dir}`).first()).toBeVisible({ timeout: 4000 })
       }).toPass({ timeout: 25000 })
-      await win1.locator(`text=${dir}`).first().click()
+      await win1.locator(`text=${dir}`).first().dblclick()
       await expect(win1.locator('#file-tree-root >> text=hello.ts').first()).toBeVisible({ timeout: 8000 })
 
       // Open hello.ts in the editor

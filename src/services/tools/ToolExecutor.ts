@@ -13,6 +13,15 @@ export interface ToolExecuteContext {
   projectPath?: string
 }
 
+/** File-write tools gated by the read-before-write guard below. */
+const READ_GUARD_TOOLS = new Set(['write_file', 'edit_file', 'delete_file'])
+
+/** Normalize a path for read-tracking comparisons — Windows paths differ only
+ *  in case and slash direction, and the model may not spell them identically. */
+function normalizePath(p: string): string {
+  return p.replace(/\\/g, '/').toLowerCase()
+}
+
 export class ToolExecutor {
   private tools: Tool[]
   private toolMap: Map<string, Tool>
@@ -22,6 +31,11 @@ export class ToolExecutor {
   private skillTools: ToolDefinition[] = []
   /** Session context for usage attribution (set by the agent loop) */
   private sessionContext: { sessionId: string; projectPath: string } | null = null
+  /** Files each session has already seen — read_file successes plus files it
+   *  just created. Keyed per session so parallel agent loops stay isolated;
+   *  subagents get their own executor instance, so they must read before
+   *  writing within their own scope. */
+  private readFilesBySession = new Map<string, Set<string>>()
 
   constructor() {
     this.tools = createToolRegistry()
@@ -36,6 +50,39 @@ export class ToolExecutor {
   /** Attribute usage events to the running session */
   setSessionContext(sessionId: string, projectPath: string): void {
     this.sessionContext = { sessionId, projectPath }
+  }
+
+  /** Drop a deleted session's read-tracking (wired from chatStore.deleteSession) */
+  forgetSession(sessionId: string): void {
+    this.readFilesBySession.delete(sessionId)
+  }
+
+  /** Mark a path as "known" to a session (read_file success, or a file the
+   *  model just created via write_file — it authored the content, so it may
+   *  edit it afterwards without a separate read). */
+  private markRead(sessionId: string | undefined, path: string): void {
+    if (!sessionId || !path) return
+    let set = this.readFilesBySession.get(sessionId)
+    if (!set) {
+      set = new Set()
+      this.readFilesBySession.set(sessionId, set)
+    }
+    set.add(normalizePath(path))
+  }
+
+  private hasReadFile(sessionId: string | undefined, path: string): boolean {
+    if (!sessionId || !path) return false
+    return this.readFilesBySession.get(sessionId)?.has(normalizePath(path)) ?? false
+  }
+
+  /** True when the path exists on disk. Missing files (or stat errors — never
+   *  block a write on a transient failure) are treated as "new file". */
+  private async fileExists(path: string): Promise<boolean> {
+    try {
+      return !!(await window.electronAPI.stat(path))
+    } catch {
+      return false
+    }
   }
 
   /** Refresh MCP tool definitions from the main process */
@@ -168,11 +215,34 @@ export class ToolExecutor {
       }
     }
 
+    // Read-before-write guard (ZCode-style): write/edit/delete must not touch
+    // a file the session has never read — the model can't know what it's
+    // changing. Only existing files are gated (a brand-new file can't be read);
+    // paths read via read_file (or created by a successful write) are known.
+    // Only enforced when a session context exists — without one there's no
+    // read-tracking to consult, so the write proceeds.
+    if (READ_GUARD_TOOLS.has(toolCall.name) && ctx.sessionId) {
+      const targetPath = String(toolCall.arguments?.path || '')
+      if (targetPath && !this.hasReadFile(ctx.sessionId, targetPath) && await this.fileExists(targetPath)) {
+        return {
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          result: `Error: File has not been read yet. Read it first before writing to it.（文件尚未读取，请先调用 read_file 读取后再写入）: ${targetPath}`,
+          isError: true,
+        }
+      }
+    }
+
     try {
       const result = await tool.execute(toolCall.arguments, {
         sessionId: ctx.sessionId,
         projectPath: ctx.projectPath,
       })
+      // A successful read makes the path known; a successful write to a NEW
+      // file does too (the model just authored it, so it may edit it next).
+      if (toolCall.name === 'read_file' || toolCall.name === 'write_file') {
+        this.markRead(ctx.sessionId, String(toolCall.arguments?.path || ''))
+      }
       return {
         toolCallId: toolCall.id,
         name: toolCall.name,

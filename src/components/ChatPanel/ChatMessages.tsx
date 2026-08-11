@@ -35,6 +35,20 @@ export default function ChatMessages() {
   // is viewing reacts to its own run; parallel sessions stream independently.
   const isThisSessionLoading = useChatStore((s) => !!activeSessionId && s.runningSessionIds.includes(activeSessionId))
   const stream = useChatStore((s) => (activeSessionId ? s.streamingBySession[activeSessionId] : undefined))
+  // Idle clock: last time this session's agent produced any activity (chunk /
+  // tool step / dialog). When it stays silent for > 1 min a warning badge
+  // counts up the silence so the user knows the model is still "thinking".
+  const lastActivityAt = useChatStore((s) => (activeSessionId ? s.streamLastActivityBySession[activeSessionId] : undefined))
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!isThisSessionLoading) return
+    // Re-sync immediately on any activity (new chunk resets the counter), then
+    // tick every second while the session runs.
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [isThisSessionLoading, lastActivityAt])
+  const idleSeconds = lastActivityAt ? Math.floor((now - lastActivityAt) / 1000) : 0
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [showUndoToast, setShowUndoToast] = useState(false)
@@ -380,6 +394,20 @@ export default function ChatMessages() {
                   {t('chat.thinking')}…
                 </span>
               </span>
+              {/* Idle warning — no data for > 1 min, keep counting up (the
+                  stream's 10-min idle timeout aborts if nothing arrives) */}
+              {idleSeconds >= 60 && (
+                <span
+                  className="flex items-center gap-1 text-amber-400 font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30"
+                  title="模型已长时间没有输出数据，仍在等待响应"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                  已 {Math.floor(idleSeconds / 60)} 分 {idleSeconds % 60} 秒无响应
+                </span>
+              )}
             </div>
             {stream?.thinking && <ThinkingBlock content={stream.thinking} defaultExpanded />}
             {stream?.content ? (
