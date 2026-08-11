@@ -178,3 +178,12 @@ describe('setRootPath', () => {
     expect(useUIStore.getState().projectOrder).toEqual(['C', 'A', 'D'])
   })
 })
+
+describe('skillsRevision', () => {
+  it('bumpSkillsRevision increments monotonically', () => {
+    expect(useUIStore.getState().skillsRevision).toBe(0)
+    useUIStore.getState().bumpSkillsRevision()
+    useUIStore.getState().bumpSkillsRevision()
+    expect(useUIStore.getState().skillsRevision).toBe(2)
+  })
+})

@@ -3,8 +3,10 @@ import {
   readSkillConfig,
   isSkillEnabled,
   setSkillEnabled,
+  setRegistryUrl,
   fetchRegistryIndex,
   installSkill,
+  importSkill,
   uninstallSkill,
   compareRegistryEntry,
   type RegistrySkillInfo,
@@ -90,6 +92,30 @@ describe('skillRegistry — skills.json config', () => {
     expect(await setSkillEnabled('deploy', false, root)).toBe(true)
     expect(writes.some((w) => w.path === `${root}/skills.json`)).toBe(true)
     expect(await isSkillEnabled('deploy', root)).toBe(false)
+  })
+
+  it('setRegistryUrl persists the URL and keeps existing skill config', async () => {
+    const root = nextRoot()
+    const { mockApi, files } = makeMockApi(root, {
+      [`${root}/skills.json`]: JSON.stringify({ skills: { deploy: { enabled: false } } }),
+    })
+    stub(mockApi)
+    expect(await setRegistryUrl(root, 'https://registry.example/index.json')).toBe(true)
+    const cfg = JSON.parse(files[`${root}/skills.json`] || '{}')
+    expect(cfg.registry.url).toBe('https://registry.example/index.json')
+    expect(cfg.skills.deploy.enabled).toBe(false) // untouched
+    expect((await readSkillConfig(root)).registryUrl).toBe('https://registry.example/index.json')
+  })
+
+  it('setRegistryUrl with an empty string clears the URL', async () => {
+    const root = nextRoot()
+    const { mockApi, files } = makeMockApi(root, {
+      [`${root}/skills.json`]: JSON.stringify({ registry: { url: 'https://registry.example/index.json' } }),
+    })
+    stub(mockApi)
+    expect(await setRegistryUrl(root, '')).toBe(true)
+    expect(JSON.parse(files[`${root}/skills.json`] || '{}').registry).toBeUndefined()
+    expect((await readSkillConfig(root)).registryUrl).toBeUndefined()
   })
 })
 
@@ -199,6 +225,54 @@ describe('skillManager × skillRegistry integration', () => {
     expect((await listSkills(true, root)).map((s) => s.name)).not.toContain('deploy')
     await setSkillEnabled('deploy', true, root)
     expect((await listSkills(true, root)).map((s) => s.name)).toContain('deploy')
+  })
+})
+
+describe('skillRegistry — import from other platforms', () => {
+  it('copies a skill into <root>/skills/<name>/ and records provenance', async () => {
+    const root = nextRoot()
+    const { mockApi, files } = makeMockApi(root)
+    files['C:/ws-x/.claude/skills/review/SKILL.md'] = '---\nname: review\ndescription: 审查\n---\n正文\n'
+    stub(mockApi)
+
+    expect(await importSkill('review', root, 'C:/ws-x/.claude/skills/review', 'claude')).toBe(true)
+    expect(files[`${root}/skills/review/SKILL.md`]).toContain('正文')
+    const cfg = JSON.parse(files[`${root}/skills.json`] || '{}')
+    expect(cfg.skills.review.importedFrom).toBe('claude')
+    expect(cfg.skills.review.enabled).toBe(true)
+  })
+
+  it('keeps existing enabled/version state when overwriting an installed skill', async () => {
+    const root = nextRoot()
+    const { mockApi, files } = makeMockApi(root, {
+      [`${root}/skills.json`]: JSON.stringify({ skills: { review: { enabled: false, version: '1.0.0' } } }),
+    })
+    files['C:/ws-x/.claude/skills/review/SKILL.md'] = '# Review\n正文\n'
+    stub(mockApi)
+
+    expect(await importSkill('review', root, 'C:/ws-x/.claude/skills/review', 'claude')).toBe(true)
+    const cfg = JSON.parse(files[`${root}/skills.json`] || '{}')
+    expect(cfg.skills.review.enabled).toBe(false)
+    expect(cfg.skills.review.version).toBe('1.0.0')
+    expect(cfg.skills.review.importedFrom).toBe('claude')
+  })
+
+  it('falls back to skill.md and rejects unsafe names', async () => {
+    const root = nextRoot()
+    const { mockApi, files } = makeMockApi(root)
+    files['C:/ws-x/.agents/skills/lint/skill.md'] = '# Lint\n正文\n'
+    stub(mockApi)
+
+    expect(await importSkill('lint', root, 'C:/ws-x/.agents/skills/lint', 'agents')).toBe(true)
+    expect(files[`${root}/skills/lint/SKILL.md`]).toContain('正文')
+    expect(await importSkill('../evil', root, 'C:/ws-x/.agents/skills/evil', 'agents')).toBe(false)
+  })
+
+  it('returns false when the source dir has no SKILL.md/skill.md', async () => {
+    const root = nextRoot()
+    const { mockApi } = makeMockApi(root)
+    stub(mockApi)
+    expect(await importSkill('ghost', root, 'C:/ws-x/.claude/skills/ghost', 'claude')).toBe(false)
   })
 })
 

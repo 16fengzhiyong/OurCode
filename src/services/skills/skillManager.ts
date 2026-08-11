@@ -1,17 +1,38 @@
 /**
- * Skill Manager — discovers Claude-Code-style skills (SKILL.md files) from the
- * workspace (.claude/skills, .ourcode/skills, skills) and the global user-data
- * directory, parses their frontmatter, and exposes them as dynamic tools
- * (skill__<name>) so the agent can load a skill's instructions on demand.
+ * Skill Manager — discovers Agent-Skills-style skills (SKILL.md files) from
+ * OUR OWN skill directories (project .ourcode/skills + skills, global
+ * <userData>/skills), parses their frontmatter, and exposes them as dynamic
+ * tools (skill__<name>) so the agent can load a skill's instructions on
+ * demand.
  *
- * This matches mainstream AI tools (ZCode / Claude Code / Windsurf): the system
- * prompt only injects a compact index of available skills; invoking
- * skill__<name> returns the full SKILL.md content, which the model then follows.
- * Each invocation is recorded into the usage dashboard (category 'skill').
+ * Skills written for other AI tools (Claude Code, Codex, ZCode, opencode,
+ * Cursor, Gemini CLI, Windsurf, ChatGPT) share the same Agent Skills file
+ * format (<name>/SKILL.md + name/description frontmatter) but live in their
+ * own directories (.claude/skills, .agents/skills, …). We never use those
+ * directories directly — they may change or disappear at any time. Instead
+ * they are IMPORT SOURCES: the management UI lists them (listImportableSkills)
+ * and the user picks which to copy into our own `skills/` dir (importSkill in
+ * skillRegistry), where they become ours and are no longer affected by the
+ * source tool.
+ *
+ * The system prompt only injects a compact index of available skills;
+ * invoking skill__<name> returns the full SKILL.md content, which the model
+ * then follows. Each invocation is recorded into the usage dashboard
+ * (category 'skill').
  */
 import type { ToolDefinition } from '@/services/tools/types'
 import { isSkillEnabled } from '@/services/skills/skillRegistry'
 import { useUIStore } from '@/stores/uiStore'
+
+/** Platform whose directory a skill was found in (import sources only). */
+export type SkillOrigin =
+  | 'agents'
+  | 'claude'
+  | 'zcode'
+  | 'cursor'
+  | 'opencode'
+  | 'gemini'
+  | 'windsurf'
 
 export interface SkillInfo {
   name: string
@@ -26,7 +47,52 @@ export interface SkillInfo {
   mtime: number
 }
 
-const SKILL_DIRS = ['.claude/skills', '.ourcode/skills', 'skills']
+/** A skill found in another platform's directory — a candidate for import
+ *  (copied into our own dirs before use; never used directly). */
+export interface ImportableSkill {
+  name: string
+  description: string
+  /** Platform whose directory it came from. */
+  origin: SkillOrigin
+  /** Owning skill directory (contains SKILL.md or skill.md). */
+  path: string
+}
+
+/** Display labels for skill origins (proper nouns — no i18n needed). */
+export const SKILL_ORIGIN_LABELS: Record<SkillOrigin, string> = {
+  agents: 'Agents',
+  claude: 'Claude',
+  zcode: 'ZCode',
+  cursor: 'Cursor',
+  opencode: 'OpenCode',
+  gemini: 'Gemini',
+  windsurf: 'Windsurf',
+}
+
+/** Our own project skill dirs — the only dirs whose skills are usable. */
+const OWN_PROJECT_SKILL_DIRS = ['.ourcode/skills', 'skills'] // skills = registry/import install target
+
+/** Other platforms' project skill dirs — import sources, never auto-discovered. */
+const EXTERNAL_PROJECT_SKILL_DIRS: Array<[SkillOrigin, string]> = [
+  ['agents', '.agents/skills'], // cross-tool standard (Codex/Cursor/Gemini/opencode/ZCode…)
+  ['claude', '.claude/skills'],
+  ['zcode', '.zcode/skills'],
+  ['cursor', '.cursor/skills'],
+  ['opencode', '.opencode/skills'],
+  ['gemini', '.gemini/skills'],
+  ['windsurf', '.windsurf/skills'],
+]
+
+/** Other platforms' home-dir skill dirs — global-scope import sources. */
+const EXTERNAL_HOME_SKILL_DIRS: Array<[SkillOrigin, string]> = [
+  ['agents', '.agents/skills'],
+  ['claude', '.claude/skills'],
+  ['zcode', '.zcode/skills'],
+  ['cursor', '.cursor/skills'],
+  ['opencode', '.config/opencode/skills'],
+  ['gemini', '.gemini/skills'],
+  ['windsurf', '.codeium/windsurf/skills'],
+]
 
 /** Renderer-side workspace root (the file tree's data attribute, falling back
  *  to the selected project — the tree only mounts in tree view). Note: callers
@@ -45,6 +111,15 @@ function joinPath(dir: string, name: string): string {
 export async function getGlobalRoot(): Promise<string> {
   try {
     return (await window.electronAPI?.getPath?.('userData')) || ''
+  } catch {
+    return ''
+  }
+}
+
+/** User home dir — home-scoped cross-tool skill dirs (~/.claude/skills, …). */
+export async function getHomeRoot(): Promise<string> {
+  try {
+    return (await window.electronAPI?.getPath?.('home')) || ''
   } catch {
     return ''
   }
@@ -106,7 +181,7 @@ export function parseSkillFrontmatter(content: string, fallbackName: string): { 
 
 // ───────────────────────── discovery ─────────────────────────
 
-/** A directory to scan for skills, plus its source + enable/disable config root. */
+/** A directory to scan for skills, plus its enable/disable config root. */
 interface SkillDir {
   dir: string
   source: 'global' | 'project'
@@ -116,14 +191,21 @@ interface SkillDir {
   projectPath?: string
 }
 
-/** Workspace skill dirs under a project root (each maps to source 'project'). */
+/** Our own workspace skill dirs under a project root (source 'project'). */
 function projectSkillDirs(root: string): SkillDir[] {
-  return SKILL_DIRS.map((d) => ({
+  return OWN_PROJECT_SKILL_DIRS.map((d) => ({
     dir: joinPath(root, d),
     source: 'project' as const,
     configRoot: root,
     projectPath: root,
   }))
+}
+
+/** Our own global skill dir: <userData>/skills ('' when unavailable). */
+async function globalSkillDirs(): Promise<SkillDir[]> {
+  const globalRoot = await getGlobalRoot()
+  if (!globalRoot) return []
+  return [{ dir: joinPath(globalRoot, 'skills'), source: 'global' as const, configRoot: globalRoot }]
 }
 
 interface SkillCache {
@@ -137,47 +219,39 @@ interface SkillCache {
 
 let _cache: SkillCache | null = null
 
+/** Read a skill's content from a directory (SKILL.md wins over skill.md). */
+async function readSkillFileSafe(dir: string): Promise<string> {
+  return (await readFileSafe(joinPath(dir, 'SKILL.md'))) || (await readFileSafe(joinPath(dir, 'skill.md')))
+}
+
 /**
  * Parse + enable-filter skills from the scanned dirs. `includeDisabled` skips
  * the skills.json enabled filter (registry/panel UI needs disabled skills
  * visible so toggles stay reachable).
  */
 async function parseDirs(dirs: SkillDir[], includeDisabled: boolean): Promise<SkillInfo[]> {
-  const candidates: Array<{ sd: SkillDir; dir: string; path: string }> = []
+  const skills: SkillInfo[] = []
   for (const sd of dirs) {
     const entries = await listDirSafe(sd.dir)
     for (const e of entries) {
       if (!e.isDirectory) continue
-      const sub = joinPath(sd.dir, e.name)
-      candidates.push({ sd, dir: sub, path: joinPath(sub, 'SKILL.md') })
-      candidates.push({ sd, dir: sub, path: joinPath(sub, 'skill.md') })
+      const dir = joinPath(sd.dir, e.name)
+      const content = await readSkillFileSafe(dir)
+      if (!content) continue
+      const parsed = parseSkillFrontmatter(content, e.name)
+      // Respect skills.json enable/disable overrides (default: enabled) — global
+      // skills consult <userData>/skills.json, project skills their project's.
+      if (!includeDisabled && !(await isSkillEnabled(parsed.name, sd.configRoot))) continue
+      skills.push({
+        name: parsed.name,
+        description: parsed.description,
+        source: sd.source,
+        projectPath: sd.projectPath,
+        path: dir,
+        content,
+        mtime: 0, // caller fills from the newest candidate mtime
+      })
     }
-  }
-
-  // One non-empty content per skill directory (SKILL.md wins over skill.md)
-  const byDir = new Map<string, { sd: SkillDir; content: string }>()
-  for (const c of candidates) {
-    if (byDir.has(c.dir)) continue
-    const content = await readFileSafe(c.path)
-    if (content) byDir.set(c.dir, { sd: c.sd, content })
-  }
-
-  const skills: SkillInfo[] = []
-  for (const [dir, { sd, content }] of byDir) {
-    const fallbackName = dir.split(/[/\\]/).pop() || 'skill'
-    const parsed = parseSkillFrontmatter(content, fallbackName)
-    // Respect skills.json enable/disable overrides (default: enabled) — global
-    // skills consult <userData>/skills.json, project skills their project's.
-    if (!includeDisabled && !(await isSkillEnabled(parsed.name, sd.configRoot))) continue
-    skills.push({
-      name: parsed.name,
-      description: parsed.description,
-      source: sd.source,
-      projectPath: sd.projectPath,
-      path: dir,
-      content,
-      mtime: 0, // caller fills from the newest candidate mtime
-    })
   }
   return skills
 }
@@ -271,10 +345,7 @@ export async function listSkills(force = false, rootOverride?: string, includeDi
   if (root) {
     try { await window.electronAPI?.authorize?.(root) } catch { /* keep scanning global only */ }
   }
-  const globalRoot = await getGlobalRoot()
-  const global = globalRoot ? joinPath(globalRoot, 'skills') : ''
-  const dirs: SkillDir[] = []
-  if (global) dirs.push({ dir: global, source: 'global', configRoot: globalRoot })
+  const dirs = await globalSkillDirs()
   // Before a workspace is opened (root ''), scanning the fake `/.claude/skills`
   // style paths would hit the main-process path allowlist and log errors.
   if (root) dirs.push(...projectSkillDirs(root))
@@ -284,7 +355,8 @@ export async function listSkills(force = false, rootOverride?: string, includeDi
 /**
  * All skills for the management UI: global skills + project skills of every
  * recent project (authorized for the fs bridge). Unlike listSkills, a global
- * and a project skill with the same name both show — each labeled by source.
+ * and a project skill with the same name both show — each labeled by source
+ * and origin.
  */
 export async function listAllSkills(force = false, includeDisabled = true): Promise<SkillInfo[]> {
   const roots = [...new Set((useUIStore.getState().recentProjects || []).filter(Boolean))]
@@ -293,13 +365,58 @@ export async function listAllSkills(force = false, includeDisabled = true): Prom
   for (const r of roots) {
     try { await window.electronAPI?.authorize?.(r) } catch { /* keep scanning the rest */ }
   }
-  const globalRoot = await getGlobalRoot()
-  const global = globalRoot ? joinPath(globalRoot, 'skills') : ''
-  const dirs: SkillDir[] = []
-  if (global) dirs.push({ dir: global, source: 'global', configRoot: globalRoot })
+  const dirs = await globalSkillDirs()
   for (const r of roots) dirs.push(...projectSkillDirs(r))
   const rootsKey = roots.sort().join('|')
   return cachedDiscover(`all:${rootsKey}:${includeDisabled}`, dirs, includeDisabled, force, false)
+}
+
+/**
+ * Skills importable from other platforms' directories for a scope: 'global'
+ * scans the home-dir skill dirs (~/.claude/skills, ~/.agents/skills, …),
+ * 'project' the given project root's own external dirs. Import sources are
+ * listed read-only — they never enter the agent's skill index until the user
+ * imports them into our own dirs (importSkill). Same frontmatter name from
+ * two platforms stays listed twice, labeled by origin.
+ */
+export async function listImportableSkills(scope: 'global' | 'project', projectRoot?: string): Promise<ImportableSkill[]> {
+  const dirs: Array<{ dir: string; origin: SkillOrigin }> = []
+  if (scope === 'global') {
+    const home = await getHomeRoot()
+    if (home) {
+      for (const [origin, rel] of EXTERNAL_HOME_SKILL_DIRS) {
+        // Home dirs aren't in the main-process fs allowlist — authorize each
+        // so fs:listDir can probe them (a no-op once registered, mirroring
+        // how project roots are authorized).
+        const dir = joinPath(home, rel)
+        try { await window.electronAPI?.authorize?.(dir) } catch { /* keep scanning the rest */ }
+        dirs.push({ dir, origin })
+      }
+    }
+  } else if (projectRoot) {
+    try { await window.electronAPI?.authorize?.(projectRoot) } catch { /* keep scanning home only */ }
+    for (const [origin, rel] of EXTERNAL_PROJECT_SKILL_DIRS) {
+      dirs.push({ dir: joinPath(projectRoot, rel), origin })
+    }
+  }
+
+  const seen = new Set<string>()
+  const skills: ImportableSkill[] = []
+  for (const { dir, origin } of dirs) {
+    const entries = await listDirSafe(dir)
+    for (const e of entries) {
+      if (!e.isDirectory) continue
+      const skillDir = joinPath(dir, e.name)
+      const content = await readSkillFileSafe(skillDir)
+      if (!content) continue
+      const parsed = parseSkillFrontmatter(content, e.name)
+      const key = `${origin}:${parsed.name}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      skills.push({ name: parsed.name, description: parsed.description, origin, path: skillDir })
+    }
+  }
+  return skills.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Compact index block injected into the system prompt (content stays on demand) */

@@ -12,7 +12,10 @@
  *
  * - `registry.url`  — remote index endpoint (fetched via the webFetch IPC).
  * - `skills.<name>` — per-skill overrides: `enabled` toggles a skill in/out of
- *   the agent's index + tool list; `version` records the installed version.
+ *   the agent's index + tool list; `version` records the installed version;
+ *   `importedFrom` records the platform a skill was copied from (see
+ *   importSkill below — imported skills become ours, provenance is kept only
+ *   for display).
  *
  * Registry index format (accepted as a bare array or `{ skills: [...] }`):
  *
@@ -24,15 +27,26 @@
  * Install = fetch SKILL.md → write to `<root>/skills/<name>/SKILL.md` — from
  * there the existing SkillManager discovery picks it up (cache refresh is the
  * caller's job, to avoid a circular import).
+ *
+ * Import (from another AI tool's directory) = copy its SKILL.md into
+ * `<root>/skills/<name>/SKILL.md` — same landing dir as install, so imported
+ * skills are ours: source-tool changes no longer affect them, and uninstall
+ * works as for any registry-managed skill.
  */
+import type { SkillOrigin } from '@/services/skills/skillManager'
 
 export interface SkillConfigEntry {
   enabled?: boolean
   version?: string
+  /** Platform this skill was imported from (display provenance only). */
+  importedFrom?: SkillOrigin
 }
 
 export interface SkillConfig {
   registryUrl?: string
+  /** Raw on-disk registry block — setRegistryUrl writes `{ registry: { url } }`;
+   *  readSkillConfig normalizes it into `registryUrl` and never fills this. */
+  registry?: { url?: string }
   skills: Record<string, SkillConfigEntry>
 }
 
@@ -129,6 +143,20 @@ export async function setSkillEnabled(name: string, enabled: boolean, root: stri
   const config = await readSkillConfig(root)
   const entry = config.skills[name] || {}
   config.skills[name] = { ...entry, enabled }
+  _configCache = null // force re-read on next call
+  return writeFileSafe(`${root.replace(/[\\/]$/, '')}/skills.json`, JSON.stringify(config, null, 2) + '\n')
+}
+
+/** Persist the registry index URL (empty string clears it). Saves to the
+ *  same skills.json as the enabled flags — users configure it from the UI
+ *  instead of hand-editing the file. */
+export async function setRegistryUrl(root: string, url: string): Promise<boolean> {
+  const config = await readSkillConfig(root)
+  if (url) {
+    config.registry = { url } // on-disk shape is { registry: { url } } (see readSkillConfig)
+  } else {
+    delete config.registry
+  }
   _configCache = null // force re-read on next call
   return writeFileSafe(`${root.replace(/[\\/]$/, '')}/skills.json`, JSON.stringify(config, null, 2) + '\n')
 }
@@ -230,6 +258,32 @@ export async function installSkill(name: string, root: string, entry?: RegistryS
   _configCache = null
   await writeFileSafe(`${root.replace(/[\\/]$/, '')}/skills.json`, JSON.stringify(config, null, 2) + '\n')
   return target.version || '0.0.0'
+}
+
+/**
+ * Import a skill from another platform's directory into our own
+ * `<root>/skills/<name>/SKILL.md` — a copy, so the source tool's later
+ * changes never touch it. Records the platform as provenance
+ * (`importedFrom`) in skills.json. Returns false when the source dir has no
+ * readable SKILL.md/skill.md or the write fails.
+ */
+export async function importSkill(name: string, root: string, sourcePath: string, origin: SkillOrigin): Promise<boolean> {
+  if (!isSafeSkillName(name)) return false
+  const src = sourcePath.replace(/[\\/]$/, '')
+  const content = await readFileSafe(`${src}/SKILL.md`) || await readFileSafe(`${src}/skill.md`)
+  if (!content) return false
+
+  const dir = `${root.replace(/[\\/]$/, '')}/skills/${name}`
+  await createDirSafe(dir)
+  const ok = await writeFileSafe(`${dir}/SKILL.md`, content)
+  if (!ok) return false
+
+  // Record provenance (keeping an existing enabled/version state)
+  const config = await readSkillConfig(root)
+  const entryCfg = config.skills[name] || {}
+  config.skills[name] = { ...entryCfg, enabled: entryCfg.enabled !== false, importedFrom: origin }
+  _configCache = null
+  return writeFileSafe(`${root.replace(/[\\/]$/, '')}/skills.json`, JSON.stringify(config, null, 2) + '\n')
 }
 
 /** Remove a skill directory from the workspace. */
