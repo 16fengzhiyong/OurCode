@@ -39,6 +39,10 @@ let _cachedGitStatus: string[] = []
 let _cachedGitLog: string[] = []
 let _gitBranchFetchedAt = 0
 
+/** Minimum interval between git fetches (ms). Avoids redundant `git` calls
+ *  when multiple consumers request git context within a short window. */
+const GIT_CACHE_TTL = 5_000
+
 /** localStorage key for the last active chat session (restored on next launch) */
 const LAST_SESSION_KEY = 'lastActiveSessionId'
 
@@ -107,13 +111,19 @@ export async function generateAiSessionTitle(userContent: string, preferredModel
 export async function refreshGitBranch(): Promise<void> {
   const rootPath = getWorkspaceRoot()
   if (!rootPath) return
-  try {
-    const res = await (window as any).electronAPI?.gitExec(rootPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
-    if (res?.success) {
-      _cachedGitBranch = res.output.trim()
-      _gitBranchFetchedAt = Date.now()
-    }
-  } catch { /* ignore */ }
+
+  // Skip re-fetch when the cache is still fresh (e.g. multiple consumers
+  // requesting git context within the same short window).
+  if (_gitBranchFetchedAt > 0 && Date.now() - _gitBranchFetchedAt < GIT_CACHE_TTL) return
+  // Mark as fetched before the git calls so even a full failure (e.g. not a
+  // repo) doesn't cause repeated retries within the TTL window.
+  _gitBranchFetchedAt = Date.now()
+	  try {
+	    const res = await (window as any).electronAPI?.gitExec(rootPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+	    if (res?.success) {
+	      _cachedGitBranch = res.output.trim()
+	    }
+	  } catch { /* ignore */ }
   try {
     // Working-tree changes (porcelain v1, capped) so the model knows the
     // workspace state without running a command itself.
@@ -452,7 +462,7 @@ interface ChatState {
   setRunStatus: (runId: string, status: AgentRun['status'], patch?: Partial<AgentRun>) => void
   appendTrace: (sessionId: string, entry: AgentTraceEntry) => void
   setTraceStatus: (sessionId: string, toolCallId: string, status: AgentTraceEntry['status']) => void
-  finishAgentRun: (sessionId: string, runId: string, status: AgentRun['status'], extra?: { error?: string; tokensIn?: number; tokensOut?: number; requestCount?: number; cacheHits?: number; cacheTokensSaved?: number }) => void
+  finishAgentRun: (sessionId: string, runId: string, status: AgentRun['status'], extra?: { error?: string; tokensIn?: number; tokensOut?: number; requestCount?: number; cacheHits?: number; cacheTokensSaved?: number; cacheReadTokens?: number; cacheWriteTokens?: number }) => void
   approveBatchRun: (sessionId: string) => void
   decideBatchApproval: (decision: 'confirm' | 'all' | 'reject') => void
   allowToolPermanently: (toolName: string) => void
@@ -802,6 +812,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                       requestCount: extra?.requestCount ?? r.requestCount,
                       cacheHits: extra?.cacheHits ?? r.cacheHits,
                       cacheTokensSaved: extra?.cacheTokensSaved ?? r.cacheTokensSaved,
+                      cacheReadTokens: extra?.cacheReadTokens ?? r.cacheReadTokens,
+                      cacheWriteTokens: extra?.cacheWriteTokens ?? r.cacheWriteTokens,
                     }
                   : r
               ),
@@ -1811,10 +1823,15 @@ function makeLlmUsageEvent(opts: {
   error?: string
   /** Client-side cache hit — tokensIn/Out are 0; the saved amounts go in payload. */
   cacheHit?: { savedTokensIn: number; savedTokensOut: number } | null
+  /** Server-side prompt-cache tokens reported by the provider. */
+  cacheReadTokens?: number
+  cacheCreationTokens?: number
 }): UsageEvent {
   const payload = opts.cacheHit
     ? { cacheHit: true, savedTokensIn: opts.cacheHit.savedTokensIn, savedTokensOut: opts.cacheHit.savedTokensOut }
-    : undefined
+    : opts.cacheReadTokens || opts.cacheCreationTokens
+      ? { cacheReadTokens: opts.cacheReadTokens || 0, cacheCreationTokens: opts.cacheCreationTokens || 0 }
+      : undefined
   return {
     id: uuidv4(),
     category: 'llm',
@@ -1903,6 +1920,10 @@ async function runAgentLoop(
   let runRequestCount = 0
   let runCacheHits = 0
   let runCacheTokensSaved = 0
+  // Server-side prompt-cache tokens reported by the provider (Anthropic
+  // cache_read_input_tokens / DeepSeek prompt_cache_hit_tokens).
+  let runCacheReadTokens = 0
+  let runCacheWriteTokens = 0
 
   try {
     // Refresh dynamic tools (MCP servers + workspace skills) before building the tool list
@@ -2020,6 +2041,8 @@ async function runAgentLoop(
         runRequestCount = rec.requestCount || 0
         runCacheHits = rec.cacheHits || 0
         runCacheTokensSaved = rec.cacheTokensSaved || 0
+        runCacheReadTokens = rec.cacheReadTokens || 0
+        runCacheWriteTokens = rec.cacheWriteTokens || 0
       }
     }
   }
@@ -2071,6 +2094,8 @@ async function runAgentLoop(
       const reqStartedAt = Date.now()
       let reqTokensIn = 0
       let reqTokensOut = 0
+      let reqCacheRead = 0
+      let reqCacheWrite = 0
       let cacheHit: { savedTokensIn: number; savedTokensOut: number } | null = null
 
       try {
@@ -2106,6 +2131,8 @@ async function runAgentLoop(
           if (chunk.usage) {
             reqTokensIn = chunk.usage.promptTokens
             reqTokensOut = chunk.usage.completionTokens
+            reqCacheRead = chunk.usage.cacheReadTokens || 0
+            reqCacheWrite = chunk.usage.cacheCreationTokens || 0
           }
 
           // Client-side cache hit: the response was replayed locally, no API
@@ -2131,10 +2158,16 @@ async function runAgentLoop(
         tokensIn: cacheHit ? 0 : reqTokensIn,
         tokensOut: cacheHit ? 0 : reqTokensOut,
         cacheHit,
+        cacheReadTokens: reqCacheRead,
+        cacheCreationTokens: reqCacheWrite,
       }))
       // Cache hits billed nothing — only add the real tokens to the run total.
       runTokensIn += cacheHit ? 0 : reqTokensIn
       runTokensOut += cacheHit ? 0 : reqTokensOut
+      // Server-side prompt-cache tokens still count as input on the provider
+      // (billed at the cached-read rate) — accumulate them for the badge.
+      runCacheReadTokens += reqCacheRead
+      runCacheWriteTokens += reqCacheWrite
       // Count every LLM request (cache hits included) + accumulated cache savings.
       runRequestCount += 1
       if (cacheHit) {
@@ -2508,6 +2541,8 @@ async function runAgentLoop(
         requestCount: runRequestCount,
         cacheHits: runCacheHits,
         cacheTokensSaved: runCacheTokensSaved,
+        cacheReadTokens: runCacheReadTokens,
+        cacheWriteTokens: runCacheWriteTokens,
       })
     }
     // Clear ONLY this session's run state — parallel conversations keep their

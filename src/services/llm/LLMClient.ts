@@ -87,9 +87,10 @@ export async function* sendLLMRequest(
     }
   }
 
-  // Provider prompt-caching markers (Anthropic cache_control breakpoints) so
-  // repeated prefixes are billed at the cached read rate.
-  const reqWithCache = config.provider === 'anthropic' && anthropicPromptCacheEnabled()
+  // Provider prompt-caching markers (Anthropic cache_control breakpoints, DeepSeek
+  // auto-caches repeated prefixes server-side) so repeated prefixes are billed
+  // at the cached read rate.
+  const reqWithCache = (config.provider === 'anthropic' || config.provider === 'deepseek') && anthropicPromptCacheEnabled()
     ? { ...req, providerCache: true }
     : req
 

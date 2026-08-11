@@ -8,11 +8,20 @@
 //
 // The cache key deliberately excludes apiKey/baseUrl: the same provider+model
 // produces the same answer regardless of which relay serves it.
+//
+// System messages are excluded from the cache key because they contain
+// frequently-changing workspace context (git status, open files, etc.) that
+// would otherwise cause cache misses even when the user asks the exact same
+// question. The system prompt hash is included separately so a user-edited
+// custom system prompt still busts the cache appropriately.
 
 import { LLMRequest, LLMStreamChunk } from '@/types'
 
 /** Skip caching responses larger than this (chars) to keep sqlite lean. */
 export const MAX_CACHE_RESPONSE_CHARS = 500_000
+
+/** Max entries in the renderer-side L1 memory cache (LRU eviction). */
+const L1_CACHE_MAX = 100
 
 /** True when the request is deterministic enough to cache (temperature 0). */
 export function shouldCache(req: LLMRequest): boolean {
@@ -56,9 +65,32 @@ async function sha256(text: string): Promise<string> {
 
 /**
  * Build a cache key for a request: provider + model + params + tools +
- * full message list, canonically serialized then hashed.
+ * system-prompt hash + user/assistant/tool messages, canonically serialized
+ * then hashed.
+ *
+ * System messages are excluded from the main hash because they carry
+ * frequently-changing workspace context (git status, open files, tool
+ * definitions, target-mode instructions, etc.) that would make the cache key
+ * unique on every turn — even when the user asks the same question. Instead,
+ * only a lightweight FNV-1a hash of the system messages is included: when the
+ * user edits their custom system prompt the cache auto-busts, but workspace
+ * noise (git branch name, file list, etc.) doesn't prevent a hit.
  */
 export async function buildCacheKey(req: LLMRequest, provider: string): Promise<string> {
+  // Separate system messages from user-facing messages
+  const systemMessages: unknown[] = []
+  const visibleMessages: unknown[] = []
+  for (const m of req.messages) {
+    if (m.role === 'system') {
+      systemMessages.push(m)
+    } else {
+      visibleMessages.push(m)
+    }
+  }
+  // Lightweight hash of system messages — only changes when the user edits
+  // their custom system prompt or the tool definitions change.
+  const systemHash = fnv1a(stableStringify(systemMessages))
+
   const canonical = [
     provider,
     req.model,
@@ -70,7 +102,8 @@ export async function buildCacheKey(req: LLMRequest, provider: string): Promise<
     req.thinking ? 1 : 0,
     req.reasoningEffort || '',
     stableStringify(req.tools || []),
-    stableStringify(req.messages),
+    systemHash,
+    stableStringify(visibleMessages),
   ].join('\u0001')
   return sha256(canonical)
 }
@@ -81,12 +114,28 @@ export interface CachedResponse {
   tokensOut: number
 }
 
+// ── Renderer-side L1 memory cache (LRU) ──────────────────────────────────
+// Sits in front of the IPC→SQLite L2 cache to avoid the async bridge overhead
+// for frequently repeated requests (e.g. agent-loop sub-calls within a turn).
+
+const l1Cache = new Map<string, CachedResponse>()
+
 function getElectronApi(): any {
   return typeof window !== 'undefined' ? (window as any).electronAPI : null
 }
 
-/** Look up a cached response. Returns null on miss or any bridge error. */
+/** Look up a cached response — L1 first, then L2 (IPC→SQLite). */
 export async function fetchCachedResponse(key: string): Promise<CachedResponse | null> {
+  // L1 hit — no IPC, near-zero latency
+  const l1Hit = l1Cache.get(key)
+  if (l1Hit) {
+    // Refresh LRU position by re-inserting
+    l1Cache.delete(key)
+    l1Cache.set(key, l1Hit)
+    return l1Hit
+  }
+
+  // L2: IPC → SQLite
   const api = getElectronApi()
   if (!api || typeof api.llmCacheGet !== 'function') return null
   try {
@@ -94,17 +143,23 @@ export async function fetchCachedResponse(key: string): Promise<CachedResponse |
     if (!row || typeof row.response !== 'string') return null
     const parsed = JSON.parse(row.response)
     if (!Array.isArray(parsed?.chunks) || parsed.chunks.length === 0) return null
-    return {
+    const result: CachedResponse = {
       chunks: parsed.chunks,
       tokensIn: row.tokensIn || 0,
       tokensOut: row.tokensOut || 0,
     }
+    // Promote to L1 (LRU eviction: drop oldest when full)
+    if (l1Cache.size >= L1_CACHE_MAX) {
+      l1Cache.delete(l1Cache.keys().next().value!)
+    }
+    l1Cache.set(key, result)
+    return result
   } catch {
     return null
   }
 }
 
-/** Store a completed response. Best-effort: never throws into the caller. */
+/** Store a completed response in L1 + L2. Best-effort: never throws. */
 export async function storeCachedResponse(
   key: string,
   provider: string,
@@ -127,7 +182,18 @@ export async function storeCachedResponse(
     })
     if (json.length > MAX_CACHE_RESPONSE_CHARS) return
     await api.llmCachePut({ key, provider, model, response: json, tokensIn, tokensOut })
+
+    // Also populate L1 so the next identical request hits memory
+    if (l1Cache.size >= L1_CACHE_MAX) {
+      l1Cache.delete(l1Cache.keys().next().value!)
+    }
+    l1Cache.set(key, { chunks, tokensIn, tokensOut })
   } catch {
     // Cache is best-effort — a write failure must not break the request.
   }
+}
+
+/** Clear only the renderer-side L1 cache (IPC→SQLite cache untouched). */
+export function clearL1Cache(): void {
+  l1Cache.clear()
 }

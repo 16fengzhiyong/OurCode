@@ -1,5 +1,6 @@
 import { LLMRequest, LLMStreamChunk, ApiConfigGroup, LLMToolCall } from '@/types'
 import { LLMAdapter } from '../types'
+import { mapOpenAiUsage } from '../usage'
 import { llmFetch } from '../http'
 import { buildChatUrl, buildModelsUrl } from '../endpoints'
 
@@ -17,7 +18,7 @@ export class DeepSeekAdapter implements LLMAdapter {
       ...config.customHeaders,
     }
 
-    const body = {
+    const body: Record<string, any> = {
       model: req.model,
       messages: req.messages.map((m: { role: string; content: string; toolCalls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>; toolCallId?: string }) => {
         const msg: Record<string, any> = { role: m.role, content: m.content }
@@ -125,10 +126,7 @@ export class DeepSeekAdapter implements LLMAdapter {
                 yield {
                   content: '',
                   done: false,
-                  usage: {
-                    promptTokens: json.usage.prompt_tokens,
-                    completionTokens: json.usage.completion_tokens,
-                  },
+                  usage: mapOpenAiUsage(json.usage),
                 }
               }
             } catch {
@@ -150,9 +148,7 @@ export class DeepSeekAdapter implements LLMAdapter {
         content,
         thinking: thinking || undefined,
         done: true,
-        usage: json.usage
-          ? { promptTokens: json.usage.prompt_tokens, completionTokens: json.usage.completion_tokens }
-          : undefined,
+        usage: mapOpenAiUsage(json.usage),
       }
     }
   }

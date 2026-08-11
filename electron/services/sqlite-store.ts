@@ -126,6 +126,14 @@ export class SQLiteStore {
     if (!memColumns.some((c: any) => c.name === 'project_path')) {
       this.db.exec("ALTER TABLE memories ADD COLUMN project_path TEXT DEFAULT ''")
     }
+    // Add last_accessed_at column to llm_response_cache if missing (LRU eviction)
+    const cacheColumns = this.db.prepare("PRAGMA table_info(llm_response_cache)").all() as any[]
+    if (!cacheColumns.some((c: any) => c.name === 'last_accessed_at')) {
+      this.db.exec("ALTER TABLE llm_response_cache ADD COLUMN last_accessed_at INTEGER DEFAULT 0")
+      // Populate existing rows with created_at so they have a usable access time
+      this.db.exec("UPDATE llm_response_cache SET last_accessed_at = created_at WHERE last_accessed_at = 0")
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_cache_last_accessed ON llm_response_cache(last_accessed_at)")
+    }
   }
 
   private initTables(): void {
@@ -228,6 +236,7 @@ export class SQLiteStore {
         tokens_in INTEGER DEFAULT 0,
         tokens_out INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL,
+        last_accessed_at INTEGER DEFAULT 0,
         hits INTEGER DEFAULT 1
       );
 
@@ -237,6 +246,7 @@ export class SQLiteStore {
       CREATE INDEX IF NOT EXISTS idx_usage_category_time ON usage_events(category, started_at);
       CREATE INDEX IF NOT EXISTS idx_usage_name ON usage_events(name);
       CREATE INDEX IF NOT EXISTS idx_cache_created ON llm_response_cache(created_at);
+      CREATE INDEX IF NOT EXISTS idx_cache_last_accessed ON llm_response_cache(last_accessed_at);
     `)
   }
 
@@ -757,7 +767,7 @@ export class SQLiteStore {
   }
 
   // ───────────────────── LLM response cache ─────────────────────
-  /** Max entries kept in the cache; the oldest are pruned on insert beyond this. */
+  /** Max entries kept in the cache; the least-recently-accessed are evicted on insert beyond this. */
   private static readonly CACHE_MAX_ENTRIES = 5000
 
   getResponseCache(key: string): { response: string; tokensIn: number; tokensOut: number } | null {
@@ -765,7 +775,7 @@ export class SQLiteStore {
       'SELECT response, tokens_in, tokens_out FROM llm_response_cache WHERE key = ?'
     ).get(key) as any
     if (!row) return null
-    this.db.prepare('UPDATE llm_response_cache SET hits = hits + 1 WHERE key = ?').run(key)
+    this.db.prepare('UPDATE llm_response_cache SET hits = hits + 1, last_accessed_at = ? WHERE key = ?').run(Date.now(), key)
     return {
       response: row.response,
       tokensIn: row.tokens_in || 0,
@@ -773,23 +783,25 @@ export class SQLiteStore {
     }
   }
 
-  /** Insert (or refresh) a cache entry; prune the oldest when over capacity. */
+  /** Insert (or refresh) a cache entry; evict the least-recently-accessed when over capacity. */
   putResponseCache(key: string, provider: string, model: string, response: string, tokensIn: number, tokensOut: number): void {
+    const now = Date.now()
     this.db.prepare(`
-      INSERT INTO llm_response_cache (key, provider, model, response, tokens_in, tokens_out, created_at, hits)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO llm_response_cache (key, provider, model, response, tokens_in, tokens_out, created_at, last_accessed_at, hits)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
       ON CONFLICT(key) DO UPDATE SET
         response = excluded.response,
         tokens_in = excluded.tokens_in,
         tokens_out = excluded.tokens_out,
-        created_at = excluded.created_at
-    `).run(key, provider, model, response, tokensIn, tokensOut, Date.now())
+        created_at = excluded.created_at,
+        last_accessed_at = excluded.last_accessed_at
+    `).run(key, provider, model, response, tokensIn, tokensOut, now, now)
 
     const count = (this.db.prepare('SELECT COUNT(*) AS c FROM llm_response_cache').get() as any).c as number
     if (count > SQLiteStore.CACHE_MAX_ENTRIES) {
       const excess = count - SQLiteStore.CACHE_MAX_ENTRIES
       this.db.prepare(
-        'DELETE FROM llm_response_cache WHERE key IN (SELECT key FROM llm_response_cache ORDER BY created_at ASC LIMIT ?)'
+        'DELETE FROM llm_response_cache WHERE key IN (SELECT key FROM llm_response_cache ORDER BY last_accessed_at ASC LIMIT ?)'
       ).run(excess)
     }
   }

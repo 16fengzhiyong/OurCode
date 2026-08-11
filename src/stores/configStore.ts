@@ -38,6 +38,7 @@ const TEST_TIMEOUT_MS = 15_000
 /** localStorage keys for cross-restart state restoration */
 const LAST_GROUP_KEY = 'lastActiveConfigGroupId'
 const LAST_MODEL_KEY = 'lastModelByGroup'
+const MODELS_CACHE_KEY = 'modelsCache_v1'
 
 /** Last model selected for a config group (restored when creating a new session). */
 export function getLastModelForGroup(groupId: string): string {
@@ -143,6 +144,34 @@ export interface ConfigState {
   resetStore: () => void
 }
 
+/** Persist & restore models cache so restarts avoid a full model-list API call. */
+function loadModelsCache(): Record<string, { models: string[]; timestamp: number }> {
+  try {
+    const raw = localStorage.getItem(MODELS_CACHE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    // Basic shape guard — skip entirely malformed payloads
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    // Filter out individual corrupted entries instead of discarding everything
+    const clean: Record<string, { models: string[]; timestamp: number }> = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      const entry = value as any
+      if (Array.isArray(entry?.models) && typeof entry?.timestamp === 'number') {
+        clean[key] = entry
+      }
+    }
+    return clean
+  } catch {
+    return {}
+  }
+}
+
+function saveModelsCache(cache: Record<string, { models: string[]; timestamp: number }>): void {
+  try {
+    localStorage.setItem(MODELS_CACHE_KEY, JSON.stringify(cache))
+  } catch { /* ignore */ }
+}
+
 export const useConfigStore = create<ConfigState>((set, get) => ({
   configGroups: [],
   activeConfigGroupId: null,
@@ -150,7 +179,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
   isLoadingModels: false,
   modelParams: DEFAULT_MODEL_PARAMS,
   favoriteModelIds: JSON.parse(localStorage.getItem('favoriteModelIds') || '[]'),
-  modelsCache: {},
+  modelsCache: loadModelsCache(),
   modelsError: null,
   customModels: JSON.parse(localStorage.getItem('customModels') || '[]'),
 
@@ -265,12 +294,14 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
       const merged = mergeWithCustom(modelIds, group.provider)
 
       // Update cache
-      set((s) => ({
+      const updatedCache = { ...get().modelsCache, [groupId!]: { models: modelIds, timestamp: Date.now() } }
+      saveModelsCache(updatedCache)
+      set({
         models: merged,
         isLoadingModels: false,
         modelsError: null,
-        modelsCache: { ...s.modelsCache, [groupId!]: { models: modelIds, timestamp: Date.now() } },
-      }))
+        modelsCache: updatedCache,
+      })
     } catch (error: any) {
       console.error('获取模型列表失败:', error)
       set({ isLoadingModels: false, modelsError: error.message || '获取模型列表失败' })
@@ -399,6 +430,7 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     localStorage.removeItem('customModels')
     localStorage.removeItem(LAST_GROUP_KEY)
     localStorage.removeItem(LAST_MODEL_KEY)
+    localStorage.removeItem(MODELS_CACHE_KEY)
     set({
       configGroups: [],
       activeConfigGroupId: null,
