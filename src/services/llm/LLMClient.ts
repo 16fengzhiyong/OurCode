@@ -9,7 +9,7 @@ import { DeepSeekAdapter } from './adapters/DeepSeekAdapter'
 import { GroqAdapter } from './adapters/GroqAdapter'
 import { buildCacheKey, fetchCachedResponse, shouldCache, storeCachedResponse, CachedResponse } from './responseCache'
 
-const REQUEST_TIMEOUT_MS = 120_000
+const REQUEST_TIMEOUT_MS = 600_000 // 10 min idle (no-data) timeout for LLM streams
 
 const openaiAdapter = new OpenAIAdapter()
 
@@ -95,7 +95,15 @@ export async function* sendLLMRequest(
     : req
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  // IDLE timeout, not a wall-clock deadline: long reasoning streams (DeepSeek
+  // reasoner etc.) legitimately run past 120s as long as chunks keep arriving.
+  // The timer is re-armed on every chunk, so only a connection that goes silent
+  // for `timeoutMs` gets aborted.
+  let timer = setTimeout(() => controller.abort(), timeoutMs)
+  const armTimeout = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => controller.abort(), timeoutMs)
+  }
 
   const chunks: LLMStreamChunk[] = []
   let completed = false
@@ -104,6 +112,7 @@ export async function* sendLLMRequest(
 
   try {
     for await (const chunk of adapter.sendRequest(reqWithCache, safeConfig, controller.signal)) {
+      armTimeout() // any data (or the final [DONE] chunk) extends the deadline
       if (chunk.usage) {
         tokensIn = chunk.usage.promptTokens || 0
         tokensOut = chunk.usage.completionTokens || 0
@@ -126,7 +135,7 @@ export async function* sendLLMRequest(
     // Abort the underlying HTTP request unconditionally. A consumer that stops
     // early (stop generation / abort) breaks out of the for-await — without
     // this the main-process fetch keeps downloading the rest of the body and
-    // the renderer keeps buffering chunks for up to the 120s timeout.
+    // the renderer keeps buffering chunks until the idle timeout fires.
     controller.abort()
     // Persist only on a completed (non-aborted, non-failed) response.
     if (cacheKey && completed) {

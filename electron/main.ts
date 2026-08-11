@@ -951,7 +951,11 @@ function registerIpcHandlers(): void {
 
     const controller = new AbortController()
     llmControllers.set(req.id, controller)
-    const timer = setTimeout(() => controller.abort(), req.timeoutMs || 30_000)
+    // IDLE timeout, re-armed on every streamed chunk below: a long reasoning
+    // stream must never be killed by a wall-clock deadline while data is still
+    // flowing. Only a connection silent for timeoutMs gets aborted. Non-stream
+    // requests keep the total-duration semantics (no chunks to reset on).
+    let timer = setTimeout(() => controller.abort(), req.timeoutMs || 30_000)
 
     const headers: Record<string, string> = { ...req.headers }
     // Case-insensitive check: the renderer usually sends 'Content-Type' already;
@@ -1001,9 +1005,16 @@ function registerIpcHandlers(): void {
       }
 
       const reader = res.body.getReader()
+      const armTimeout = () => {
+        clearTimeout(timer)
+        timer = setTimeout(() => controller.abort(), req.timeoutMs || 30_000)
+      }
       try {
         for (;;) {
           const { done, value } = await reader.read()
+          // Any byte (or EOF) extends the deadline — an actively streaming
+          // response is never cut off at 120s while data keeps arriving.
+          armTimeout()
           if (done) break
           if (event.sender.isDestroyed()) break
           event.sender.send('llm:httpChunk', { id: req.id, data: Buffer.from(value).toString('base64') })
@@ -1396,6 +1407,9 @@ app.whenReady().then(() => {
   // Create them so first-run (and the fs:listDir bridge) doesn't hit ENOENT.
   mkdirSync(join(userDataPath, 'skills'), { recursive: true })
   mkdirSync(join(userDataPath, 'agents'), { recursive: true })
+  // The userData root itself: global skills config (skills.json) and other
+  // app-owned data live directly under userData — grant the whole dir.
+  registerRoot(userDataPath)
   registerRoot(join(userDataPath, 'skills'))
   registerRoot(join(userDataPath, 'agents'))
   fileSystem = new FileSystemService()

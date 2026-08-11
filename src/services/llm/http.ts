@@ -58,7 +58,9 @@ export function friendlyNetworkError(message: string): string {
   return message
 }
 
-const DEFAULT_TIMEOUT_MS = 120_000
+// Sent to the main process as the per-request timeout; for streaming requests
+// the main process treats it as an idle (no-data) timeout, re-armed per chunk.
+const DEFAULT_TIMEOUT_MS = 600_000 // 10 min
 
 let idCounter = 0
 function nextRequestId(): string {
