@@ -205,7 +205,7 @@ export async function loadWorkspaceKnowledge(rootPath: string): Promise<string> 
     for (const f of rulesFiles) {
       try {
         const s = await stat(joinPath(rootPath, f))
-        if (s.modifiedAt > newest) newest = s.modifiedAt
+        if (s && s.modifiedAt > newest) newest = s.modifiedAt
       } catch { /* missing */ }
     }
     // Skill mtimes come from the shared SkillManager cache (used by the
@@ -256,6 +256,12 @@ export async function loadIgnorePatterns(rootPath: string): Promise<void> {
     const { stat } = window.electronAPI
     const ignorePath = joinPath(rootPath, '.ourcodeignore')
     const s = await stat(ignorePath)
+    // Missing .ourcodeignore — no patterns for this root (fs:stat resolves
+    // with null for missing files instead of rejecting).
+    if (!s) {
+      ignoreCache = { root: rootPath, mtime: 0, patterns: [] }
+      return
+    }
     // Re-validate the mtime even for the SAME root — the old code returned
     // early on `rootPath === ignoreCache.root`, which made the mtime check
     // below it dead code: editing .ourcodeignore never refreshed the rules.

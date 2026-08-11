@@ -249,8 +249,8 @@ export class PluginManager {
         exists: async (path: string) => {
           if (!hasPerm('file.read')) return false
           try {
-            await window.electronAPI.stat(path)
-            return true
+            // Missing file resolves with null (fs:stat is ENOENT-safe)
+            return (await window.electronAPI.stat(path)) !== null
           } catch {
             return false
           }

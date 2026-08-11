@@ -263,6 +263,14 @@ async function cachedDiscover(
  */
 export async function listSkills(force = false, rootOverride?: string, includeDisabled = false): Promise<SkillInfo[]> {
   const root = rootOverride ?? getWorkspaceRoot()
+  // A session's projectPath can point at a folder that isn't the currently
+  // opened project (background/restored sessions) — its skill dirs would then
+  // be rejected by the main-process allowlist on every fs:listDir/fs:stat and
+  // log errors. Authorize it up front like listAllSkills does (a no-op when
+  // already registered).
+  if (root) {
+    try { await window.electronAPI?.authorize?.(root) } catch { /* keep scanning global only */ }
+  }
   const globalRoot = await getGlobalRoot()
   const global = globalRoot ? joinPath(globalRoot, 'skills') : ''
   const dirs: SkillDir[] = []

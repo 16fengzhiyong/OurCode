@@ -363,7 +363,15 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('fs:stat', async (_event, path: string) => {
     assertPathAllowed(path)
-    return fileSystem.stat(path)
+    try {
+      return await fileSystem.stat(path)
+    } catch (error) {
+      // A missing file is a normal probe result (e.g. <userData>/skills.json
+      // before any global skill config exists, or rules.json probes) — resolve
+      // with null instead of rejecting, which would log an error per probe.
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return null
+      throw error
+    }
   })
 
   ipcMain.handle('fs:watch', async (_event, path: string) => {
