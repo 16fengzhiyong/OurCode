@@ -76,6 +76,12 @@
       "dist",
       "build"
     ],
+    "extraResources": [
+      {
+        "from": "mcp-servers",
+        "to": "mcp-servers"
+      }
+    ],
     "win": {
       "target": [
         "nsis",

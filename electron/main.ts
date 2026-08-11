@@ -1401,7 +1401,13 @@ app.whenReady().then(() => {
   fileSystem = new FileSystemService()
   store = new SQLiteStore(userDataPath)
   backup = new BackupService(join(userDataPath, 'backups'))
-  mcp = new MCPManager()
+  // Bundled MCP servers (e.g. the git-server) ship inside the package via
+  // extraResources → <resources>/mcp-servers (outside app.asar, so a plain
+  // Node child can read them); in dev they live in the repo root.
+  const bundledMcpDir = app.isPackaged
+    ? join(process.resourcesPath, 'mcp-servers')
+    : join(app.getAppPath(), 'mcp-servers')
+  mcp = new MCPManager({ bundledNodeDir: bundledMcpDir })
 
   // Per-group TLS bypass for intranet / self-signed certificates
   refreshTlsSkippedHosts()

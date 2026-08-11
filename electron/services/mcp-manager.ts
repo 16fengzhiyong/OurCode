@@ -23,10 +23,16 @@
  * Security: servers are user-configured, so their tool calls are trusted.
  * stdio servers are spawned without a shell (array args); HTTP is restricted
  * to http/https and both transports cap response sizes.
+ *
+ * Bundled stdio servers (no system Node required): a config entry may use the
+ * command "bundled-node" to run with Electron's own Node runtime
+ * (process.execPath + ELECTRON_RUN_AS_NODE=1), and args starting with
+ * "bundled:" resolve to the app's bundled mcp-servers directory (packaged:
+ * <resources>/mcp-servers, dev: <project>/mcp-servers). See resolveStdio().
  */
 import { spawn, ChildProcess } from 'child_process'
 import { existsSync, readFileSync } from 'fs'
-import { join } from 'path'
+import { join, relative } from 'path'
 import { EventEmitter } from 'events'
 import { request as httpRequest, ClientRequest, IncomingMessage } from 'http'
 import { request as httpsRequest } from 'https'
@@ -69,6 +75,12 @@ export interface McpPromptInfo {
 export interface MCPManagerOptions {
   requestTimeoutMs?: number
   restart?: { maxRetries?: number; baseDelayMs?: number }
+  /**
+   * Absolute path to the app's bundled `mcp-servers` directory. Enables the
+   * "bundled-node" command and "bundled:" arg prefix for stdio servers — lets
+   * dependency-free MCP servers run on Electron's own Node (no system Node).
+   */
+  bundledNodeDir?: string
 }
 
 interface ServerConnection {
@@ -376,6 +388,46 @@ export class MCPManager extends EventEmitter {
     return { ...DEFAULT_RESTART, ...(this.options.restart || {}) }
   }
 
+  private get bundledNodeDir(): string | undefined {
+    return this.options.bundledNodeDir
+  }
+
+  /**
+   * Resolve "bundled" stdio configs so MCP servers can run on Electron's own
+   * Node runtime instead of a system-installed Node:
+   *  - command "bundled-node"  → process.execPath + ELECTRON_RUN_AS_NODE=1
+   *  - args starting "bundled:" → absolute path under the bundled mcp-servers
+   *    dir (guarded so the resolved path cannot escape it)
+   */
+  private resolveStdio(server: McpServerConfig): { command: string; args: string[]; env: Record<string, string> } {
+    let { command = '', args = [], env = {} } = server
+    const usesBundledNode = command === 'bundled-node'
+    const usesBundledPath = args.some((arg) => arg.startsWith('bundled:'))
+    if ((usesBundledNode || usesBundledPath) && !this.bundledNodeDir) {
+      throw new Error(`MCP 服务器 "${command}" 使用内置运行时（bundled-node / bundled:），但应用未配置内置 mcp-servers 目录`)
+    }
+    if (usesBundledNode) {
+      command = process.execPath
+      env = { ...env, ELECTRON_RUN_AS_NODE: '1' }
+    }
+    args = args.map((arg) => {
+      if (!arg.startsWith('bundled:')) return arg
+      const rel = arg.slice('bundled:'.length)
+      if (!rel) throw new Error('MCP 服务器参数 "bundled:" 后缺少相对路径')
+      const resolved = join(this.bundledNodeDir!, rel)
+      // The first relative path segment must not be ".." — the resolved path
+      // may not escape the bundled mcp-servers dir. (Comparing only the first
+      // segment, not startsWith('..'), so a filename that legitimately begins
+      // with "..", e.g. "..foo.js", stays allowed.)
+      const firstSegment = relative(this.bundledNodeDir!, resolved).split(/[\\/]/)[0]
+      if (firstSegment === '..') {
+        throw new Error(`MCP 服务器参数 "bundled:" 路径越界: ${rel}`)
+      }
+      return resolved
+    })
+    return { command, args, env }
+  }
+
   /** Load + connect servers from <root>/mcp_config.json */
   async loadConfig(rootPath: string): Promise<void> {
     this.rootPath = rootPath
@@ -434,7 +486,8 @@ export class MCPManager extends EventEmitter {
     }
     let conn: ServerConnection | null = null
     try {
-      const transport = new StdioTransport(name, server.command, server.args || [], server.env || {}, this.rootPath)
+      const { command, args, env } = this.resolveStdio(server)
+      const transport = new StdioTransport(name, command, args, env, this.rootPath)
       conn = this.connectTransport(name, transport, retry)
       this.initialize(name, conn, retry).catch((error) => {
         this.emitError(new Error(`MCP 服务器 "${name}" 初始化失败: ${error.message}`))

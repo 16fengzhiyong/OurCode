@@ -8,6 +8,8 @@ import { useState, useEffect, useCallback } from 'react'
  *   { "mcpServers": { name: { command?, args?, env?, serverUrl?, headers?, disabled?, skipTlsVerify? } } }
  * Supports the two transports used by the manager: stdio (command+args+env)
  * and HTTP (serverUrl+headers; skipTlsVerify for intranet self-signed certs).
+ * Stdio servers can run on the IDE's bundled Node (no system Node): command
+ * "bundled-node" + args prefixed "bundled:" (see "内置 Git 服务器" button).
  */
 
 interface McpServerDraft {
@@ -95,6 +97,27 @@ export default function McpConfigSection({ rootPath }: { rootPath: string | null
 
   const updateServer = (index: number, patch: Partial<McpServerDraft>) => {
     setServers((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)))
+  }
+
+  // Quick-add the bundled git MCP server: it runs on the IDE's own Node
+  // (command "bundled-node", args "bundled:..."), so no system Node needed.
+  // If a "git" entry already exists, replace it instead of duplicating it.
+  const addBundledGitServer = () => {
+    const bundled: McpServerDraft = {
+      name: 'git',
+      enabled: true,
+      type: 'stdio',
+      command: 'bundled-node',
+      argsText: 'bundled:git-server/server.js',
+      envText: 'GIT_PAGER=cat',
+      url: '',
+      headersText: '',
+      skipTlsVerify: false,
+    }
+    setServers((prev) => {
+      const idx = prev.findIndex((s) => s.name === 'git')
+      return idx !== -1 ? prev.map((s, i) => (i === idx ? bundled : s)) : [...prev, bundled]
+    })
   }
 
   const saveConfig = async () => {
@@ -240,7 +263,7 @@ export default function McpConfigSection({ rootPath }: { rootPath: string | null
                   <input
                     value={s.command}
                     onChange={(e) => updateServer(i, { command: e.target.value })}
-                    placeholder="例如：node、npx"
+                    placeholder="例如：node、npx；内置 Git 用 bundled-node（免装 Node）"
                     className={`${inputCls} font-mono`}
                   />
                 </div>
@@ -301,6 +324,17 @@ export default function McpConfigSection({ rootPath }: { rootPath: string | null
           </div>
         ))}
 
+        <button
+          onClick={addBundledGitServer}
+          className="self-start inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-nova-text-secondary border border-nova-border hover:border-nova-accent/40 rounded-full transition-colors"
+          title="添加内置 Git MCP 服务器（使用 IDE 自带 Node 运行，无需安装 Node）"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+            <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+          </svg>
+          内置 Git 服务器
+        </button>
         <button
           onClick={() => setServers((prev) => [...prev, emptyServer()])}
           className="self-start inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 rounded-full transition-colors"

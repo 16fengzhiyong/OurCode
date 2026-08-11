@@ -30,6 +30,7 @@ OurCode IDE is a desktop code editor built with Electron that brings an AI assis
 - **Subagents** — Built-in `code-reviewer`, `test-generator`, and `researcher` agents (customizable via `.ourcode/agents/*.md`) run delegated subtasks with monotonically-decreasing permissions, iteration/token budgets, and checkpoint rollback.
 - **Skills** — Claude-Code-style `SKILL.md` discovery: skills in your workspace or user directory are exposed as read-only tools, and more can be installed from a skill registry.
 - **MCP support** — Connect MCP servers over stdio or HTTP (streamable) to extend the assistant with external tools, resources, and prompts, with automatic reconnection.
+- **Bundled Git MCP (no Node required)** — The bundled git-server MCP runs on the IDE's own Node runtime (configure with `bundled-node` command and `bundled:` args; one-click add in Settings), so AI can inspect repo status, generate commit messages, commit and push even on machines without Node — only the `git` CLI needs to be installed.
 
 ### 📝 Code Editor & Workspace
 
