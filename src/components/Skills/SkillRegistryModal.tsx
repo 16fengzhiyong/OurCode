@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useUIStore } from '@/stores/uiStore'
+import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
 import { listSkills, getWorkspaceRoot, type SkillInfo } from '@/services/skills/skillManager'
 import {
@@ -61,7 +62,10 @@ export default function SkillRegistryModal() {
 
   useEffect(() => {
     if (!isSkillRegistryOpen) return
-    const workspace = getWorkspaceRoot()
+    // The workspace follows the current project (= the active session's bound
+    // project) — the browsed folder only matters when no session exists yet.
+    const activeProject = useChatStore.getState().getActiveSession()?.projectPath
+    const workspace = activeProject || getWorkspaceRoot()
     setRoot(workspace)
     if (!workspace) return
     reloadLocal(workspace)

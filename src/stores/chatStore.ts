@@ -150,16 +150,27 @@ export function stopGitBranchPolling(): void {
   }
 }
 
+/** The "current project" follows the ACTIVE SESSION — the project the active
+ *  conversation is bound to (captured at creation). Opening a folder or
+ *  entering a project in the sidebar file tree only browses it; only a session
+ *  makes a project current (creating a conversation in it, or activating one
+ *  that belongs to it). */
+export function getCurrentProjectPath(): string | null {
+  return useChatStore.getState().getActiveSession()?.projectPath ?? null
+}
+
 function getWorkspaceRoot(): string {
-  // The file tree only mounts in tree view — fall back to the currently
-  // selected project so agent mode keeps working when the sidebar is on the
-  // project list (or hidden) without a mounted tree.
-  return document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
+  // The workspace follows the current project (= the active session's bound
+  // project), NOT whichever folder is being browsed in the sidebar file tree.
+  // The tree only mounts in tree view — fall back to the browsed folder so
+  // agent mode keeps working when the sidebar is on the project list (or
+  // hidden) without a mounted tree.
+  return getCurrentProjectPath() || document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
 }
 
 /** Build enhanced system prompt with workspace context */
-function buildEnhancedSystemPrompt(basePrompt: string): string {
-  const rootPath = getWorkspaceRoot()
+function buildEnhancedSystemPrompt(basePrompt: string, projectPath?: string): string {
+  const rootPath = projectPath || getWorkspaceRoot()
   const editorState = useEditorStore.getState()
   const activeFile = editorState.openFiles.find((f) => f.path === editorState.activeFilePath)
 
@@ -193,8 +204,8 @@ function buildEnhancedSystemPrompt(basePrompt: string): string {
 /** Per-turn environment block (dynamic: date + git branch + working-tree
  *  state) — kept OUT of the stable system prompt so the prompt prefix stays
  *  byte-identical across turns and provider prefix caches keep hitting. */
-function buildEnvironmentBlock(): string {
-  const rootPath = getWorkspaceRoot()
+function buildEnvironmentBlock(projectPath?: string): string {
+  const rootPath = projectPath || getWorkspaceRoot()
   let block = `\n\n<environment>
 工作区路径: ${rootPath}
 平台: ${navigator.platform}
@@ -264,17 +275,22 @@ async function buildSystemPrompt(
   basePrompt: string,
   userContent: string,
   contextFiles: string[],
+  projectPath?: string,
 ): Promise<{ stable: string; dynamic: string }> {
-  let stable = buildEnhancedSystemPrompt(basePrompt)
+  // The prompt's workspace context is always the SESSION's own project — never
+  // the folder being browsed in the sidebar file tree (background sessions run
+  // while the user browses another project; the "current project" follows the
+  // active conversation, not the file tree).
+  let stable = buildEnhancedSystemPrompt(basePrompt, projectPath)
   stable += BEHAVIOR_GUIDELINES
 
   // Workspace rules + skills (.ourcoderules, .claude/skills, .ourcode/skills)
   // mtime-cached, so in practice stable per workspace.
-  stable += await loadWorkspaceKnowledge(getWorkspaceRoot())
+  stable += await loadWorkspaceKnowledge(projectPath || getWorkspaceRoot())
 
   // ── Per-turn dynamic context (moved out of the system prompt) ──
   let dynamic = ''
-  dynamic += buildEnvironmentBlock()
+  dynamic += buildEnvironmentBlock(projectPath)
   dynamic += buildOpenFilesBlock()
   dynamic += buildCurrentFileBlock()
   // Current editor selection (Vibe-and-Replace style selected-text context)
@@ -283,7 +299,7 @@ async function buildSystemPrompt(
   dynamic += await buildMemoriesBlock(userContent)
   // Auto-retrieved relevant files
   const activeFile = useEditorStore.getState().openFiles.find((f) => f.path === useEditorStore.getState().activeFilePath)
-  dynamic += await retrieveRelevantContext(userContent, contextFiles, getWorkspaceRoot(), activeFile?.path)
+  dynamic += await retrieveRelevantContext(userContent, contextFiles, projectPath || getWorkspaceRoot(), activeFile?.path)
 
   return { stable, dynamic }
 }
@@ -990,8 +1006,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // The project binding is captured at creation so the session shows up under
     // its project in the left sidebar. Callers may pass an explicit project
     // (e.g. the "新建对话" button on a project list item) — otherwise fall back
-    // to the currently open workspace.
-    const rootPath = projectPath || document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
+    // to the current project (the active session's project, since the current
+    // project follows the conversation), then the folder being browsed.
+    const rootPath = projectPath || getCurrentProjectPath() || document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
     const session: ChatSession = {
       id,
       title: DEFAULT_SESSION_TITLE,
@@ -1893,6 +1910,7 @@ async function runAgentLoop(
   // turns instead of re-billing the whole history every time.
   const { stable, dynamic } = await buildSystemPrompt(
     baseSystemPrompt, userContent, lastUserMessage?.contextFiles || [],
+    session.projectPath,
   )
   let stableSystemPrompt = stable
   let dynamicContext = dynamic

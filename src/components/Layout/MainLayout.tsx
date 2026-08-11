@@ -23,6 +23,7 @@ import { useRecentFilesStore } from '@/stores/recentFilesStore'
 import { useDebugStore } from '@/stores/debugStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useChatStore } from '@/stores/chatStore'
 import { useShortcutStore, matchesShortcut } from '@/stores/shortcutStore'
 import { executeCommand } from '@/services/commands/commandRegistry'
 
@@ -42,6 +43,10 @@ export default function MainLayout() {
   const isDebugOpen = useDebugStore((s) => s.isOpen)
   const isMemoryManagerOpen = useUIStore((s) => s.isMemoryManagerOpen)
   const closeMemoryManager = useUIStore((s) => s.closeMemoryManager)
+  // The "current project" follows the ACTIVE SESSION — memory scoping (and the
+  // 当前项目 label) uses the active conversation's project, not the folder
+  // being browsed in the sidebar file tree.
+  const currentProjectPath = useChatStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.projectPath ?? null)
 
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1400)
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -300,7 +305,7 @@ export default function MainLayout() {
       {contextMenu && <ContextMenu />}
       <PluginMarketplace />
       <SkillRegistryModal />
-      {isMemoryManagerOpen && <MemoryModal onClose={closeMemoryManager} currentProjectPath={rootPath} />}
+      {isMemoryManagerOpen && <MemoryModal onClose={closeMemoryManager} currentProjectPath={currentProjectPath} />}
       <NotificationToasts />
     </div>
   )

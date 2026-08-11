@@ -319,6 +319,7 @@ describe('chatStore agent run state', () => {
   })
 
   it('createSession defaults to agent mode inside a project, chat outside', () => {
+    // Inside a project (open folder) → agent mode, bound to that project
     useUIStore.getState().enterProject('/proj-a')
     useChatStore.getState().createSession('cfg-1')
     const inProject = useChatStore.getState().sessions[0]
@@ -327,10 +328,21 @@ describe('chatStore agent run state', () => {
     // Target mode is never defaulted on
     expect(inProject.targetMode).toBeUndefined()
 
+    // The current project follows the ACTIVE SESSION: a new conversation with
+    // no explicit project inherits the active session's bound project, even
+    // after the browsed folder is closed.
     useUIStore.getState().setRootPath(null)
+    useChatStore.getState().createSession('cfg-1')
+    const followsSession = useChatStore.getState().sessions[0]
+    expect(followsSession.projectPath).toBe('/proj-a')
+    expect(followsSession.agentMode).toBe('agent')
+
+    // No session-bound project AND no open folder → plain chat, unbound
+    useChatStore.setState({ sessions: [], activeSessionId: null })
     useChatStore.getState().createSession('cfg-1')
     const outside = useChatStore.getState().sessions[0]
     expect(outside.agentMode).toBe('chat')
+    expect(outside.projectPath).toBeUndefined()
   })
 
   it('blocks enabling target mode while another session of the same project runs it', () => {

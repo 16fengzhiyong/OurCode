@@ -26,7 +26,9 @@ export interface SkillInfo {
 const SKILL_DIRS = ['.claude/skills', '.ourcode/skills', 'skills']
 
 /** Renderer-side workspace root (the file tree's data attribute, falling back
- *  to the selected project — the tree only mounts in tree view) */
+ *  to the selected project — the tree only mounts in tree view). Note: callers
+ *  working inside a session should prefer the session's own project path (the
+ *  current project follows the active conversation, not the browsed folder). */
 export function getWorkspaceRoot(): string {
   return document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
 }

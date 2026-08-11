@@ -66,6 +66,7 @@ module.exports = {
         'accent-50': 'color-mix(in srgb, var(--accent, #0058bc) 50%, transparent)',
         'accent-60': 'color-mix(in srgb, var(--accent, #0058bc) 60%, transparent)',
         'accent-80': 'color-mix(in srgb, var(--accent, #0058bc) 80%, transparent)',
+        'accent-5': 'color-mix(in srgb, var(--accent, #0058bc) 5%, transparent)',
         text: {
           primary: 'var(--text-primary, #0f172a)',
           secondary: 'var(--text-secondary, #334155)',

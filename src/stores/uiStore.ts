@@ -165,7 +165,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   // explorer panel would render a large empty area with nothing to fill it
   // (matches VS Code behavior when no folder/workspace is opened).
   isSidebarVisible: false,
-  sidebarWidth: 260,
+  sidebarWidth: 330,
   activeSidebarTab: 'files',
   rootPath: null,
   recentProjects: (() => { try { return JSON.parse(localStorage.getItem('recentProjects') || '[]') } catch { return [] } })(),

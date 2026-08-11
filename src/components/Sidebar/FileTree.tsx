@@ -181,7 +181,7 @@ export default function FileTree({ rootPath }: FileTreeProps) {
           const el = scrollRef.current
           if (lock !== null && el && Math.abs(el.scrollTop - lock) > 1) el.scrollTop = lock
         }}
-        className="flex-1 overflow-y-auto"
+        className="flex-1 overflow-y-auto bg-white/95 dark:bg-black/40 shadow-inner"
       >
         {isLoading ? (
           <div className="flex items-center justify-center py-8">

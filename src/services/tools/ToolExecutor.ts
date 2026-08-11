@@ -116,7 +116,10 @@ export class ToolExecutor {
       const skillName = toolCall.name.slice('skill__'.length)
       const startedAt = Date.now()
       try {
-        const content = await loadSkillContent(skillName, getWorkspaceRoot())
+        // Load from the RUNNING session's project first — with parallel agent
+        // loops the workspace follows each conversation, not the folder being
+        // browsed in the sidebar file tree.
+        const content = await loadSkillContent(skillName, ctx.projectPath || getWorkspaceRoot())
         if (content == null) {
           this.recordUsage('skill', skillName, startedAt, { ok: false, error: '技能不存在', context: ctx })
           return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: 技能 "${skillName}" 不存在`, isError: true }

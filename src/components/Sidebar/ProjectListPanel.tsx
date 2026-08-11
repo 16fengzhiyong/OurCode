@@ -57,22 +57,22 @@ function SessionStatusDot({ running, needsAttention, hasError, color }: {
 }) {
   if (running) {
     return (
-      <span className="w-4 h-4 shrink-0 flex items-center justify-center text-primary animate-spin" title="运行中">
+      <span className="w-4 h-4 shrink-0 flex items-center justify-center text-primary animate-spin-slow" title="运行中">
         <TileIcon name="spinner" size={14} />
       </span>
     )
   }
   if (needsAttention) {
     return (
-      <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 ml-0.5" title="该会话需要处理" />
+      <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0 ml-1" title="该会话需要处理" />
     )
   }
   if (hasError) {
-    return <span className="w-1.5 h-1.5 rounded-full bg-error shrink-0 ml-0.5" title="运行出错" />
+    return <span className="w-1.5 h-1.5 rounded-full bg-error shrink-0 ml-1" title="运行出错" />
   }
   return (
     <span
-      className={`w-1.5 h-1.5 rounded-full shrink-0 ml-0.5 ${color ? '' : 'bg-slate-300 dark:bg-white/30'}`}
+      className={`w-1.5 h-1.5 rounded-full shrink-0 ml-1 ${color ? '' : 'bg-slate-300 dark:bg-white/30'}`}
       style={color ? { background: color } : undefined}
     />
   )
@@ -80,7 +80,7 @@ function SessionStatusDot({ running, needsAttention, hasError, color }: {
 
 export default function ProjectListPanel() {
   const {
-    rootPath, setRootPath, recentProjects, recentProjectTimes, projectListView, activeProjectPath,
+    setRootPath, recentProjects, recentProjectTimes, projectListView, activeProjectPath,
     enterProject, backToProjectList, setActiveSidebarTab,
   } = useUIStore()
   const sessions = useChatStore((s) => s.sessions)
@@ -95,6 +95,13 @@ export default function ProjectListPanel() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [showMoreSessions, setShowMoreSessions] = useState<Set<string>>(new Set())
+
+  // The "current project" follows the ACTIVE SESSION — opening a folder or
+  // entering a project in the file tree only browses it, it doesn't select it.
+  const currentProjectPath = useMemo(
+    () => sessions.find((s) => s.id === activeSessionId)?.projectPath ?? null,
+    [sessions, activeSessionId],
+  )
 
   // Sessions waiting on the user (question / tool approval / batch approval /
   // plan approval) — shown as an accent "待处理" pill in the list (需求 3).
@@ -228,6 +235,16 @@ export default function ProjectListPanel() {
     if (!useUIStore.getState().isChatVisible) useUIStore.getState().toggleChat()
   }
 
+  /** Tree-view header "new chat" — keeps the old chrome-header behavior. */
+  const handleNewSession = () => {
+    const configId = useConfigStore.getState().activeConfigGroupId
+    if (configId) {
+      createSession(configId)
+    } else {
+      useUIStore.getState().openSettings()
+    }
+  }
+
   const handleSessionClick = (sessionId: string) => {
     setActiveSession(sessionId)
     // Switch to chat panel
@@ -239,16 +256,43 @@ export default function ProjectListPanel() {
   if (projectListView === 'tree' && activeProjectPath) {
     return (
       <div className="h-full flex flex-col">
-        {/* Back bar */}
-        <button
-          onClick={() => { backToProjectList(); setActiveSidebarTab('files') }}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-nova-text-muted hover:text-nova-text-primary border-b border-nova-border transition-colors"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          返回项目列表
-        </button>
+        {/* Header — back + title + actions in one row (Stitch header pattern, dim off-white) */}
+        <header className="px-5 pt-5 pb-4 border-b border-glass-border/50 shrink-0 bg-slate-100/90 dark:bg-white/10">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => { backToProjectList(); setActiveSidebarTab('files') }}
+              className="flex items-center gap-1.5 text-base font-semibold text-nova-text-primary group transition-colors"
+            >
+              <svg
+                width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                className="text-nova-text-muted group-hover:text-nova-accent shrink-0"
+              >
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+              项目列表
+            </button>
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={handleNewSession}
+                className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+                title={t('chat.newChat')}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+              <button
+                onClick={() => useUIStore.getState().toggleSidebar()}
+                className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+                title={t('sidebar.collapse')}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </header>
         {/* File tree */}
         <div className="flex-1 overflow-hidden">
           <FileTree rootPath={activeProjectPath} />
@@ -260,12 +304,25 @@ export default function ProjectListPanel() {
   // ───────────── VIEW: Project list ─────────────
   return (
     <div className="h-full flex flex-col">
-      {/* Search — glass capsule with leading icon (Stitch 资源管理器) */}
-      <div className="px-3 pt-2 pb-1">
-        <div className="relative">
+      {/* Header — in-panel title + collapse in one row, glass search capsule below.
+          Dim off-white surface so the bright scrollable well below reads as distinct. */}
+      <header className="px-5 pt-5 pb-4 border-b border-glass-border/50 shrink-0 bg-slate-100/90 dark:bg-white/10">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-nova-text-primary">项目列表</h2>
+          <button
+            onClick={() => useUIStore.getState().toggleSidebar()}
+            className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+            title={t('sidebar.collapse')}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+        </div>
+        <div className="rounded-full flex items-center px-4 py-2.5 bg-white/60 dark:bg-white/10 border border-glass-border transition-all duration-300 focus-within:border-accent-60 focus-within:ring-2 focus-within:ring-accent-20">
           <svg
-            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-nova-text-muted pointer-events-none"
+            width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"
+            className="text-nova-text-muted mr-2 shrink-0"
           >
             <circle cx="11" cy="11" r="7" />
             <path d="m21 21-4.3-4.3" />
@@ -275,12 +332,14 @@ export default function ProjectListPanel() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="搜索项目或对话..."
-            className="w-full bg-nova-input-bg border border-nova-border rounded-full py-1.5 pl-9 pr-4 text-[11px] text-nova-text-primary placeholder-nova-text-muted focus:border-accent-60 focus:ring-2 focus:ring-accent-20 focus:outline-none transition-all"          />
+            className="bg-transparent border-none outline-none text-[11px] w-full text-nova-text-primary placeholder:text-slate-400 dark:placeholder:text-nova-text-muted"
+          />
         </div>
-      </div>
+      </header>
 
-      {/* Project list */}
-      <div className="flex-1 overflow-y-auto py-0.5">
+      {/* Project list — 12px gutters + 16px group gaps (Stitch: p-3 space-y-4 pb-6).
+          Slightly tinted well so the scrollable region reads as distinct from the header. */}
+      <div className="flex-1 overflow-y-auto p-3 pb-6 space-y-4 bg-white/95 dark:bg-black/40 shadow-inner">
         {filteredProjects.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-nova-text-muted opacity-40 mb-3">
@@ -297,7 +356,9 @@ export default function ProjectListPanel() {
         )}
 
         {filteredProjects.map((project, idx) => {
-          const isCurrent = project.path === rootPath
+          // Only a session makes a project "current" (currentProjectPath =
+          // the active session's bound project) — the browsed folder does not.
+          const isCurrent = !!currentProjectPath && currentProjectPath === project.path
           const projectSessions = getProjectSessions(project.path)
           const showMore = showMoreSessions.has(project.path)
           const visibleSessions = showMore ? projectSessions : projectSessions.slice(0, 5)
@@ -307,22 +368,22 @@ export default function ProjectListPanel() {
             <div key={project.path} className="space-y-1">
               {/* Project card (Stitch: gradient tile + name + status badge) */}
               <div
-                className={`group flex items-start gap-3 rounded-xl p-3 cursor-pointer transition-all border ${
+                className={`group flex items-start gap-3 rounded-[24px] p-3 cursor-pointer transition-all border ${
                   isCurrent
-                    ? 'bg-accent-10 border-accent-60'
+                    ? 'bg-accent-5 border-accent-40'
                     : 'border-transparent hover:bg-white/50 dark:hover:bg-white/10 hover:border-glass-border'
                 }`}
                 onClick={() => handleEnterProject(project.path)}
               >
                 <div
-                  className="w-10 h-10 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm"
+                  className="w-10 h-10 rounded-[16px] flex items-center justify-center text-white shrink-0 shadow-sm"
                   style={{ background: tile.bg }}
                 >
                   <TileIcon name={tile.icon} size={20} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-sm font-semibold text-nova-text-primary truncate pr-2">
+                    <span className="text-[13px] font-semibold text-nova-text-primary truncate pr-2">
                       {project.name}
                     </span>
                     {isCurrent ? (
@@ -331,13 +392,13 @@ export default function ProjectListPanel() {
                       </span>
                     ) : (
                       project.lastOpened > 0 && (
-                        <span className="bg-nova-hover text-nova-text-muted text-[9px] font-bold px-2 py-0.5 rounded-full tracking-wider shrink-0">
+                        <span className="bg-slate-200/50 text-slate-500 dark:bg-white/10 dark:text-nova-text-muted text-[9px] font-bold px-2 py-0.5 rounded-full tracking-wider shrink-0">
                           {formatTime(project.lastOpened)}
                         </span>
                       )
                     )}
                   </div>
-                  <div className="text-[11px] font-mono text-nova-text-muted truncate">
+                  <div className="text-[10px] font-mono text-nova-text-muted truncate">
                     {project.path}
                   </div>
                 </div>
@@ -358,13 +419,13 @@ export default function ProjectListPanel() {
 
               {/* Sessions under this project (Stitch: vertical connector line) */}
               {projectSessions.length > 0 && (
-                <div className="pl-5 pr-2 space-y-0.5 relative before:content-[''] before:absolute before:left-3 before:top-2 before:bottom-2 before:w-px before:bg-glass-border">
+                <div className="pl-5 pr-2 pt-1 space-y-1 relative before:content-[''] before:absolute before:left-3 before:top-2 before:bottom-2 before:w-px before:bg-glass-border">
                   {visibleSessions.map((session) => {
                     const isActive = session.id === activeSessionId
                     return (
                       <div
                         key={session.id}
-                        className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors ${
+                        className={`flex items-center gap-2 p-2 rounded-[16px] cursor-pointer transition-colors ${
                           isActive
                             ? 'bg-white/40 dark:bg-white/10 border border-accent-20'
                             : 'hover:bg-white/40 dark:hover:bg-white/10'
@@ -385,12 +446,12 @@ export default function ProjectListPanel() {
                             <TileIcon name="pin" size={13} />
                           </span>
                         )}
-                        <span className={`flex-1 truncate text-xs ${
-                          isActive ? 'text-nova-accent font-medium' : 'text-nova-text-secondary'
+                        <span className={`flex-1 truncate text-[11px] ${
+                          isActive ? 'text-nova-accent font-medium' : 'text-nova-text-secondary group-hover:text-nova-text-primary'
                         }`}>
                           {session.title}
                         </span>
-                        <span className="text-[10px] font-mono text-nova-text-muted shrink-0">
+                        <span className={`text-[10px] font-mono shrink-0 ${isActive ? 'text-primary/70' : 'text-slate-400 dark:text-nova-text-muted'}`}>
                           {formatTime(session.updatedAt)}
                         </span>
                       </div>
@@ -399,7 +460,7 @@ export default function ProjectListPanel() {
 
                   {projectSessions.length > 5 && (
                     <button
-                      className="flex items-center gap-1 pl-2 py-1 text-xs text-nova-accent hover:text-accent-80 transition-colors"
+                      className="flex items-center gap-1 pt-2 pl-14 text-[10px] text-nova-accent hover:text-accent-80 transition-colors"
                       onClick={(e) => {
                         e.stopPropagation()
                         setShowMoreSessions((prev) => {
@@ -412,7 +473,7 @@ export default function ProjectListPanel() {
                     >
                       {showMore ? '收起' : `展开剩余 ${projectSessions.length - 5} 条`}
                       <span className={`transition-transform ${showMore ? 'rotate-180' : ''}`}>
-                        <TileIcon name="expandMore" size={12} />
+                        <TileIcon name="expandMore" size={10} />
                       </span>
                     </button>
                   )}
@@ -426,9 +487,9 @@ export default function ProjectListPanel() {
             never "disappears" from the left panel (Stitch: divider + section) */}
         {orphanSessions.length > 0 && (
           <>
-            <div className="h-px bg-glass-border w-full my-3" />
+            <div className="h-px bg-glass-border w-full my-4" />
             <div className="pt-1">
-              <h3 className="text-[11px] font-bold text-nova-text-muted tracking-wider uppercase mb-2 px-3">
+              <h3 className="text-[11px] font-bold text-slate-400 dark:text-nova-text-muted tracking-wider uppercase mb-3 px-3">
                 {t('chat.orphanSessions')} ({orphanSessions.length})
               </h3>
               <div className="space-y-1 px-1">
@@ -437,7 +498,7 @@ export default function ProjectListPanel() {
                   return (
                     <div
                       key={session.id}
-                      className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-colors border ${
+                      className={`flex items-center gap-3 p-2.5 rounded-[24px] cursor-pointer transition-colors border ${
                         isActive
                           ? 'bg-white/40 dark:bg-white/10 border-accent-20'
                           : 'border-transparent hover:bg-white/50 dark:hover:bg-white/10 hover:border-glass-border'
@@ -449,10 +510,10 @@ export default function ProjectListPanel() {
                         <TileIcon name="forum" size={15} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className={`text-xs truncate ${isActive ? 'text-nova-accent font-medium' : 'text-nova-text-primary'}`}>
+                        <div className={`text-[11px] truncate ${isActive ? 'text-nova-accent font-medium' : 'text-nova-text-primary'}`}>
                           {session.title}
                         </div>
-                        <div className="text-[10px] font-mono text-nova-text-muted mt-0.5">
+                        <div className="text-[10px] font-mono text-slate-400 dark:text-nova-text-muted mt-0.5">
                           {formatTime(session.updatedAt)}
                         </div>
                       </div>

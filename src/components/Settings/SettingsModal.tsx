@@ -49,9 +49,13 @@ export default function SettingsModal() {
   } = useConfigStore()
 
   const { preferences, savePreferences } = useEditorStore()
-  const { isSettingsOpen, closeSettings, setTheme, setThemeColor, rootPath } = useUIStore()
+  const { isSettingsOpen, closeSettings, setTheme, setThemeColor } = useUIStore()
   const themeColor = useUIStore((s) => s.themeColor)
   const shortcutStore = useShortcutStore()
+  // The "current project" follows the ACTIVE SESSION — opening a folder only
+  // browses it, so project settings (当前项目 label, MCP servers) use the
+  // active conversation's bound project.
+  const currentProjectPath = useChatStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.projectPath ?? null)
 
   const [activeTab, setActiveTab] = useState<'api' | 'appearance' | 'editor' | 'shortcuts' | 'features'>('api')
   const [editingGroup, setEditingGroup] = useState<Partial<ApiConfigGroup> | null>(null)
@@ -961,20 +965,24 @@ export default function SettingsModal() {
                 </h3>
                 <SettingRow
                   label="当前项目"
-                  desc={rootPath || '尚未打开项目'}
+                  desc={currentProjectPath || '尚未打开项目（打开文件夹后开始一个对话即绑定）'}
                   right={
                     <button
                       onClick={async () => {
                         const path = await window.electronAPI.openFolder()
-                        if (path) {
-                          const ui = useUIStore.getState()
-                          ui.setRootPath(path)
-                          ui.enterProject(path)
-                        }
+                        if (!path) return
+                        const ui = useUIStore.getState()
+                        ui.setRootPath(path)
+                        ui.enterProject(path)
+                        // Opening a folder only browses it — the current project
+                        // follows the active session, so switching projects means
+                        // starting a conversation in the opened folder.
+                        const configId = useConfigStore.getState().activeConfigGroupId
+                        if (configId) useChatStore.getState().createSession(configId, path)
                       }}
                       className="px-3 py-1.5 text-xs text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 rounded-md transition-colors"
                     >
-                      {rootPath ? '切换项目' : '打开文件夹'}
+                      {currentProjectPath ? '切换项目' : '打开文件夹'}
                     </button>
                   }
                 />
@@ -986,7 +994,7 @@ export default function SettingsModal() {
                   <span style={{ width: 3, height: 14, background: 'var(--accent)', borderRadius: 2 }} />
                   MCP 服务器
                 </h3>
-                <McpConfigSection rootPath={rootPath} />
+                <McpConfigSection rootPath={currentProjectPath} />
               </section>
             </div>
           )}

@@ -5,24 +5,11 @@ import AgentTasksPanel from './AgentTasksPanel'
 import UsagePanel from './UsagePanel'
 import GitPanel from '../Git/GitPanel'
 import { useUIStore } from '@/stores/uiStore'
-import { useChatStore } from '@/stores/chatStore'
-import { useConfigStore } from '@/stores/configStore'
 import { useI18n } from '@/i18n/useI18n'
 
 export default function Sidebar() {
   const { activeSidebarTab, toggleSidebar, rootPath, projectListView } = useUIStore()
   const t = useI18n()
-
-  // New chat lives here now (per project item in the list view, header button
-  // in the tree view) — the old "打开文件夹" quick icon is gone.
-  const handleNewSession = () => {
-    const configId = useConfigStore.getState().activeConfigGroupId
-    if (configId) {
-      useChatStore.getState().createSession(configId)
-    } else {
-      useUIStore.getState().openSettings()
-    }
-  }
 
   const headerTitle = useMemo(() => {
     switch (activeSidebarTab) {
@@ -107,57 +94,48 @@ export default function Sidebar() {
 
   return (
     <div className="h-full flex flex-col bg-transparent">
-      {/* Sidebar Header */}
-      <div
-        className="flex items-center justify-between shrink-0"
-        style={{ padding: '0 12px', height: 36 }}
-      >
-        <div className="flex items-center gap-1.5">
-          <span className="text-nova-text-muted flex items-center">
-            <HeaderIcon />
-          </span>
-          <span
-            className="font-bold uppercase tracking-[0.08em]"
-            style={{ fontSize: 11, color: 'var(--text-secondary)', letterSpacing: '0.08em' }}
-          >
-            {headerTitle}
-          </span>
-        </div>
-        <div className="flex items-center gap-0.5">
-          {activeSidebarTab === 'files' && projectListView === 'tree' && (
-            <button
-              onClick={handleNewSession}
-              className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
-              title={t('chat.newChat')}
+      {/* Sidebar Header — files 页的标题/返回/折叠都在面板内部（列表视图标题行、树视图「← 项目列表」行），头栏不渲染以免顶部留大片空白 */}
+      {activeSidebarTab !== 'files' && (
+        <div
+          className="flex items-center justify-between shrink-0"
+          style={{ padding: '0 12px', height: 36 }}
+        >
+          <div className="flex items-center gap-1.5">
+            <span className="text-nova-text-muted flex items-center">
+              <HeaderIcon />
+            </span>
+            <span
+              className="font-bold uppercase tracking-[0.08em]"
+              style={{ fontSize: 11, color: 'var(--text-secondary)', letterSpacing: '0.08em' }}
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M12 5v14M5 12h14" />
+              {headerTitle}
+            </span>
+          </div>
+          <div className="flex items-center gap-0.5">
+            {activeSidebarTab === 'changes' && (
+              <button
+                onClick={() => window.location.reload()}
+                className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+                title="刷新"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+              </button>
+            )}
+            <button
+              onClick={toggleSidebar}
+              className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+              title={t('sidebar.collapse')}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="15 18 9 12 15 6" />
               </svg>
             </button>
-          )}
-          {activeSidebarTab === 'changes' && (
-            <button
-              onClick={() => window.location.reload()}
-              className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
-              title="刷新"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <polyline points="23 4 23 10 17 10" />
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-              </svg>
-            </button>
-          )}
-          <button
-            onClick={toggleSidebar}
-            className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
-            title={t('sidebar.collapse')}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-          </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-hidden">
