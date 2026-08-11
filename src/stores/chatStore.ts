@@ -1271,6 +1271,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       toolCalls: msg.toolCalls,
       toolResults: msg.toolResults,
       createdAt: Date.now(),
+      runId: msg.runId,
     }
 
     set((s) => ({
@@ -1926,9 +1927,11 @@ async function runAgentLoop(
   let runCacheWriteTokens = 0
 
   try {
-    // Refresh dynamic tools (MCP servers + workspace skills) before building the tool list
+    // Refresh dynamic tools (MCP servers + workspace skills) before building the tool list.
+    // Skill tools scope to the RUNNING session's project (global skills always
+    // included) — the browsing root would leak other projects' skills in.
     await toolExecutor.refreshMcpTools()
-    await toolExecutor.refreshSkillTools()
+    await toolExecutor.refreshSkillTools(session.projectPath || getWorkspaceRoot())
 
   // Build the system prompt with memories / rules / skills / retrieved context
   const lastUserMessage = [...session.messages].reverse().find((m) => m.role === 'user')
@@ -2183,6 +2186,7 @@ async function runAgentLoop(
           role: 'assistant',
           content: fullContent,
           thinking: fullThinking || undefined,
+          runId,
         })
         break
       }
@@ -2200,6 +2204,7 @@ async function runAgentLoop(
         content: fullContent,
         thinking: fullThinking || undefined,
         toolCalls: parsedToolCalls,
+        runId,
       })
 
       // Add assistant message to messages array for next iteration
@@ -2489,6 +2494,7 @@ async function runAgentLoop(
       chatStore.addMessage(sessionId, {
         role: 'assistant',
         content: '[已达到最大工具调用轮数 (20)。点击下方"继续"按钮可继续执行。]',
+        runId,
       })
       // Target mode keeps the agent going after rounds are exhausted — it only
       // stops when the user judges the goal done (or queues their own message,
@@ -2506,6 +2512,7 @@ async function runAgentLoop(
           role: 'assistant',
           content: stream.content + '\n\n[生成已停止]',
           thinking: stream.thinking || undefined,
+          runId,
         })
       }
     } else {
@@ -2517,6 +2524,7 @@ async function runAgentLoop(
         role: 'assistant',
         content: chatError.message,
         error: chatError,
+        runId,
       })
       if (runId) {
         useChatStore.getState().setRunStatus(runId, 'error', { lastError: chatError.message })

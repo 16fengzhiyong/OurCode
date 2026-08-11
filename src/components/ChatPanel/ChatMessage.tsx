@@ -290,17 +290,23 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   const condenseMemory = useMemoryStore((s) => s.condenseMemory)
 
   // ── Agent status for assistant header ──
-  // Per-session active run: with parallel conversations each session owns its
-  // own run; a non-running session falls back to its latest run record.
+  // Prefer the run that PRODUCED this message: its status/tokens are frozen
+  // once that run finishes, so a later request in the same conversation can
+  // never re-badge a completed reply (it used to fall back to the session's
+  // newest run, so every old message flipped to the new run's ⏳/✗ + tokens).
+  // Messages without a runId (chat mode, restored older sessions) keep the
+  // previous fallback: the session's active run, else its newest record.
   const activeRun = useChatStore((s) => s.activeRuns[sessionId])
   const session = useChatStore((s) => s.sessions.find((x) => x.id === sessionId))
   // agentRuns is newest-first (startAgentRun prepends); when no run is live
   // (restored sessions start with an empty activeRuns) fall back to the NEWEST
   // record — the oldest one would show stale status/tokens.
   const lastRun = session?.agentRuns?.[0]
-  const run = activeRun
-    ? session?.agentRuns?.find((r) => r.id === activeRun.runId)
-    : lastRun
+  const run = message.runId
+    ? session?.agentRuns?.find((r) => r.id === message.runId)
+    : activeRun
+      ? session?.agentRuns?.find((r) => r.id === activeRun.runId)
+      : lastRun
   // A run paused for plan approval is NOT actively running — lumping it into
   // isLive rendered a forever-ticking "⏳ 运行中" after submit_plan, which read
   // as stuck/failed (and hid the fact that the plan was actually submitted).

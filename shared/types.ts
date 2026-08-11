@@ -203,6 +203,11 @@ export interface ChatMessage {
   toolResults?: Array<{ toolCallId: string; name: string; result: string; isError?: boolean }>
   toolCallId?: string
   error?: ChatError
+  // The agent run that produced this message (agent mode). Lets the header
+  // badge render THIS message's own status/tokens instead of the session's
+  // latest run — a completed reply must never re-badge when a later request
+  // starts or errors in the same conversation.
+  runId?: string
 }
 
 // Open File
