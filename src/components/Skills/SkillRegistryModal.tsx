@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
@@ -40,6 +40,11 @@ export default function SkillRegistryModal() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmUninstall, setConfirmUninstall] = useState<string | null>(null)
+  // Synchronous in-flight guard: `busy` state updates are async, so rapid
+  // double-clicks on the same toggle/button would run the action twice before
+  // the state lands (toggle flips twice = no-op). A ref keeps the check
+  // race-free (see run).
+  const busyRef = useRef<string | null>(null)
 
   const reloadLocal = useCallback(async (targetRoot: string) => {
     const all = await listSkills(true, targetRoot, true)
@@ -77,6 +82,8 @@ export default function SkillRegistryModal() {
   if (!isSkillRegistryOpen) return null
 
   const run = async (name: string, fn: () => Promise<unknown>) => {
+    if (busyRef.current) return
+    busyRef.current = name
     setBusy(name)
     setError(null)
     try {
@@ -84,6 +91,7 @@ export default function SkillRegistryModal() {
     } catch (e: any) {
       setError(t('skillRegistry.error', { error: e.message || String(e) }))
     } finally {
+      busyRef.current = null
       setBusy(null)
       if (root) {
         reloadLocal(root)
