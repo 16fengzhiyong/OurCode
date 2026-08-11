@@ -118,12 +118,12 @@ export async function refreshGitBranch(): Promise<void> {
   // Mark as fetched before the git calls so even a full failure (e.g. not a
   // repo) doesn't cause repeated retries within the TTL window.
   _gitBranchFetchedAt = Date.now()
-	  try {
-	    const res = await (window as any).electronAPI?.gitExec(rootPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
-	    if (res?.success) {
-	      _cachedGitBranch = res.output.trim()
-	    }
-	  } catch { /* ignore */ }
+  try {
+    const res = await (window as any).electronAPI?.gitExec(rootPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+    if (res?.success) {
+      _cachedGitBranch = res.output.trim()
+    }
+  } catch { /* ignore */ }
   try {
     // Working-tree changes (porcelain v1, capped) so the model knows the
     // workspace state without running a command itself.
@@ -2128,9 +2128,10 @@ async function runAgentLoop(
 
           // Real token usage reported by the provider (parsed by the adapters) —
           // persisted into the usage dashboard instead of being dropped.
+          // `|| 0` guards against adapters that report partial usage objects.
           if (chunk.usage) {
-            reqTokensIn = chunk.usage.promptTokens
-            reqTokensOut = chunk.usage.completionTokens
+            reqTokensIn = chunk.usage.promptTokens || 0
+            reqTokensOut = chunk.usage.completionTokens || 0
             reqCacheRead = chunk.usage.cacheReadTokens || 0
             reqCacheWrite = chunk.usage.cacheCreationTokens || 0
           }

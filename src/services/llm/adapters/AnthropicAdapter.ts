@@ -1,5 +1,6 @@
 import { ApiConfigGroup, LLMRequest, LLMStreamChunk, LLMToolCall } from '@/types'
 import { LLMAdapter } from '../types'
+import { mapAnthropicUsage, mergeUsage, ParsedUsage } from '../usage'
 import { llmFetch } from '../http'
 import { buildChatUrl } from '../endpoints'
 
@@ -341,7 +342,7 @@ export class AnthropicAdapter implements LLMAdapter {
         content: textBlock?.text || '',
         done: false,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        usage: data.usage ? { promptTokens: data.usage.input_tokens, completionTokens: data.usage.output_tokens } : undefined,
+        usage: mapAnthropicUsage(data.usage),
       }
       yield { content: '', done: true }
       return
@@ -351,6 +352,10 @@ export class AnthropicAdapter implements LLMAdapter {
     const decoder = new TextDecoder()
     let buffer = ''
     const toolCallsAcc: Map<number, { id: string; name: string; arguments: string }> = new Map()
+    // Streaming usage arrives split across events: message_start carries
+    // input_tokens + cache fields, message_delta carries only output_tokens.
+    // Merge the pieces so the run badge sees real input/cache numbers.
+    let lastUsage: ParsedUsage | undefined
 
     try {
       while (true) {
@@ -368,6 +373,10 @@ export class AnthropicAdapter implements LLMAdapter {
 
           try {
             const json = JSON.parse(data)
+
+            if (json.type === 'message_start' && json.message?.usage) {
+              lastUsage = mapAnthropicUsage(json.message.usage)
+            }
 
             if (json.type === 'content_block_start') {
               if (json.content_block?.type === 'tool_use') {
@@ -395,10 +404,11 @@ export class AnthropicAdapter implements LLMAdapter {
             }
 
             if (json.type === 'message_delta' && json.usage) {
+              lastUsage = mergeUsage(lastUsage, mapAnthropicUsage(json.usage))
               yield {
                 content: '',
                 done: false,
-                usage: { promptTokens: 0, completionTokens: json.usage.output_tokens },
+                usage: lastUsage,
               }
             }
 

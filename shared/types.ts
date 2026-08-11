@@ -124,6 +124,11 @@ export interface AgentRun {
   requestCount?: number
   cacheHits?: number
   cacheTokensSaved?: number
+  // Server-side prompt-cache tokens (Anthropic cache_read_input_tokens /
+  // DeepSeek prompt_cache_hit_tokens) reported by the provider, accumulated
+  // across the run's LLM requests. Shown separately from client-side replays.
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
 }
 
 // One file's content snapshot inside a checkpoint
@@ -368,6 +373,14 @@ export interface LLMStreamChunk {
   usage?: {
     promptTokens: number
     completionTokens: number
+    /** Server-side prompt-cache tokens read this request (Anthropic
+     *  cache_read_input_tokens / DeepSeek prompt_cache_hit_tokens). Part of
+     *  promptTokens; billed at the cached-read rate. 0 when the provider
+     *  doesn't report cache accounting. */
+    cacheReadTokens?: number
+    /** Server-side cache write (Anthropic cache_creation_input_tokens /
+     *  DeepSeek prompt_cache_miss_tokens). 0 when not reported. */
+    cacheCreationTokens?: number
   }
   /** Set on a replayed response from the client-side cache: the request hit the
    *  local cache and no API call was made. `usage` carries 0/0; the saved token

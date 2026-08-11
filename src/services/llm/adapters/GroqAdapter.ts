@@ -1,5 +1,6 @@
 import { LLMRequest, LLMStreamChunk, ApiConfigGroup, LLMToolCall } from '@/types'
 import { LLMAdapter } from '../types'
+import { mapOpenAiUsage } from '../usage'
 import { llmFetch } from '../http'
 import { buildChatUrl, buildModelsUrl } from '../endpoints'
 
@@ -119,10 +120,7 @@ export class GroqAdapter implements LLMAdapter {
                 yield {
                   content: '',
                   done: false,
-                  usage: {
-                    promptTokens: json.x_groq.usage.prompt_tokens,
-                    completionTokens: json.x_groq.usage.completion_tokens,
-                  },
+                  usage: mapOpenAiUsage(json.x_groq.usage),
                 }
               }
             } catch {
@@ -142,9 +140,7 @@ export class GroqAdapter implements LLMAdapter {
       yield {
         content,
         done: true,
-        usage: json.usage
-          ? { promptTokens: json.usage.prompt_tokens, completionTokens: json.usage.completion_tokens }
-          : undefined,
+        usage: mapOpenAiUsage(json.usage),
       }
     }
   }

@@ -105,8 +105,8 @@ export async function* sendLLMRequest(
   try {
     for await (const chunk of adapter.sendRequest(reqWithCache, safeConfig, controller.signal)) {
       if (chunk.usage) {
-        tokensIn = chunk.usage.promptTokens
-        tokensOut = chunk.usage.completionTokens
+        tokensIn = chunk.usage.promptTokens || 0
+        tokensOut = chunk.usage.completionTokens || 0
       }
       chunks.push(chunk)
       yield chunk

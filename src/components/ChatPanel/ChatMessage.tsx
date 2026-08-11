@@ -143,6 +143,9 @@ function TokenUsagePopover({ run, model }: { run: AgentRun; model?: string }) {
   const tokensOut = run.tokensOut || 0
   const cacheHits = run.cacheHits || 0
   const cacheSaved = run.cacheTokensSaved || 0
+  // Server-side prompt-cache tokens (DeepSeek prompt_cache_hit_tokens / Anthropic
+  // cache_read_input_tokens) — already inside tokensIn, billed at cache-read rate.
+  const cacheRead = run.cacheReadTokens || 0
   const elapsed = run.finishedAt ? Math.max(0, Math.floor((run.finishedAt - run.startedAt) / 1000)) : 0
 
   return (
@@ -170,17 +173,32 @@ function TokenUsagePopover({ run, model }: { run: AgentRun; model?: string }) {
           </div>
         </div>
 
-        {/* Cache-hit highlight (only when the run actually hit the client cache) */}
+        {/* Local replay highlight — the run's request was replayed from the
+            client-side response cache (no API call made). Provider prompt-cache
+            hits are reported separately as a "cache read" detail row below. */}
         {cacheHits > 0 && (
           <div className="bg-success-10 border border-success-20 rounded-full py-1.5 px-4 flex items-center justify-center gap-1.5">
             <span className="text-[11px] font-bold text-success">
-              ⚡ {t('chat.usage.cacheHits', { count: cacheHits, saved: formatTokens(cacheSaved) })}
+              ⚡ {t('chat.usage.localReplay', { count: cacheHits, saved: formatTokens(cacheSaved) })}
             </span>
           </div>
         )}
 
         {/* Detail rows */}
         <div className="flex flex-col gap-2 mt-1">
+          {cacheRead > 0 && (
+            <UsageDetailRow
+              icon={
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <ellipse cx="12" cy="5" rx="9" ry="3" />
+                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                </svg>
+              }
+              label={t('chat.usage.cacheRead')}
+              value={`${formatTokens(cacheRead)} ${t('statusBar.tokens').toLowerCase()}`}
+            />
+          )}
           <UsageDetailRow
             icon={
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

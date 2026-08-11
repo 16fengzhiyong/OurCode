@@ -1,5 +1,6 @@
 import { ApiConfigGroup, LLMRequest, LLMStreamChunk, LLMToolCall } from '@/types'
 import { LLMAdapter } from '../types'
+import { mapOpenAiUsage, ParsedUsage } from '../usage'
 import { llmFetch } from '../http'
 import { buildChatUrl, buildModelsUrl, EndpointFormat } from '../endpoints'
 
@@ -88,7 +89,6 @@ export class OpenAIAdapter implements LLMAdapter {
       const data = await response.json()
       const content = data.choices?.[0]?.message?.content || ''
       const thinking = data.choices?.[0]?.message?.reasoning_content || ''
-      const usage = data.usage
       const toolCalls = data.choices?.[0]?.message?.tool_calls?.map((tc: any) => ({
         id: tc.id,
         type: 'function' as const,
@@ -102,7 +102,7 @@ export class OpenAIAdapter implements LLMAdapter {
         thinking: thinking || undefined,
         done: false,
         toolCalls,
-        usage: usage ? { promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens } : undefined,
+        usage: mapOpenAiUsage(data.usage),
       }
       yield { content: '', done: true }
       return
@@ -114,7 +114,7 @@ export class OpenAIAdapter implements LLMAdapter {
     const toolCallsAcc: Map<number, { id: string; name: string; arguments: string }> = new Map()
     // Usage arrives in a dedicated final chunk (empty choices) — capture it on
     // ANY chunk and surface it on the done yield, not just content chunks.
-    let lastUsage: { promptTokens: number; completionTokens: number } | undefined
+    let lastUsage: ParsedUsage | undefined
     // With stream_options.include_usage the usage chunk comes AFTER the
     // finish_reason chunk — so on tool_calls we must NOT return immediately:
     // keep reading until [DONE], accumulating usage, then emit the calls.
@@ -145,19 +145,16 @@ export class OpenAIAdapter implements LLMAdapter {
           try {
             const json = JSON.parse(data)
             const delta = json.choices?.[0]?.delta
-            const usage = json.usage
-            if (usage) {
-              lastUsage = {
-                promptTokens: usage.prompt_tokens,
-                completionTokens: usage.completion_tokens,
-              }
+            const parsed = mapOpenAiUsage(json.usage)
+            if (parsed) {
+              lastUsage = parsed
             }
 
             if (delta?.content) {
               yield {
                 content: delta.content,
                 done: false,
-                usage: usage ? { promptTokens: usage.prompt_tokens, completionTokens: usage.completion_tokens } : undefined,
+                usage: parsed,
               }
             }
 

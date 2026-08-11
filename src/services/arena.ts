@@ -62,8 +62,8 @@ export async function runArenaPrompt(
         for await (const chunk of sendLLMRequest(req, configGroup)) {
           if (chunk.content) content += chunk.content
           if (chunk.usage) {
-            tokensIn = chunk.usage.promptTokens
-            tokensOut = chunk.usage.completionTokens
+            tokensIn = chunk.usage.promptTokens || 0
+            tokensOut = chunk.usage.completionTokens || 0
           }
           if (chunk.done) break
         }
