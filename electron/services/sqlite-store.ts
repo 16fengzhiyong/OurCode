@@ -132,8 +132,11 @@ export class SQLiteStore {
       this.db.exec("ALTER TABLE llm_response_cache ADD COLUMN last_accessed_at INTEGER DEFAULT 0")
       // Populate existing rows with created_at so they have a usable access time
       this.db.exec("UPDATE llm_response_cache SET last_accessed_at = created_at WHERE last_accessed_at = 0")
-      this.db.exec("CREATE INDEX IF NOT EXISTS idx_cache_last_accessed ON llm_response_cache(last_accessed_at)")
     }
+    // Always ensure the LRU index exists. Must run AFTER the column above is
+    // guaranteed present (old DBs lack it, and CREATE INDEX would otherwise
+    // throw "no such column" before this migration ever runs).
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_cache_last_accessed ON llm_response_cache(last_accessed_at)")
   }
 
   private initTables(): void {
@@ -246,7 +249,6 @@ export class SQLiteStore {
       CREATE INDEX IF NOT EXISTS idx_usage_category_time ON usage_events(category, started_at);
       CREATE INDEX IF NOT EXISTS idx_usage_name ON usage_events(name);
       CREATE INDEX IF NOT EXISTS idx_cache_created ON llm_response_cache(created_at);
-      CREATE INDEX IF NOT EXISTS idx_cache_last_accessed ON llm_response_cache(last_accessed_at);
     `)
   }
 

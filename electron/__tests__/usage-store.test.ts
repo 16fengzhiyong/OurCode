@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, mkdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3'
@@ -152,5 +152,35 @@ describe.skipIf(!sqliteUsable)('SQLiteStore LLM response cache', () => {
     store.putResponseCache('k1', 'openai', 'gpt-4o', 'x', 1, 1)
     store.clearResponseCache()
     expect(store.getResponseCache('k1')).toBeNull()
+  })
+
+  it('migrates an old-schema DB that lacks last_accessed_at without crashing', () => {
+    // Regression: an older app version created llm_response_cache without the
+    // last_accessed_at column. initTables() used to CREATE INDEX on that column
+    // unconditionally, throwing "no such column" before migrateTables() could
+    // add it — the app failed to start for any pre-existing old database.
+    const oldRoot = mkdtempSync(join(tmpdir(), 'cache-migrate-test-'))
+    const dbDir = join(oldRoot, 'data')
+    mkdirSync(dbDir, { recursive: true })
+    const dbPath = join(dbDir, 'ourcode.db')
+    const db = new Database(dbPath)
+    db.exec(`CREATE TABLE llm_response_cache (
+      key TEXT PRIMARY KEY, provider TEXT DEFAULT '', model TEXT DEFAULT '',
+      response TEXT NOT NULL, tokens_in INTEGER DEFAULT 0, tokens_out INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL, hits INTEGER DEFAULT 1);`)
+    db.close()
+
+    let upgraded: SQLiteStore | undefined
+    expect(() => { upgraded = new SQLiteStore(oldRoot) }).not.toThrow()
+
+    const check = new Database(dbPath, { readonly: true })
+    const columns = check.prepare('PRAGMA table_info(llm_response_cache)').all().map((c: any) => c.name)
+    const indexes = check.prepare('PRAGMA index_list(llm_response_cache)').all().map((i: any) => i.name)
+    check.close()
+    upgraded?.close()
+    rmSync(oldRoot, { recursive: true, force: true })
+
+    expect(columns).toContain('last_accessed_at')
+    expect(indexes).toContain('idx_cache_last_accessed')
   })
 })
