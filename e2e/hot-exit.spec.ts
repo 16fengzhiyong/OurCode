@@ -47,31 +47,34 @@ test.describe('Hot Exit', () => {
         ;(dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [folder] })
       }, dir)
       await win1.keyboard.press('Control+o')
-      // Retry the shortcut until the tree renders (keydown handler attachment
-      // races on cold start)
+      // Ctrl+O opens the folder into the PROJECT LIST (new Stitch flow) — the
+      // file tree only mounts after clicking the project card.
       await expect(async () => {
         await win1.keyboard.press('Control+o')
-        await expect(win1.locator('#file-tree-root >> text=hello.ts').first()).toBeVisible({ timeout: 4000 })
+        await expect(win1.locator(`text=${dir}`).first()).toBeVisible({ timeout: 4000 })
       }).toPass({ timeout: 25000 })
+      await win1.locator(`text=${dir}`).first().click()
+      await expect(win1.locator('#file-tree-root >> text=hello.ts').first()).toBeVisible({ timeout: 8000 })
 
       // Open hello.ts in the editor
       await win1.locator('#file-tree-root >> text=hello.ts').first().click()
       await win1.waitForTimeout(800)
 
       // Disable Auto Save so the buffer stays dirty: 文件 → 偏好设置 →
-      // Preferences tab → Auto Save toggle. The preference persists in SQLite,
-      // so only click when it is currently ON. Menu/tab/row labels are
-      // localized (zh-CN: 偏好设置/自动保存, en-US: Preferences/Auto Save),
-      // so match either locale.
+      // Settings modal, then the 编辑器 tab (the Stitch redesign re-labeled the
+      // tabs; Auto Save lives under Editor). The preference persists in SQLite,
+      // so only click when it is currently ON. Labels are localized, so match
+      // either locale.
       await win1.locator('button', { hasText: '文件' }).first().click()
       await win1.locator('button', { hasText: /偏好设置|Preferences/ }).first().click()
       const settingsDialog = win1.locator('[role="dialog"]').first()
-      await settingsDialog.locator('button', { hasText: /偏好设置|Preferences/ }).first().click()
+      await settingsDialog.locator('button', { hasText: /编辑器|Editor/ }).first().click()
       const autoSaveRow = settingsDialog.locator('div.flex.items-center.justify-between', { hasText: /自动保存|Auto Save/ }).first()
       // Cold start renders the settings modal lazily; give it 10 s instead of 5.
       await expect(autoSaveRow).toBeVisible({ timeout: 10000 })
       const toggleBtn = autoSaveRow.locator('button').first()
-      const autoSaveOn = (await toggleBtn.getAttribute('class'))?.includes('bg-nova-accent') ?? false
+      // The toggle is colored via inline style (`var(--accent)` when on), not a class
+      const autoSaveOn = (await toggleBtn.getAttribute('style'))?.includes('var(--accent)') ?? false
       if (autoSaveOn) await toggleBtn.click()
       // Close settings
       await win1.locator('button:has(svg path[d*="6 6l12 12"])').first().click().catch(() => {})

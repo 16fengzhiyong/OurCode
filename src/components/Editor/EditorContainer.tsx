@@ -9,7 +9,6 @@ import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoade
 import { ensureLanguageService, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
 import { setPendingVibeReplace } from '@/services/vibeReplace'
 import { attachLsp, detachLsp } from '@/services/lsp/lspClient'
-import { executeCommand } from '@/services/commands/commandRegistry'
 import BreadcrumbBar from './BreadcrumbBar'
 import type { UserPreferences } from '@/types'
 import { useI18n } from '@/i18n/useI18n'
@@ -50,6 +49,7 @@ function buildMonacoOptions(
     colorDecorators: !large,
     renderLineHighlight: large ? 'none' : 'all',
     cursorBlinking: large ? 'solid' : 'blink',
+    mouseStyle: 'text',
     smoothScrolling: !large,
     scrollBeyondLastLine: false,
     bracketPairColorization: { enabled: !large },
@@ -105,7 +105,9 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   // the size actually changes, never on cursor-move store churn.
   const activeFileSize = useEditorStore((s) => s.openFiles.find((f) => f.path === activeFilePath)?.size)
 
-  const { openCommandPalette, showContextMenu, theme: uiTheme } = useUIStore()
+  const openCommandPalette = useUIStore((s) => s.openCommandPalette)
+  const showContextMenu = useUIStore((s) => s.showContextMenu)
+  const uiTheme = useUIStore((s) => s.theme)
   const t = useI18n()
 
   // AI inline completion (ghost text, Tab to accept / Esc to reject)
@@ -116,6 +118,12 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     const reloadModel = (path: string) => {
       const model = getModel(path)
       if (!model || model.isDisposed()) return
+      // Skip files with unsaved edits — our own autosave writes this file every
+      // second while typing; reloading then would revert whatever the user typed
+      // since the snapshot (and reset the cursor). External edits to a CLEAN
+      // file still reload as before.
+      const openFile = useEditorStore.getState().openFiles.find((f) => f.path === path)
+      if (openFile?.isDirty) return
       window.electronAPI.readFile(path).then(({ content }) => {
         if (!model.isDisposed() && model.getValue() !== content) {
           model.setValue(content)
@@ -356,8 +364,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   // The editor div is always mounted so the Monaco editor initializes once, even
   // when no file is open yet (previously the empty state replaced the div, the
   // one-time init effect saw `editorRef.current === null`, and the editor was
-  // never created — every file then opened into a blank pane). The welcome text
-  // is an overlay on top of the empty editor instead.
+  // never created — every file then opened into a blank pane).
   return (
     <div className="flex-1 h-full min-h-0 flex flex-col">
       {activeFile?.plainText && (
@@ -382,40 +389,6 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
                 className="h-full bg-nova-accent rounded-full transition-all duration-150"
                 style={{ width: `${activeFile.loadProgress ?? 0}%` }}
               />
-            </div>
-          </div>
-        )}
-        {!activeFilePath && (
-          // Welcome card (design: card container + explicit primary/secondary actions).
-          // Styled entirely from theme tokens so it follows the Settings theme
-          // (dark / light) instead of hardcoded colors.
-          <div className="absolute inset-0 flex items-center justify-center p-8">
-            <div className="bg-nova-card rounded-xl p-10 max-w-md w-full text-center border border-nova-border shadow-xl">
-              <div className="mb-5 text-nova-text-muted bg-nova-surface w-16 h-16 mx-auto flex items-center justify-center rounded-full border border-nova-border">
-                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-              </div>
-              <h1 className="text-nova-text-primary text-lg font-semibold mb-1.5">{t('editor.emptyEditor')}</h1>
-              <p className="text-sm text-nova-text-muted mb-6">{t('editor.welcomeDesc')}</p>
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={() => executeCommand('openFolder')}
-                  className="w-full bg-nova-accent hover:opacity-90 text-white text-sm font-medium py-2.5 rounded-lg transition-opacity flex items-center justify-center gap-2 shadow-md"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                  </svg>
-                  {t('commands.openFolder')} (Ctrl+O)
-                </button>
-                <button
-                  onClick={() => executeCommand('newFile')}
-                  className="w-full bg-nova-hover hover:bg-nova-border text-nova-text-secondary hover:text-nova-text-primary border border-nova-border text-sm font-medium py-2.5 rounded-lg transition-colors"
-                >
-                  {t('commands.newFile')}
-                </button>
-              </div>
             </div>
           </div>
         )}

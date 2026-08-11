@@ -79,6 +79,8 @@ export class FileSystemService {
   private streamSeq = 0
   private streams = new Map<number, StreamState>()
   private writeSeq = 0
+  /** Monotonic counter for unique temp-file names (see openWriteStream) */
+  private tmpSeq = 0
   private writeStreams = new Map<number, WriteStreamState>()
 
   async readFile(filePath: string): Promise<{ content: string; encoding: string; hasBom: boolean }> {
@@ -187,7 +189,11 @@ export class FileSystemService {
   /** Open a streamed write to `filePath`. Returns the write-stream id. */
   async openWriteStream(filePath: string, encoding = 'utf-8', hasBom = false): Promise<number> {
     const normalizedEncoding = this.normalizeEncoding(encoding)
-    const tmpPath = join(dirname(filePath), `.${basename(filePath)}.${process.pid}.tmp`)
+    // Unique temp name per write — the old `.${basename}.${process.pid}.tmp`
+    // collided when two saves of the SAME file overlapped (autosave ticking
+    // while a large streamed save is in flight), truncating each other's
+    // temp file and corrupting the rename.
+    const tmpPath = join(dirname(filePath), `.${basename(filePath)}.${process.pid}.${++this.tmpSeq}.tmp`)
     const fd = await open(tmpPath, 'w')
     const encoder = iconv.getEncoder(normalizedEncoding)
     const bom = BOM_BYTES[normalizedEncoding]
@@ -347,8 +353,10 @@ export class FileSystemService {
     }
     // Write to a temp sibling then rename, so a crash mid-write never corrupts
     // the original file (same strategy as VS Code's disk file service). The
-    // dot-prefixed name is also ignored by the chokidar watcher.
-    const tmpPath = join(dirname(filePath), `.${basename(filePath)}.${process.pid}.tmp`)
+    // dot-prefixed name is also ignored by the chokidar watcher. The unique
+    // token prevents two overlapping writes of the same file from truncating
+    // each other's temp file.
+    const tmpPath = join(dirname(filePath), `.${basename(filePath)}.${process.pid}.${++this.tmpSeq}.tmp`)
     try {
       await fsWriteFile(tmpPath, buffer)
       await fsRename(tmpPath, filePath)
@@ -366,31 +374,32 @@ export class FileSystemService {
       // Directory doesn't exist yet (e.g. <userData>/skills before first run) — treat as empty.
       return []
     }
-    const result: FileEntry[] = []
-
-    for (const entry of entries) {
-      const fullPath = join(dirPath, entry.name)
-      const isHidden = entry.name.startsWith('.')
-
-      try {
-        const stats = await fsStat(fullPath)
-        result.push({
-          name: entry.name,
-          path: fullPath,
-          isDirectory: entry.isDirectory(),
-          isHidden,
-          size: entry.isFile() ? stats.size : undefined,
-          modifiedAt: stats.mtimeMs,
-        })
-      } catch {
-        result.push({
-          name: entry.name,
-          path: fullPath,
-          isDirectory: entry.isDirectory(),
-          isHidden,
-        })
-      }
-    }
+    // Stat every entry in PARALLEL — a sequential await loop stalls for a
+    // noticeable beat on directories with hundreds/thousands of files.
+    const result = await Promise.all(
+      entries.map(async (entry) => {
+        const fullPath = join(dirPath, entry.name)
+        const isHidden = entry.name.startsWith('.')
+        try {
+          const stats = await fsStat(fullPath)
+          return {
+            name: entry.name,
+            path: fullPath,
+            isDirectory: entry.isDirectory(),
+            isHidden,
+            size: entry.isFile() ? stats.size : undefined,
+            modifiedAt: stats.mtimeMs,
+          }
+        } catch {
+          return {
+            name: entry.name,
+            path: fullPath,
+            isDirectory: entry.isDirectory(),
+            isHidden,
+          }
+        }
+      }),
+    )
 
     // Sort: directories first, then by name
     return result.sort((a, b) => {
@@ -451,8 +460,16 @@ export class FileSystemService {
       return
     }
 
+    // Skip heavy, machine-generated directories (and VCS internals) so the
+    // watcher doesn't track tens of thousands of files — node_modules in a big
+    // project alone would otherwise keep that many fs watchers alive in the
+    // main process and flood the renderer with change events during installs /
+    // builds. The file tree still lists these directories (listDir is separate);
+    // only change events for them are dropped.
+    const HEAVY_WATCH_DIRS = /(^|[/\\])(node_modules|\.git|\.hg|\.svn|\.idea|\.vscode|\.cache|__pycache__)([/\\]|$)/
+
     const watcher = watch(dirPath, {
-      ignored: /(^|[/\\])\../,
+      ignored: (p: string) => /(^|[/\\])\../.test(p) || HEAVY_WATCH_DIRS.test(p),
       persistent: true,
       ignoreInitial: true,
       depth: 10,
@@ -461,6 +478,12 @@ export class FileSystemService {
     watcher.on('change', (path) => onChange(path))
     watcher.on('add', (path) => onChange(path))
     watcher.on('unlink', (path) => onChange(path))
+    // chokidar emits 'error' on EPERM/ENOENT races (dir deleted out from under
+    // us, antivirus locks, ...). Without a listener Node throws the error
+    // uncaught and kills the whole main process.
+    watcher.on('error', (err) => {
+      console.error(`[fs] watcher error for ${dirPath}:`, err)
+    })
 
     this.watchers.set(dirPath, watcher)
   }

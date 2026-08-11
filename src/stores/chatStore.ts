@@ -314,7 +314,8 @@ const BEHAVIOR_GUIDELINES = `
 - 对难以撤销或对外可见的操作（删除/覆盖文件、发布内容、发送到外部服务等），先向用户确认再执行；一次的授权不延伸到下一次。
 - 删除或覆盖文件前，先读取目标内容确认；如果发现目标与描述不符、或不是你创建的，先向用户说明而不是直接操作。
 - 如实报告结果：测试失败要带上输出说明失败；跳过某一步要说跳过；完成并验证过的事要明确说明，不要含糊其辞。
-- 工具调用被拒绝表示用户不认可该操作，应调整方案而不是原样重试。`
+- 工具调用被拒绝表示用户不认可该操作，应调整方案而不是原样重试。
+- 如果任务是编程任务，交付前必须自行完整检查一遍代码，确保没有 bug；发现 bug 或潜在问题（逻辑错误、边界情况、类型问题、并发隐患等）要主动修复后再交付。`
 
 // Plan-mode prompt: explore + produce a plan, no mutations
 const PLAN_MODE_INSTRUCTION = `
@@ -451,7 +452,7 @@ interface ChatState {
   setRunStatus: (runId: string, status: AgentRun['status'], patch?: Partial<AgentRun>) => void
   appendTrace: (sessionId: string, entry: AgentTraceEntry) => void
   setTraceStatus: (sessionId: string, toolCallId: string, status: AgentTraceEntry['status']) => void
-  finishAgentRun: (sessionId: string, runId: string, status: AgentRun['status'], extra?: { error?: string; tokensIn?: number; tokensOut?: number }) => void
+  finishAgentRun: (sessionId: string, runId: string, status: AgentRun['status'], extra?: { error?: string; tokensIn?: number; tokensOut?: number; requestCount?: number; cacheHits?: number; cacheTokensSaved?: number }) => void
   approveBatchRun: (sessionId: string) => void
   decideBatchApproval: (decision: 'confirm' | 'all' | 'reject') => void
   allowToolPermanently: (toolName: string) => void
@@ -798,6 +799,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                       lastError: extra?.error || r.lastError,
                       tokensIn: extra?.tokensIn ?? r.tokensIn,
                       tokensOut: extra?.tokensOut ?? r.tokensOut,
+                      requestCount: extra?.requestCount ?? r.requestCount,
+                      cacheHits: extra?.cacheHits ?? r.cacheHits,
+                      cacheTokensSaved: extra?.cacheTokensSaved ?? r.cacheTokensSaved,
                     }
                   : r
               ),
@@ -1895,6 +1899,10 @@ async function runAgentLoop(
   // the run finishes). Providers may omit usage — the totals just stay 0.
   let runTokensIn = 0
   let runTokensOut = 0
+  // Per-run request/cache counters — surfaced in the token badge popover.
+  let runRequestCount = 0
+  let runCacheHits = 0
+  let runCacheTokensSaved = 0
 
   try {
     // Refresh dynamic tools (MCP servers + workspace skills) before building the tool list
@@ -2009,6 +2017,9 @@ async function runAgentLoop(
       if (rec) {
         runTokensIn = rec.tokensIn || 0
         runTokensOut = rec.tokensOut || 0
+        runRequestCount = rec.requestCount || 0
+        runCacheHits = rec.cacheHits || 0
+        runCacheTokensSaved = rec.cacheTokensSaved || 0
       }
     }
   }
@@ -2029,6 +2040,9 @@ async function runAgentLoop(
 
   const model = session.model || configGroup.defaultModel
   let iterationsLeft = MAX_AGENT_ITERATIONS
+  // Set when the loop exits via a natural finish (the model stopped calling
+  // tools) — distinguishes "completed" from "ran out of iterations".
+  let finishedNaturally = false
 
   while (iterationsLeft-- > 0) {
       if (abortController.signal.aborted) break
@@ -2121,9 +2135,16 @@ async function runAgentLoop(
       // Cache hits billed nothing — only add the real tokens to the run total.
       runTokensIn += cacheHit ? 0 : reqTokensIn
       runTokensOut += cacheHit ? 0 : reqTokensOut
+      // Count every LLM request (cache hits included) + accumulated cache savings.
+      runRequestCount += 1
+      if (cacheHit) {
+        runCacheHits += 1
+        runCacheTokensSaved += cacheHit.savedTokensIn + cacheHit.savedTokensOut
+      }
 
       // No tool calls - we're done
       if (toolCalls.length === 0) {
+        finishedNaturally = true
         chatStore.addMessage(sessionId, {
           role: 'assistant',
           content: fullContent,
@@ -2201,7 +2222,11 @@ async function runAgentLoop(
       // Deferred results are awaited together and finalized in original order
       // (all providers match tool results by tool_call_id, so order of the
       // tool messages across the batch is irrelevant).
-      const deferredSubagents: Array<{ tc: ToolCall; promise: Promise<ToolResult> }> = []
+      // NOTE: tasks are LAZY thunks — runWithConcurrency starts them itself.
+      // Eagerly calling execute() here (as before) started every subagent at
+      // once and made MAX_PARALLEL_SUBAGENTS a dead cap: a batch of 8 subagents
+      // fired 8 concurrent LLM requests regardless of the limit.
+      const deferredSubagents: Array<{ tc: ToolCall; run: () => Promise<ToolResult> }> = []
 
       const finalizeToolResult = (tc: ToolCall, result: ToolResult): void => {
         useChatStore.getState().setTraceStatus(sessionId, tc.id, result.isError ? 'error' : 'success')
@@ -2373,7 +2398,9 @@ async function runAgentLoop(
         if (tc.name === 'run_subagent') {
           deferredSubagents.push({
             tc,
-            promise: toolExecutor.execute(tc, runContext).catch((error: any) => ({
+            // Lazy thunk — the actual execution starts inside runWithConcurrency
+            // so the concurrency cap actually limits in-flight subagents.
+            run: () => toolExecutor.execute(tc, runContext).catch((error: any) => ({
               toolCallId: tc.id,
               name: tc.name,
               result: `Error: ${error?.message || String(error)}`,
@@ -2390,7 +2417,7 @@ async function runAgentLoop(
       // Await the deferred subagents concurrently (capped), finalize in order
       if (deferredSubagents.length > 0) {
         const settled = await runWithConcurrency(
-          deferredSubagents.map((d) => () => d.promise),
+          deferredSubagents.map((d) => d.run),
           MAX_PARALLEL_SUBAGENTS,
         )
         for (let i = 0; i < deferredSubagents.length; i++) {
@@ -2421,7 +2448,10 @@ async function runAgentLoop(
 
     // Agent loop exhausted without finishing (last iteration still had tool calls).
     // Notify instead of silently stopping — the UI shows a Continue button.
-    if (iterationsLeft <= 0 && !abortController.signal.aborted && !planWasSubmitted(sessionId)) {
+    // `finishedNaturally` guards the edge where the agent completed on its last
+    // allowed iteration: iterationsLeft is 0 there too, but a "[已达最大轮数]"
+    // message would be misleading.
+    if (iterationsLeft <= 0 && !finishedNaturally && !abortController.signal.aborted && !planWasSubmitted(sessionId)) {
       chatStore.addMessage(sessionId, {
         role: 'assistant',
         content: '[已达到最大工具调用轮数 (20)。点击下方"继续"按钮可继续执行。]',
@@ -2475,6 +2505,9 @@ async function runAgentLoop(
       useChatStore.getState().finishAgentRun(sessionId, runId, finalStatus, {
         tokensIn: runTokensIn,
         tokensOut: runTokensOut,
+        requestCount: runRequestCount,
+        cacheHits: runCacheHits,
+        cacheTokensSaved: runCacheTokensSaved,
       })
     }
     // Clear ONLY this session's run state — parallel conversations keep their

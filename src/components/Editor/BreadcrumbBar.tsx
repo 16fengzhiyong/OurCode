@@ -6,6 +6,12 @@ const KIND_ICON: Record<string, string> = {
   class: '⛶', interface: '◈', function: 'ƒ', method: 'ƒ', const: '◆', def: 'ƒ', other: '•',
 }
 
+/** Cap on how many lines above the cursor are scanned for the symbol chain —
+ *  a real chain (class → method → …) never spans thousands of lines, and
+ *  copying the whole file per cursor move (getLinesContent) froze editing on
+ *  big files. */
+const SYMBOL_SCAN_LIMIT = 2000
+
 /** VS Code-style breadcrumb: file path segments + the symbol chain at the cursor. */
 export default function BreadcrumbBar() {
   const activeFilePath = useEditorStore((s) => s.activeFilePath)
@@ -16,12 +22,17 @@ export default function BreadcrumbBar() {
     const parts = activeFilePath.split(/[/\\]/).filter(Boolean)
     const name = parts[parts.length - 1] || activeFilePath
 
-    // Symbol chain: tokenize cheaply from the live Monaco model
+    // Symbol chain: tokenize cheaply from the live Monaco model. Fetch ONLY the
+    // bounded window above the cursor — line-by-line getLineContent — instead of
+    // getLinesContent(), which copies the entire buffer on every cursor move.
     let chain: ReturnType<typeof findEnclosingSymbols> = []
-    const editor = (window as unknown as { __monacoEditor?: { getModel: () => { getLinesContent: () => string[] } | null } }).__monacoEditor
+    const editor = (window as unknown as { __monacoEditor?: { getModel: () => { getLineContent: (n: number) => string } | null } }).__monacoEditor
     const model = editor?.getModel()
     if (model && cursorPosition) {
-      chain = findEnclosingSymbols(model.getLinesContent(), cursorPosition.line)
+      const start = Math.max(1, cursorPosition.line - SYMBOL_SCAN_LIMIT)
+      const lines: string[] = []
+      for (let n = start; n <= cursorPosition.line; n++) lines.push(model.getLineContent(n))
+      chain = findEnclosingSymbols(lines, cursorPosition.line - start + 1)
     }
     return { dirs: parts.slice(0, -1), fileName: name, symbols: chain }
   }, [activeFilePath, cursorPosition])

@@ -103,6 +103,7 @@ export const enUS: Record<TranslationKey, string> = {
   'activityBar.extensions': 'Extensions',
   'activityBar.history': 'File Change History',
   'activityBar.agent': 'Agent Tasks',
+  'activityBar.skills': 'Skills',
   'activityBar.usage': 'Usage',
   'activityBar.settings': 'Settings',
   'activityBar.account': 'Account',
@@ -364,6 +365,20 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.memoryScope': 'Save to:',
   'chat.memoryScopeProject': 'Project memory',
   'chat.memoryScopeGlobal': 'Global memory',
+
+  // Token badge click → "Run usage" detail popover
+  'chat.usage.title': 'Run Usage',
+  'chat.usage.input': 'Input',
+  'chat.usage.output': 'Output',
+  'chat.usage.cacheHits': 'Cache hit {count} · saved {saved} tokens',
+  'chat.usage.requests': 'Requests',
+  'chat.usage.toolCalls': 'Tool calls',
+  'chat.usage.fileChanges': 'Files changed',
+  'chat.usage.duration': 'Duration',
+  'chat.usage.requestCount': '{count}',
+  'chat.usage.toolCallCount': '{count}',
+  'chat.usage.fileChangeCount': '{count}',
+  'chat.usage.hint': 'Click the badge again to close',
   'chat.memoryScopeInProject': '→ {project}',
   'chat.branchFromMessage': 'Create branch from this message',
   'chat.branch': 'Branch',
@@ -481,6 +496,7 @@ export const enUS: Record<TranslationKey, string> = {
   'agent.awaitingApproval': 'Awaiting approval',
   'agent.approveAndRun': '✓ Approve & Run',
   'agent.cancelPlan': 'Cancel Plan',
+  'agent.modifyPlan': 'Modify Plan',
 
   // Agent run panel / batch approval / tasks panel
   'agent.runStatus.running': 'Running',
@@ -572,6 +588,9 @@ export const enUS: Record<TranslationKey, string> = {
   'tool.todoCount': '{count} todos',
   'tool.toolCallLabel': 'Tools',
   'tool.completed': 'Done',
+  'tool.running': 'Running',
+  'tool.failed': 'Failed',
+  'tool.done': 'Done',
   'tool.completedWithError': 'Done (errors)',
 
   // ── Sidebar / File tree ────────────────────────────────────────────────
@@ -668,6 +687,12 @@ export const enUS: Record<TranslationKey, string> = {
   'git.diffTitle': 'Diff: {file}',
   'git.recentCommits': 'Recent Commits',
   'git.noCommits': 'No commits yet',
+  'git.stageHunk': 'Stage hunk',
+  'git.revertHunk': 'Revert hunk',
+  'git.unstageHunkShort': 'Unstage',
+  'git.revertAllShort': 'Revert All',
+  'git.applyHunkFailed': 'Failed to apply hunk, please retry',
+  'git.editFile': 'Edit file',
 
   // ── Command palette ────────────────────────────────────────────────────
   'palette.dialog': 'Command Palette',
@@ -823,7 +848,7 @@ export const enUS: Record<TranslationKey, string> = {
   // ── Skill registry ─────────────────────────────────────────────────────
   'skillRegistry.dialog': 'Skills',
   'skillRegistry.title': 'Skills',
-  'skillRegistry.subtitle': 'Manage local skills or install new ones from a remote registry',
+  'skillRegistry.subtitle': 'Enabled skills appear in the "/" menu and Agent tools',
   'skillRegistry.localTab': 'Local ({count})',
   'skillRegistry.registryTab': 'Registry',
   'skillRegistry.searchPlaceholder': 'Search skills...',
@@ -844,6 +869,14 @@ export const enUS: Record<TranslationKey, string> = {
   'skillRegistry.busy': 'Working...',
   'skillRegistry.error': 'Operation failed: {error}',
   'skillRegistry.workspaceRequired': 'Please open a workspace first.',
+
+  // ── Skill sidebar panel ─────────────────────────────────────────────────
+  'skillPanel.title': 'Skills',
+  'skillPanel.manage': 'Manage',
+  'skillPanel.searchPlaceholder': 'Search skills...',
+  'skillPanel.hint': 'Enabled skills appear in the "/" menu and Agent tools',
+  'skillPanel.noSkills': 'No skills in this workspace. Click "Manage" in the top-right to open the skill manager, or add a SKILL.md under skills/.',
+  'skillPanel.noMatch': 'No matching skills',
 
   // ── Command registry ───────────────────────────────────────────────────
   'commands.catFile': 'File',

@@ -217,6 +217,9 @@ async function getGlobalAgentsDir(): Promise<string> {
 interface AgentCache {
   root: string
   mtime: number
+  /** Fingerprint of the candidate set — deleting a definition must invalidate
+   *  the cache even when its (now-removed) mtime would lower `newest`. */
+  fileKey: string
   files: Array<{ path: string; name: string; source: 'workspace' | 'global' }>
 }
 
@@ -224,7 +227,7 @@ let _cache: AgentCache | null = null
 
 /**
  * Discover candidate <name>.md definition files (workspace `.ourcode/agents`
- * + global `<userData>/agents`), cached by newest mtime — mirrors skills.
+ * + global `<userData>/agents`), cached by newest mtime + the candidate set.
  */
 export async function listAgentDefinitionFiles(rootOverride?: string): Promise<
   Array<{ path: string; name: string; source: 'workspace' | 'global' }>
@@ -249,8 +252,11 @@ export async function listAgentDefinitionFiles(rootOverride?: string): Promise<
     const s = await statSafe(c.path)
     if (s && s.modifiedAt > newest) newest = s.modifiedAt
   }
-  if (!_cache || _cache.root !== root || _cache.mtime < newest) {
-    _cache = { root, mtime: newest, files: candidates }
+  // Order matters for the fingerprint — sort so an identical set always hashes
+  // the same regardless of directory enumeration order.
+  const fileKey = candidates.map((c) => c.path).sort().join('\n')
+  if (!_cache || _cache.root !== root || _cache.mtime < newest || _cache.fileKey !== fileKey) {
+    _cache = { root, mtime: newest, fileKey, files: candidates }
   }
   return _cache.files
 }
@@ -339,8 +345,16 @@ export class SubagentGuard {
       }
     }
 
-    if (allowedRoots && allowedRoots.length > 0 && name === 'run_command' && typeof args.cwd === 'string') {
+    // A subagent restricted to allowedPaths must not be able to run commands
+    // outside them. When allowedPaths is set and run_command omits cwd, the
+    // command would fall back to the whole project root — escaping the
+    // subagent's boundary — so require an explicit cwd inside the allowed
+    // roots instead of skipping the check.
+    if (allowedRoots && allowedRoots.length > 0 && name === 'run_command') {
       const roots = allowedRoots.map((r) => resolveAllowedRoot(this.projectPath, r))
+      if (typeof args.cwd !== 'string' || !args.cwd) {
+        return `run_command 需要显式指定 cwd（工作目录），且必须位于子智能体「${this.def.name}」允许的目录范围内: ${allowedRoots.join(', ')}。`
+      }
       if (!roots.some((root) => isPathWithin(root, args.cwd))) {
         return `run_command 的工作目录 "${args.cwd}" 超出子智能体「${this.def.name}」允许的目录范围: ${allowedRoots.join(', ')}。`
       }

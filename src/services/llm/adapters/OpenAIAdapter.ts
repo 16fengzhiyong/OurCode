@@ -115,6 +115,10 @@ export class OpenAIAdapter implements LLMAdapter {
     // Usage arrives in a dedicated final chunk (empty choices) — capture it on
     // ANY chunk and surface it on the done yield, not just content chunks.
     let lastUsage: { promptTokens: number; completionTokens: number } | undefined
+    // With stream_options.include_usage the usage chunk comes AFTER the
+    // finish_reason chunk — so on tool_calls we must NOT return immediately:
+    // keep reading until [DONE], accumulating usage, then emit the calls.
+    let pendingToolCalls: LLMToolCall[] | null = null
 
     try {
       while (true) {
@@ -130,7 +134,11 @@ export class OpenAIAdapter implements LLMAdapter {
           if (!trimmed || !trimmed.startsWith('data: ')) continue
           const data = trimmed.slice(6)
           if (data === '[DONE]') {
-            yield { content: '', done: true, usage: lastUsage }
+            if (pendingToolCalls) {
+              yield { content: '', toolCalls: pendingToolCalls, done: true, usage: lastUsage }
+            } else {
+              yield { content: '', done: true, usage: lastUsage }
+            }
             return
           }
 
@@ -176,10 +184,11 @@ export class OpenAIAdapter implements LLMAdapter {
               }
             }
 
-            // When finish_reason is tool_calls, yield the accumulated tool calls
+            // When finish_reason is tool_calls, remember the accumulated calls
+            // but keep reading — the usage chunk (include_usage) trails behind.
             const finishReason = json.choices?.[0]?.finish_reason
-            if (finishReason === 'tool_calls' || finishReason === 'function_call') {
-              const toolCalls: LLMToolCall[] = Array.from(toolCallsAcc.values()).map((tc) => ({
+            if ((finishReason === 'tool_calls' || finishReason === 'function_call') && !pendingToolCalls) {
+              pendingToolCalls = Array.from(toolCallsAcc.values()).map((tc) => ({
                 id: tc.id,
                 type: 'function' as const,
                 function: {
@@ -187,8 +196,6 @@ export class OpenAIAdapter implements LLMAdapter {
                   arguments: tc.arguments,
                 },
               }))
-              yield { content: '', toolCalls, done: true, usage: lastUsage }
-              return
             }
           } catch {
             // Skip invalid JSON lines

@@ -25,11 +25,23 @@ function runEditorCommand(command: string): void {
 }
 
 export default function TitleBar() {
-  const { openSettings, toggleSidebar, toggleTerminal, toggleChat, openCommandPalette, openMarketplace } = useUIStore()
+  // All actions (stable refs) — a whole-store subscription would re-render the
+  // title bar on every uiStore change (notifications, drag-resize, ...).
+  const openSettings = useUIStore((s) => s.openSettings)
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar)
+  const toggleTerminal = useUIStore((s) => s.toggleTerminal)
+  const toggleChat = useUIStore((s) => s.toggleChat)
+  const openCommandPalette = useUIStore((s) => s.openCommandPalette)
+  const openMarketplace = useUIStore((s) => s.openMarketplace)
   const isMaximized = useUIStore((s) => s.isMaximized)
   const rootPath = useUIStore((s) => s.rootPath)
   const isChatVisible = useUIStore((s) => s.isChatVisible)
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
+  // The command center shows the CURRENT project (the active session's bound
+  // project) — opening/entering another folder in the file tree only browses
+  // it, it doesn't change which project this is.
+  const currentProjectPath = useChatStore((s) => s.getActiveSession()?.projectPath ?? null)
+  const displayPath = currentProjectPath || rootPath
   const t = useI18n()
 
   const [activeMenu, setActiveMenu] = useState<string | null>(null)
@@ -372,7 +384,7 @@ export default function TitleBar() {
           window drag handle; only the pill itself stays clickable (no-drag). */}
       <div className="flex-1 flex justify-center min-w-0 px-4">
         <button
-          onClick={() => (rootPath ? useUIStore.getState().toggleSidebar() : openCommandPalette())}
+          onClick={() => (displayPath ? useUIStore.getState().toggleSidebar() : openCommandPalette())}
           className="hidden md:flex items-center gap-2 px-3 h-7 rounded-full text-xs transition-colors min-w-0 max-w-[420px] no-drag"
           style={{
             background: 'color-mix(in srgb, var(--card, #ffffff) 55%, transparent)',
@@ -381,13 +393,13 @@ export default function TitleBar() {
             backdropFilter: 'var(--backdrop-blur)',
             WebkitBackdropFilter: 'var(--backdrop-blur)',
           }}
-          title={rootPath || t('layout.openFolder')}
+          title={displayPath || t('layout.openFolder')}
         >
           <svg className="w-3.5 h-3.5 text-nova-text-muted shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a5 5 0 11-14 0 5 5 0 0114 0z" />
           </svg>
           <span className="truncate text-nova-text-secondary">
-            {rootPath ? rootPath.split(/[/\\]/).pop() || rootPath : t('layout.openFolder')}
+            {displayPath ? displayPath.split(/[/\\]/).pop() || displayPath : t('layout.openFolder')}
           </span>
           <span
             className={`w-1.5 h-1.5 rounded-full shrink-0 ${activeConfigGroupId ? 'bg-green-400 animate-pulse-dot' : 'bg-nova-text-muted'}`}

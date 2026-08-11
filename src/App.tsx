@@ -26,7 +26,10 @@ export default function App() {
   const loadConfigGroups = useConfigStore((s) => s.loadConfigGroups)
   const loadSessions = useChatStore((s) => s.loadSessions)
   const loadPreferences = useEditorStore((s) => s.loadPreferences)
-  const { initTheme } = useUIStore()
+  // Select the ACTION only — a whole-store subscription here would re-render
+  // the ENTIRE app (MainLayout and every editor/chat/sidebar child) on any
+  // uiStore change: notifications, sidebar drag-resize, context menus, ...
+  const initTheme = useUIStore((s) => s.initTheme)
   const loadCommands = useAICommandsStore((s) => s.loadCommands)
   const loadMemories = useMemoryStore((s) => s.loadMemories)
   const loadWorkflows = useWorkflowStore((s) => s.loadWorkflows)
@@ -62,6 +65,9 @@ export default function App() {
       initTheme(useEditorStore.getState().preferences.theme)
       // Re-select the last opened project (if it still exists on disk)
       await useUIStore.getState().restoreLastProject()
+      // Restore the tabs open when the app last closed (hides the editor when
+      // none were open — the chat panel fills the window instead)
+      await useEditorStore.getState().restoreSession()
       loadCommands()
       // Load persistent user memories (injected into the agent prompt)
       loadMemories()

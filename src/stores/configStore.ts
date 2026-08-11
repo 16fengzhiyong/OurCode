@@ -58,7 +58,7 @@ export function setLastModelForGroup(groupId: string, modelId: string): void {
   } catch { /* ignore */ }
 }
 
-function enrichModel(id: string, provider: string): ModelInfo {
+function enrichModel(id: string, _provider: string): ModelInfo {
   const favorites = useConfigStore.getState().favoriteModelIds
   const custom = useConfigStore.getState().customModels.find((c) => c.id === id)
   const meta = lookupModelMetadata(id)

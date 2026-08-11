@@ -100,6 +100,7 @@ export const zhCN = {
   'activityBar.extensions': '扩展',
   'activityBar.history': '文件变更历史',
   'activityBar.agent': 'Agent 任务',
+  'activityBar.skills': '技能',
   'activityBar.usage': '使用统计',
   'activityBar.settings': '设置',
   'activityBar.account': '账户',
@@ -361,6 +362,20 @@ export const zhCN = {
   'chat.memoryScope': '保存到：',
   'chat.memoryScopeProject': '项目记忆',
   'chat.memoryScopeGlobal': '全局记忆',
+
+  // Token 徽章点击展开的「本次消耗」详情弹窗
+  'chat.usage.title': '本次消耗',
+  'chat.usage.input': '输入',
+  'chat.usage.output': '输出',
+  'chat.usage.cacheHits': '缓存命中 {count} 次 · 节省 {saved} tokens',
+  'chat.usage.requests': '请求',
+  'chat.usage.toolCalls': '工具调用',
+  'chat.usage.fileChanges': '修改文件',
+  'chat.usage.duration': '耗时',
+  'chat.usage.requestCount': '{count} 次',
+  'chat.usage.toolCallCount': '{count} 次',
+  'chat.usage.fileChangeCount': '{count} 个',
+  'chat.usage.hint': '再次点击徽章关闭',
   'chat.memoryScopeInProject': '→ {project}',
   'chat.branchFromMessage': '从此消息创建分支',
   'chat.branch': '分支',
@@ -478,6 +493,7 @@ export const zhCN = {
   'agent.awaitingApproval': '等待批准',
   'agent.approveAndRun': '✓ 同意并执行',
   'agent.cancelPlan': '取消计划',
+  'agent.modifyPlan': '修改计划',
 
   // Agent 运行面板 / 批量授权 / 任务面板
   'agent.runStatus.running': '运行中',
@@ -569,6 +585,9 @@ export const zhCN = {
   'tool.todoCount': '{count} 项任务',
   'tool.toolCallLabel': '工具调用',
   'tool.completed': '已完成',
+  'tool.running': '执行中',
+  'tool.failed': '失败',
+  'tool.done': '完成',
   'tool.completedWithError': '已完成(有误)',
 
   // ── 侧边栏 / 文件树 ────────────────────────────────────────────────────
@@ -665,6 +684,12 @@ export const zhCN = {
   'git.diffTitle': '差异: {file}',
   'git.recentCommits': '最近提交',
   'git.noCommits': '暂无提交记录',
+  'git.stageHunk': '暂存此块',
+  'git.revertHunk': '撤销此块',
+  'git.unstageHunkShort': '取消暂存',
+  'git.revertAllShort': '全部撤销',
+  'git.applyHunkFailed': '应用代码块失败，请重试',
+  'git.editFile': '编辑文件',
 
   // ── 命令面板 ───────────────────────────────────────────────────────────
   'palette.dialog': '命令面板',
@@ -820,7 +845,7 @@ export const zhCN = {
   // ── 技能注册中心 ───────────────────────────────────────────────────────
   'skillRegistry.dialog': '技能管理',
   'skillRegistry.title': '技能管理',
-  'skillRegistry.subtitle': '管理本地技能，或从远程注册中心安装新技能',
+  'skillRegistry.subtitle': '已启用的技能会出现在 / 斜杠菜单与 Agent 工具列表',
   'skillRegistry.localTab': '本地技能 ({count})',
   'skillRegistry.registryTab': '注册中心',
   'skillRegistry.searchPlaceholder': '搜索技能...',
@@ -841,6 +866,14 @@ export const zhCN = {
   'skillRegistry.busy': '处理中...',
   'skillRegistry.error': '操作失败: {error}',
   'skillRegistry.workspaceRequired': '请先打开一个工作区。',
+
+  // ── 技能侧边栏面板 ─────────────────────────────────────────────────────
+  'skillPanel.title': '技能管理',
+  'skillPanel.manage': '管理',
+  'skillPanel.searchPlaceholder': '搜索技能...',
+  'skillPanel.hint': '已启用的技能会出现在 / 斜杠菜单与 Agent 工具列表',
+  'skillPanel.noSkills': '工作区中没有技能。点击右上角「管理」打开技能管理窗口，或在 skills/ 目录下创建 SKILL.md。',
+  'skillPanel.noMatch': '未找到匹配的技能',
 
   // ── 命令注册表 ─────────────────────────────────────────────────────────
   'commands.catFile': '文件',

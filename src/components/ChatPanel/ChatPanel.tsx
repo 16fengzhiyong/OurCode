@@ -94,14 +94,17 @@ function SessionTitleEditor({ session }: { session: ChatSession }) {
 }
 
 export default function ChatPanel() {
-  const activeSession = useChatStore((s) => s.getActiveSession())
+  // Derived session selector (stable object reference unless THIS session
+  // changes) — the old getActiveSession() function selector never re-renders.
+  const activeSession = useChatStore((s) => (s.activeSessionId ? s.sessions.find((x) => x.id === s.activeSessionId) ?? null : null))
   const createSession = useChatStore((s) => s.createSession)
   const setAgentMode = useChatStore((s) => s.setAgentMode)
   const setProjectEditMode = useChatStore((s) => s.setProjectEditMode)
   const setTargetMode = useChatStore((s) => s.setTargetMode)
   const targetModeStatus = useChatStore((s) => s.targetModeStatus)
   const refreshTargetModeStatus = useChatStore((s) => s.refreshTargetModeStatus)
-  const { activeConfigGroupId, models } = useConfigStore()
+  const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
+  const models = useConfigStore((s) => s.models)
   const activeConfigGroup = useConfigStore((s) => s.configGroups.find((g) => g.id === s.activeConfigGroupId))
   // The session's OWN config group — the chat loop resolves the runtime model
   // from session.configGroupId, so the pill must follow it, not the globally
@@ -109,7 +112,9 @@ export default function ChatPanel() {
   const sessionConfigGroup = useConfigStore((s) =>
     activeSession ? s.configGroups.find((g) => g.id === activeSession.configGroupId) : undefined
   )
-  const { openSettings, rootPath, openMemoryManager } = useUIStore()
+  const openSettings = useUIStore((s) => s.openSettings)
+  const rootPath = useUIStore((s) => s.rootPath)
+  const openMemoryManager = useUIStore((s) => s.openMemoryManager)
   const t = useI18n()
   const isChatSessionListOpen = useUIStore((s) => s.isChatSessionListOpen)
   const setChatSessionListOpen = useUIStore((s) => s.setChatSessionListOpen)
@@ -186,7 +191,9 @@ export default function ChatPanel() {
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <strong className="text-nova-text-primary text-sm block truncate leading-tight">OurCode AI</strong>
+                  <strong className="text-sm block truncate leading-tight bg-gradient-to-r from-[#0ea5e9] via-[#6366f1] to-[#a855f7] bg-clip-text text-transparent">
+                    OurCode AI
+                  </strong>
                   {activeConfigGroup ? (
                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] text-green-500 bg-green-500/10 border border-green-500/20 shrink-0">
                       <span className="w-1 h-1 rounded-full bg-green-500 animate-pulse-dot" />

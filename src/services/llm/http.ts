@@ -133,7 +133,20 @@ export function llmFetch(url: string, init: LlmFetchInit = {}, options: LlmFetch
     skipTlsVerify: options.skipTlsVerify,
   }
 
+  // Shared abort handler: cancels the request in the main process. Wired up for
+  // both the non-streaming path (below) and the streaming path (llmFetchStream).
+  const onAbort = () => { api.llmHttpAbort(id) }
+
   if (!options.stream) {
+    // Non-streaming path: the invoke resolves with the whole body, so the
+    // AbortSignal has to be wired manually (llm:httpAbort cancels the request
+    // in the main process) — otherwise a "test connection" or model fetch
+    // against a hanging host ignores the signal and runs until the 120s
+    // main-side timeout.
+    if (init.signal?.aborted) {
+      return Promise.reject(new Error('请求已取消'))
+    }
+    init.signal?.addEventListener('abort', onAbort)
     return api.llmHttp(request).then((res: any) => {
       if (!res || typeof res !== 'object') throw new Error('LLM 请求失败：主进程无响应')
       if (res.error) throw new Error(friendlyNetworkError(res.error))
@@ -148,6 +161,11 @@ export function llmFetch(url: string, init: LlmFetchInit = {}, options: LlmFetch
         json: () => Promise.resolve(text ? JSON.parse(text) : {}),
         arrayBuffer: () => Promise.resolve(new TextEncoder().encode(text).buffer),
       }
+    }).catch((err: any) => {
+      if (init.signal?.aborted) throw new Error('请求已取消')
+      throw err
+    }).finally(() => {
+      if (init.signal) init.signal.removeEventListener('abort', onAbort)
     })
   }
 

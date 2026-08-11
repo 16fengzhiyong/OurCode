@@ -19,7 +19,9 @@ export default function SearchPanel() {
   const [showFilters, setShowFilters] = useState(false)
   const t = useI18n()
 
-  const { openFile } = useEditorStore()
+  // Select the ACTION only — a whole-store subscription would re-render the
+  // search panel on every editorStore change (cursor moves while editing).
+  const openFile = useEditorStore((s) => s.openFile)
 
   const handleSearch = useCallback(async () => {
     if (!query.trim()) {
@@ -98,6 +100,29 @@ export default function SearchPanel() {
   const handleReplaceAll = async () => {
     if (!replaceValue.trim() || results.length === 0) return
 
+    // Staleness guard: the search results carry line numbers + column offsets
+    // captured at search time. If a file was edited after the search (manual
+    // typing, an agent write, a build regenerating files), those offsets no
+    // longer describe the current text — blind splicing would corrupt the file.
+    // Verify the exact span still matches the query before touching it and
+    // skip results that no longer do (fail-closed).
+    const isMatchAt = (text: string, start: number, end: number): boolean => {
+      if (start < 0 || end > text.length || start >= end) return false
+      if (useRegex) {
+        try {
+          const flags = caseSensitive ? 'g' : 'gi'
+          const re = new RegExp(query, flags)
+          re.lastIndex = start
+          const m = re.exec(text)
+          return m !== null && m.index === start && m[0].length === end - start
+        } catch {
+          return false
+        }
+      }
+      const slice = text.slice(start, end)
+      return caseSensitive ? slice === query : slice.toLowerCase() === query.toLowerCase()
+    }
+
     const fileGroups = new Map<string, SearchResult[]>()
     for (const result of results) {
       const group = fileGroups.get(result.filePath) || []
@@ -117,6 +142,7 @@ export default function SearchPanel() {
           const lineStart = newContent.split('\n').slice(0, result.lineNumber - 1).join('\n').length + (result.lineNumber > 1 ? 1 : 0)
           const matchStart = lineStart + result.matchStart
           const matchEnd = lineStart + result.matchEnd
+          if (!isMatchAt(newContent, matchStart, matchEnd)) continue // stale — leave the file untouched here
           newContent = newContent.slice(0, matchStart) + replaceValue + newContent.slice(matchEnd)
         }
 

@@ -45,13 +45,15 @@ async function launchApp(userData: string): Promise<{ app: Electron.Application;
 
 /** Where the layout is, and whether anything is scrolled off. */
 const layoutMetrics = (win: Page) => win.evaluate(() => {
-  const sidebar = document.querySelector('.bg-nova-sidebar') as HTMLElement | null
-  const wrapper = sidebar?.parentElement?.parentElement as HTMLElement | null // h-full border-r -> shrink-0 relative
-  const contentRow = wrapper?.parentElement as HTMLElement | null // flex-1 h-full min-h-0 flex overflow-hidden
+  // Anchor on the sidebar's resize handle — the sidebar itself lost its old
+  // `.bg-nova-sidebar` class in the Stitch redesign, and its resizer (with the
+  // `absolute` position classes) is still a stable, unique handle.
+  const sidebar = document.querySelector('.resizer.absolute')?.parentElement as HTMLElement | null // shrink-0 relative (width container)
+  const contentRow = sidebar?.parentElement as HTMLElement | null // flex-1 min-h-0 flex gap-2 overflow-hidden
   return {
     sidebarTop: sidebar ? Math.round(sidebar.getBoundingClientRect().top) : null,
-    wrapperClientH: wrapper?.clientHeight ?? null,
-    wrapperScrollH: wrapper?.scrollHeight ?? null, // must equal clientH — a 2x here = in-flow resizer bug
+    wrapperClientH: sidebar?.clientHeight ?? null,
+    wrapperScrollH: sidebar?.scrollHeight ?? null, // must equal clientH — a 2x here = in-flow resizer bug
     contentRowScrollTop: contentRow ? Math.round(contentRow.scrollTop) : null,
   }
 })
@@ -59,9 +61,9 @@ const layoutMetrics = (win: Page) => win.evaluate(() => {
 async function ensureSidebarVisible(win: Page) {
   await win.keyboard.press('Control+b')
   await win.waitForTimeout(600)
-  const vis = await win.evaluate(() => !!document.querySelector('.bg-nova-sidebar'))
+  const vis = await win.evaluate(() => !!document.querySelector('.resizer.absolute'))
   if (!vis) { await win.keyboard.press('Control+b'); await win.waitForTimeout(600) }
-  expect(await win.evaluate(() => !!document.querySelector('.bg-nova-sidebar'))).toBe(true)
+  expect(await win.evaluate(() => !!document.querySelector('.resizer.absolute'))).toBe(true)
 }
 
 test('sidebar resizer is out-of-flow (no hidden overflow)', async () => {
@@ -90,7 +92,8 @@ test('new chat does not scroll the layout', async () => {
   await ensureSidebarVisible(win)
 
   const before = await layoutMetrics(win)
-  await win.locator('button', { hasText: '新建对话' }).first().click()
+  // The new-chat button is icon-only (label lives in its title attribute)
+  await win.locator('button[title="新建对话"]').first().click()
   await win.waitForTimeout(800)
 
   const after = await layoutMetrics(win)

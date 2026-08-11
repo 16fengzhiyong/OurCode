@@ -174,9 +174,11 @@ export async function fetchRegistryIndex(url?: string, root?: string): Promise<R
 
 /** Resolve the SKILL.md content for a registry entry. */
 async function fetchSkillContent(entry: RegistrySkillInfo, registryUrl?: string): Promise<string | null> {
-  const url = entry.contentUrl || (registryUrl ? new URL(`${entry.name}/SKILL.md`, registryUrl).href : '')
-  if (!url) return null
   try {
+    // `new URL` throws on a malformed registry URL — keep it inside the try so
+    // a bad skills.json can't crash the whole install flow.
+    const url = entry.contentUrl || (registryUrl ? new URL(`${entry.name}/SKILL.md`, registryUrl).href : '')
+    if (!url) return null
     const res = await window.electronAPI.webFetch(url, { timeoutMs: 15000, maxBytes: 2 * 1024 * 1024 })
     if (!res.ok) return null
     return res.text || null
@@ -186,10 +188,26 @@ async function fetchSkillContent(entry: RegistrySkillInfo, registryUrl?: string)
 }
 
 /**
+ * Skill names come from a remote registry index (untrusted) and are spliced
+ * into filesystem paths (install/uninstall). Reject anything that could escape
+ * the `<root>/skills/` directory: path separators, `.`/`..`, drive letters,
+ * whitespace-only names.
+ */
+function isSafeSkillName(name: string): boolean {
+  if (!name || typeof name !== 'string') return false
+  if (name !== name.trim()) return false
+  if (/[\\/]/.test(name)) return false
+  if (name === '.' || name === '..') return false
+  if (/^[a-zA-Z]:/.test(name)) return false
+  return true
+}
+
+/**
  * Install (or update) a skill into `<root>/skills/<name>/SKILL.md`.
  * Returns the installed version on success, null on failure.
  */
 export async function installSkill(name: string, root: string, entry?: RegistrySkillInfo): Promise<string | null> {
+  if (!isSafeSkillName(name)) return null
   let target = entry
   if (!target) {
     const found = await fetchRegistryIndex(undefined, root)
@@ -216,6 +234,7 @@ export async function installSkill(name: string, root: string, entry?: RegistryS
 
 /** Remove a skill directory from the workspace. */
 export async function uninstallSkill(name: string, root: string): Promise<boolean> {
+  if (!isSafeSkillName(name)) return false
   const config = await readSkillConfig(root)
   delete config.skills[name]
   _configCache = null

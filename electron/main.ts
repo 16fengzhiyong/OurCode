@@ -3,6 +3,7 @@ import { join, resolve, dirname, sep, relative, isAbsolute } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
 import { exec, execFile } from 'child_process'
+import type { ExecFileOptions } from 'child_process'
 import * as pty from 'node-pty'
 import picomatch from 'picomatch'
 import { autoUpdater, UpdateInfo } from 'electron-updater'
@@ -75,15 +76,20 @@ function isSafeEnvVarName(name: string): boolean {
 }
 
 /** Execute a git command and return stdout */
-function gitExec(cwd: string, args: string[]): Promise<string> {
+function gitExec(cwd: string, args: string[], input?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, timeout: 15000, maxBuffer: 5 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        reject(new Error(stderr || error.message))
-      } else {
-        resolve(stdout.trim())
-      }
-    })
+    execFile(
+      'git',
+      args,
+      { cwd, timeout: 15000, maxBuffer: 5 * 1024 * 1024, input } as ExecFileOptions,
+      (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
+        if (error) {
+          reject(new Error(String(stderr || error.message)))
+        } else {
+          resolve(String(stdout).trim())
+        }
+      },
+    )
   })
 }
 
@@ -432,6 +438,7 @@ function registerIpcHandlers(): void {
   // LSP: start a language server for a document, push diagnostics back
   ipcMain.handle('lsp:start', async (_event, uri: string, command: string, args: string[], cwd: string, languageId: string, text: string) => {
     await lspStop(uri)
+    if (cwd) assertPathAllowed(cwd)
     const server = new LspServer()
     server.onDiagnostics = (params) => {
       broadcast('lsp:diagnostics', { uri: params.uri, diagnostics: params.diagnostics })
@@ -461,6 +468,7 @@ function registerIpcHandlers(): void {
   // DAP: single debug session
   ipcMain.handle('debug:start', async (_event, command: string, args: string[], cwd: string, launchConfig: Record<string, unknown>, breakpoints: Array<{ path: string; line: number }>) => {
     await stopDebugSession()
+    if (cwd) assertPathAllowed(cwd)
     const client = new DebugAdapterClient()
     client.onStopped = (body) => emitDebugEvent('stopped', body)
     client.onOutput = (body) => emitDebugEvent('output', body)
@@ -661,6 +669,7 @@ function registerIpcHandlers(): void {
 
   // Terminal handlers (each terminal belongs to the window that created it)
   ipcMain.handle('term:create', (event, id: string, cwd?: string) => {
+    if (cwd) assertPathAllowed(cwd)
     const wc = event.sender
     const shellName = process.platform === 'win32' ? 'powershell.exe' : 'bash'
     const term = pty.spawn(shellName, [], {
@@ -851,12 +860,41 @@ function registerIpcHandlers(): void {
       const sizeLimit = options?.maxBytes || MAX_WEB_BYTES
       const contentLength = Number(res.headers.get('content-length') || 0)
       if (contentLength > sizeLimit) {
+        // Cancel the body before returning so the connection isn't left draining.
+        await res.body?.cancel().catch(() => {})
         return { ok: false, status: res.status, error: `响应超过大小上限 (${sizeLimit} bytes)` }
       }
-      const buf = Buffer.from(await res.arrayBuffer())
-      if (buf.length > sizeLimit) {
-        return { ok: false, status: res.status, error: `响应超过大小上限 (${sizeLimit} bytes)` }
+      // Stream the body and stop at sizeLimit — the old code awaited the whole
+      // arrayBuffer() first, so a lying/missing content-length made a malicious
+      // endpoint download fully into memory before the cap was enforced.
+      if (!res.body) {
+        return {
+          ok: res.ok,
+          status: res.status,
+          contentType: res.headers.get('content-type') || '',
+          finalUrl: res.url || parsed.toString(),
+          text: '',
+        }
       }
+      const reader = res.body.getReader()
+      const chunks: Buffer[] = []
+      let total = 0
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          const chunk = Buffer.from(value)
+          total += chunk.length
+          if (total > sizeLimit) {
+            await reader.cancel().catch(() => {})
+            return { ok: false, status: res.status, error: `响应超过大小上限 (${sizeLimit} bytes)` }
+          }
+          chunks.push(chunk)
+        }
+      } finally {
+        reader.releaseLock()
+      }
+      const buf = Buffer.concat(chunks)
       return {
         ok: res.ok,
         status: res.status,
@@ -1027,6 +1065,12 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('checkpoint:create', async (_event, checkpoint: any) => {
     if (!checkpoint?.id || !checkpoint?.sessionId) throw new Error('检查点参数不完整')
+    // The snapshot's file paths are later written/deleted on revert — refuse
+    // to persist paths the renderer isn't allowed to touch, so a compromised
+    // renderer can't stage an arbitrary-path revert.
+    for (const f of checkpoint.files || []) {
+      if (f?.path) assertPathAllowed(f.path)
+    }
     return store.addCheckpoint(checkpoint)
   })
 
@@ -1049,6 +1093,10 @@ function registerIpcHandlers(): void {
     let restored = 0
     for (const file of target.files) {
       try {
+        // Defense in depth: re-validate each path at revert time (the snapshot
+        // may predate an allowlist change, or be from an older version).
+        if (!file?.path) continue
+        assertPathAllowed(file.path)
         if (file.existed) {
           await fileSystem.writeFile(file.path, file.content, 'utf-8', false)
         } else if (existsSync(file.path)) {
@@ -1082,6 +1130,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('mcp:reload', async (_event, rootPath: string) => {
     try {
+      if (rootPath) assertPathAllowed(rootPath)
       await mcp.loadConfig(rootPath)
       return { ok: true }
     } catch (error: any) {
@@ -1093,6 +1142,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('mcp:getConfig', (_event, rootPath: string) => {
     try {
       if (!rootPath) return { ok: true, config: { mcpServers: {} }, file: null }
+      assertPathAllowed(rootPath)
       const candidates = [join(rootPath, 'mcp_config.json'), join(rootPath, '.mcp.json')]
       let raw = ''
       let file: string | null = null
@@ -1122,6 +1172,7 @@ function registerIpcHandlers(): void {
       if (!rootPath) throw new Error('未打开项目，无法保存 MCP 配置')
       // Only write inside the workspace — resolve the target and verify it
       // doesn't escape the project root (blocks ../ traversal and arbitrary paths).
+      assertPathAllowed(rootPath)
       const target = file ? resolve(rootPath, file) : join(rootPath, 'mcp_config.json')
       const rootResolved = resolve(rootPath)
       const rel = relative(rootResolved, target)
@@ -1191,10 +1242,10 @@ function registerIpcHandlers(): void {
   })
 
   // Git handler
-  ipcMain.handle('git:exec', async (_event, cwd: string, args: string[]) => {
+  ipcMain.handle('git:exec', async (_event, cwd: string, args: string[], input?: string) => {
     try {
       if (cwd) assertPathAllowed(cwd)
-      const result = await gitExec(cwd, args)
+      const result = await gitExec(cwd, args, input)
       return { success: true, output: result }
     } catch (error: any) {
       return { success: false, output: '', error: error.message }
@@ -1398,8 +1449,15 @@ app.on('window-all-closed', () => {
   mcp?.stopAll()
   void stopAllLspServers()
   void stopDebugSession()
-  store.close()
+  // Close the SQLite store only when the app is actually quitting. On macOS the
+  // app stays alive with zero windows (activate re-creates one), so closing the
+  // store here made every later store:* IPC throw "database is not open".
   if (process.platform !== 'darwin') {
+    store.close()
     app.quit()
   }
+})
+
+app.on('will-quit', () => {
+  store.close()
 })

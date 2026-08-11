@@ -146,7 +146,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   searchFiles: (dirPath: string, query: string) => ipcRenderer.invoke('search:files', dirPath, query),
 
   // Git
-  gitExec: (cwd: string, args: string[]) => ipcRenderer.invoke(IPC_CHANNELS.GIT_EXEC, cwd, args),
+  gitExec: (cwd: string, args: string[], input?: string) => ipcRenderer.invoke(IPC_CHANNELS.GIT_EXEC, cwd, args, input),
 
   // Shell
   shellExec: (command: string, cwd?: string) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_EXEC, command, cwd),

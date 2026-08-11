@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { FileEntry } from '@/types'
 import { getFileIconHTML } from '@/utils/fileIcons'
 import { useUIStore } from '@/stores/uiStore'
@@ -14,26 +14,24 @@ interface FileTreeNodeProps {
   entry: FileEntry
   depth: number
   isExpanded: boolean
-  onToggle: (path: string) => void
   onClick: (path: string, isDirectory: boolean) => void
-  searchQuery: string
   onRefresh?: () => void
   /** Path open in the editor — the matching row shows the selected state */
   activePath?: string | null
 }
 
-export default function FileTreeNode({
+function FileTreeNode({
   entry,
   depth,
   isExpanded,
-  onToggle,
   onClick,
-  searchQuery,
   onRefresh,
   activePath,
 }: FileTreeNodeProps) {
   const paddingLeft = depth * 12 + 8
-  const { showContextMenu } = useUIStore()
+  // Select just the action (stable) — a whole-store subscription would re-render
+  // every tree node on ANY uiStore change (notifications, toggles, ...).
+  const showContextMenu = useUIStore((s) => s.showContextMenu)
   const [isDragOver, setIsDragOver] = useState(false)
   const t = useI18n()
   const isActive = activePath === entry.path
@@ -281,25 +279,8 @@ export default function FileTreeNode({
           </span>
         )}
       </div>
-
-      {/* Children */}
-      {entry.isDirectory && isExpanded && entry.children && (
-        <div>
-          {entry.children.map((child) => (
-            <FileTreeNode
-              key={child.path}
-              entry={child}
-              depth={depth + 1}
-              isExpanded={false}
-              onToggle={onToggle}
-              onClick={onClick}
-              searchQuery={searchQuery}
-              onRefresh={onRefresh}
-              activePath={activePath}
-            />
-          ))}
-        </div>
-      )}
     </div>
   )
 }
+
+export default memo(FileTreeNode)

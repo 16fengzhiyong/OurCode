@@ -8,14 +8,30 @@ import { useI18n } from '@/i18n/useI18n'
 import { t as moduleT } from '@/i18n'
 
 export default function StatusBar() {
-  const { openFiles, activeFilePath, cursorPosition, preferences } = useEditorStore()
-  const activeSession = useChatStore((s) => s.getActiveSession())
-  const { models, configGroups, activeConfigGroupId, setActiveConfigGroup } = useConfigStore()
-  const activeConfigGroup = useConfigStore((s) => s.getActiveConfigGroup())
+  // Targeted selectors — the previous whole-store subscriptions re-rendered the
+  // bar on every editorStore/configStore change (each cursor move, keystroke…).
+  const activeFilePath = useEditorStore((s) => s.activeFilePath)
+  const cursorPosition = useEditorStore((s) => s.cursorPosition)
+  const preferences = useEditorStore((s) => s.preferences)
+  // Active file's display fields as primitives: no re-render when OTHER files
+  // churn or on cursor moves.
+  const activeFileEncoding = useEditorStore((s) => s.openFiles.find((f) => f.path === s.activeFilePath)?.encoding)
+  const activeFileLineEnding = useEditorStore((s) => s.openFiles.find((f) => f.path === s.activeFilePath)?.lineEnding)
+  // Derived session/group selectors return the OBJECT (stable reference unless
+  // that session/group changes). The previous `s.getActiveSession()` selector
+  // returned the bare FUNCTION reference (never re-renders AND never re-reads),
+  // so `activeSession.messages.reduce(...)` below hit undefined at runtime.
+  const activeSession = useChatStore((s) => (s.activeSessionId ? s.sessions.find((x) => x.id === s.activeSessionId) ?? null : null))
+  const models = useConfigStore((s) => s.models)
+  const configGroups = useConfigStore((s) => s.configGroups)
+  const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
+  const setActiveConfigGroup = useConfigStore((s) => s.setActiveConfigGroup)
+  const activeConfigGroup = useConfigStore((s) => s.configGroups.find((g) => g.id === s.activeConfigGroupId))
   const storeRootPath = useUIStore((s) => s.rootPath)
+  // Git state follows the CURRENT project (the active session's bound project)
+  // — the browsed folder only counts while no session exists yet.
+  const gitRoot = activeSession?.projectPath ?? storeRootPath
   const t = useI18n()
-
-  const activeFile = openFiles.find((f) => f.path === activeFilePath)
 
   const [gitBranch, setGitBranch] = useState<string | null>(null)
   const [branches, setBranches] = useState<string[]>([])
@@ -38,9 +54,8 @@ export default function StatusBar() {
   useEffect(() => {
     const fetchBranch = async () => {
       try {
-        const rootPath = useUIStore.getState().rootPath
-        if (!rootPath) { setGitBranch(null); return }
-        const result = await window.electronAPI.gitExec(rootPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+        if (!gitRoot) { setGitBranch(null); return }
+        const result = await window.electronAPI.gitExec(gitRoot, ['rev-parse', '--abbrev-ref', 'HEAD'])
         if (result.success) setGitBranch(result.output.trim())
         else setGitBranch(null)
       } catch { setGitBranch(null) }
@@ -48,7 +63,7 @@ export default function StatusBar() {
     fetchBranch()
     const interval = setInterval(fetchBranch, 10000)
     return () => clearInterval(interval)
-  }, [storeRootPath])
+  }, [gitRoot])
 
   // Get app version and listen for update status
   useEffect(() => {
@@ -112,9 +127,8 @@ export default function StatusBar() {
 
   const fetchBranches = async () => {
     try {
-      const rootPath = useUIStore.getState().rootPath
-      if (!rootPath) return
-      const result = await window.electronAPI.gitExec(rootPath, ['branch', '--format=%(refname:short)'])
+      if (!gitRoot) return
+      const result = await window.electronAPI.gitExec(gitRoot, ['branch', '--format=%(refname:short)'])
       if (result.success) {
         setBranches(result.output.trim().split('\n').filter(Boolean))
       }
@@ -123,9 +137,8 @@ export default function StatusBar() {
 
   const handleCheckout = async (branch: string) => {
     try {
-      const rootPath = useUIStore.getState().rootPath
-      if (!rootPath) return
-      const result = await window.electronAPI.gitExec(rootPath, ['checkout', branch])
+      if (!gitRoot) return
+      const result = await window.electronAPI.gitExec(gitRoot, ['checkout', branch])
       if (result.success) {
         setGitBranch(branch)
         setShowBranchMenu(false)
@@ -174,8 +187,9 @@ export default function StatusBar() {
     <div className="h-[24px] text-nova-text-muted text-[11px] flex items-center px-3 select-none shrink-0 rounded-xl glass-flat">
       {/* Left side */}
       <div className="flex items-center gap-3">
-        {/* Git branch */}
-        {gitBranch && (
+        {/* Git branch — or an explicit "no git" indicator when the current
+            project isn't a git repo / git isn't available */}
+        {gitBranch ? (
           <div className="relative" ref={branchMenuRef}>
             <button
               className="flex items-center gap-1 opacity-90 hover:opacity-100 cursor-pointer px-1.5 rounded-full hover:bg-nova-hover"
@@ -202,6 +216,14 @@ export default function StatusBar() {
               </div>
             )}
           </div>
+        ) : (
+          <span className="flex items-center gap-1 opacity-70" title="当前项目不是 Git 仓库或未检测到 Git">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M4.9 4.9l14.2 14.2" />
+            </svg>
+            无git环境
+          </span>
         )}
 
         {/* Separator */}
@@ -258,7 +280,7 @@ export default function StatusBar() {
           </span>
         )}
 
-        {activeFile && (
+        {activeFileEncoding && (
           <>
             {/* Encoding selector */}
             <div className="relative" ref={encodingMenuRef}>
@@ -267,7 +289,7 @@ export default function StatusBar() {
                 onClick={() => setShowEncodingMenu(!showEncodingMenu)}
                 title={t('statusBar.switchEncoding')}
               >
-                {activeFile.encoding.toUpperCase()}
+                {activeFileEncoding.toUpperCase()}
               </button>
               {showEncodingMenu && (
                 <div className="absolute bottom-full left-0 mb-1 glass-panel rounded-lg py-1 min-w-[120px] z-50">
@@ -275,23 +297,25 @@ export default function StatusBar() {
                     <button
                       key={enc}
                       className={`w-full text-left px-3 py-1.5 text-xs hover:bg-nova-accent/15 ${
-                        activeFile.encoding.toUpperCase() === enc ? 'text-white' : 'text-nova-text-secondary'
+                        activeFileEncoding?.toUpperCase() === enc ? 'text-white' : 'text-nova-text-secondary'
                       }`}
                       onClick={() => {
                         // Re-encode this file with the chosen encoding on next save
-                        useEditorStore.getState().setFileEncoding(activeFile.path, enc.toLowerCase())
+                        if (activeFilePath) {
+                          useEditorStore.getState().setFileEncoding(activeFilePath, enc.toLowerCase())
+                        }
                         setShowEncodingMenu(false)
                       }}
                     >
                       {enc}
-                      {activeFile.encoding.toUpperCase() === enc && ' ✓'}
+                      {activeFileEncoding?.toUpperCase() === enc && ' ✓'}
                     </button>
                   ))}
                 </div>
               )}
             </div>
 
-            <span className="opacity-90">{activeFile.lineEnding === 'crlf' ? 'CRLF' : 'LF'}</span>
+            <span className="opacity-90">{activeFileLineEnding === 'crlf' ? 'CRLF' : 'LF'}</span>
 
             <span className="opacity-90">{t('statusBar.spaces', { count: preferences.tabSize })}</span>
           </>

@@ -21,14 +21,26 @@ async function ensureIgnoreLoaded(): Promise<void> {
   }
 }
 
+// The read_file tool advertises "Max 2000 lines, 50KB" — enforce both so a
+// huge file can't flood the model's context window with the full content.
+const READ_FILE_MAX_LINES = 2000
+const READ_FILE_MAX_BYTES = 50 * 1024
+
 /** Read a file with line numbers */
 export async function readFile(path: string, startLine?: number, endLine?: number): Promise<string> {
   const { content } = await window.electronAPI.readFile(path)
   const lines = content.split('\n')
+  // Apply the tool's advertised cap when the caller didn't pick an explicit
+  // window: start at 1, cap the end at 2000 lines and ~50KB of text.
   const start = Math.max(1, startLine || 1) - 1
-  const end = Math.min(lines.length, endLine || lines.length)
+  const effectiveEnd = endLine ?? Math.min(lines.length, start + READ_FILE_MAX_LINES)
+  const end = Math.min(lines.length, effectiveEnd)
   const selected = lines.slice(start, end)
-  return selected.map((line, i) => `${start + i + 1}: ${line}`).join('\n')
+  let out = selected.map((line, i) => `${start + i + 1}: ${line}`).join('\n')
+  if (out.length > READ_FILE_MAX_BYTES) {
+    out = out.slice(0, READ_FILE_MAX_BYTES) + '\n...(truncated)'
+  }
+  return out
 }
 
 /** List directory contents (recursive up to maxDepth) */

@@ -3,10 +3,14 @@ import { useI18n } from '@/i18n/useI18n'
 import type { TranslationKey } from '@/i18n'
 
 export default function ActivityBar() {
-  const { activeSidebarTab, setActiveSidebarTab, toggleSidebar, openMarketplace, isSidebarVisible } = useUIStore()
+  const activeSidebarTab = useUIStore((s) => s.activeSidebarTab)
+  const setActiveSidebarTab = useUIStore((s) => s.setActiveSidebarTab)
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar)
+  const openMarketplace = useUIStore((s) => s.openMarketplace)
+  const isSidebarVisible = useUIStore((s) => s.isSidebarVisible)
   const t = useI18n()
 
-  const topIcons: Array<{ key: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage'; titleKey: TranslationKey; icon: JSX.Element }> = [
+  const topIcons: Array<{ key: 'files' | 'git' | 'changes' | 'agent' | 'usage' | 'skills' | 'extensions'; titleKey: TranslationKey; icon: JSX.Element }> = [
     {
       key: 'files',
       titleKey: 'activityBar.explorer' as TranslationKey,
@@ -67,6 +71,15 @@ export default function ActivityBar() {
       ),
     },
     {
+      key: 'skills',
+      titleKey: 'activityBar.skills' as TranslationKey,
+      icon: (
+        <svg viewBox="0 0 1024 1024" width="22" height="22" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+          <path d="M823.296 64.96l135.744 135.744-769.28 769.28-135.808-135.68L823.296 64.96z m0 108.544L162.432 834.24l27.2 27.136L850.432 200.704l-27.2-27.2zM803.2 512a15.68 15.68 0 0 1 15.232 14.336 146.88 146.88 0 0 0 127.68 133.12 15.68 15.68 0 0 1-0.64 31.232 146.752 146.752 0 0 0-133.12 127.744 15.68 15.68 0 0 1-31.104-0.64 146.816 146.816 0 0 0-127.488-133.184 15.68 15.68 0 0 1 0.64-31.232 146.752 146.752 0 0 0 132.992-127.744 15.68 15.68 0 0 1 12.032-13.248l3.84-0.384z m-576-448a15.68 15.68 0 0 1 15.232 14.336 146.88 146.88 0 0 0 127.68 133.12 15.68 15.68 0 0 1-0.64 31.232 146.752 146.752 0 0 0-133.12 127.744 15.68 15.68 0 0 1-31.104-0.64 146.816 146.816 0 0 0-127.488-133.184 15.68 15.68 0 0 1 0.64-31.232 146.752 146.752 0 0 0 132.992-127.744 15.68 15.68 0 0 1 12.032-13.248L227.328 64z m282.624 0a10.24 10.24 0 0 1 10.496 8.832c3.328 23.36 22.4 41.216 45.952 42.944a10.24 10.24 0 0 1 0.64 20.48 50.112 50.112 0 0 0-42.944 45.888 10.24 10.24 0 0 1-20.48 0.64 50.112 50.112 0 0 0-45.888-42.944 10.24 10.24 0 0 1-0.64-20.416 50.112 50.112 0 0 0 42.944-45.952 10.24 10.24 0 0 1 6.912-8.96L509.888 64z" />
+        </svg>
+      ),
+    },
+    {
       key: 'extensions',
       titleKey: 'activityBar.extensions' as TranslationKey,
       icon: (
@@ -86,9 +99,9 @@ export default function ActivityBar() {
       key: 'settings',
       titleKey: 'activityBar.settings' as TranslationKey,
       icon: (
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <circle cx="12" cy="12" r="2.5" />
-          <path d="M12 1v3M12 20v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M1 12h3M20 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" strokeLinecap="round" />
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
       ),
       action: () => useUIStore.getState().openSettings(),
@@ -111,11 +124,11 @@ export default function ActivityBar() {
       openMarketplace()
       return
     }
-    // Sidebar panels (file change history / agent tasks / usage): switch tab
-    if (key === 'changes' || key === 'agent' || key === 'usage') {
+    // Sidebar panels (file change history / agent tasks / usage / skills): switch tab
+    if (key === 'changes' || key === 'agent' || key === 'usage' || key === 'skills') {
       const ui = useUIStore.getState()
       if (!ui.isSidebarVisible) ui.toggleSidebar()
-      ui.setActiveSidebarTab(key as 'changes' | 'agent' | 'usage')
+      ui.setActiveSidebarTab(key as 'changes' | 'agent' | 'usage' | 'skills')
       return
     }
     if (!isSidebarVisible) {

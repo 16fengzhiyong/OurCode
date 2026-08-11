@@ -104,12 +104,15 @@ export function parseSkillFrontmatter(content: string, fallbackName: string): { 
 interface SkillCache {
   root: string
   mtime: number
+  /** Fingerprint of the candidate file set — deleting a skill must invalidate
+   *  the cache even when its (now-removed) mtime would lower `newest`. */
+  fileKey: string
   skills: SkillInfo[]
 }
 
 let _cache: SkillCache | null = null
 
-/** Discover + parse all skills (cached by newest mtime across all skill files) */
+/** Discover + parse all skills (cached by newest mtime + candidate set) */
 export async function listSkills(force = false, rootOverride?: string, includeDisabled = false): Promise<SkillInfo[]> {
   const root = rootOverride ?? getWorkspaceRoot()
   const global = await getGlobalSkillsDir()
@@ -139,7 +142,12 @@ export async function listSkills(force = false, rootOverride?: string, includeDi
   }
   const configMtime = root ? (await statSafe(joinPath(root, 'skills.json')))?.modifiedAt || 0 : 0
   const cacheMtime = Math.max(newest, configMtime)
-  if (!force && _cache && _cache.root === root && _cache.mtime >= cacheMtime) return _cache.skills
+  // Order matters for the fingerprint — sort so an identical set always hashes
+  // the same regardless of directory enumeration order.
+  const fileKey = candidates.map((c) => c.path).sort().join('\n')
+  if (!force && _cache && _cache.root === root && _cache.mtime >= cacheMtime && _cache.fileKey === fileKey) {
+    return _cache.skills
+  }
 
   // One non-empty content per skill directory (SKILL.md wins over skill.md)
   const byDir = new Map<string, { content: string; source: 'workspace' | 'global'; dir: string }>()
@@ -170,10 +178,20 @@ export async function listSkills(force = false, rootOverride?: string, includeDi
   for (const skill of skills) {
     if (includeDisabled || !root || (await isSkillEnabled(skill.name, root))) visible.push(skill)
   }
+  // Deduplicate by NAME (two skill dirs may declare the same frontmatter name
+  // → duplicate skill__<name> tool definitions, which some providers reject).
+  // Keep the first in name order (deterministic across calls).
   visible.sort((a, b) => a.name.localeCompare(b.name))
+  const seenNames = new Set<string>()
+  const deduped: SkillInfo[] = []
+  for (const skill of visible) {
+    if (seenNames.has(skill.name)) continue
+    seenNames.add(skill.name)
+    deduped.push(skill)
+  }
 
-  _cache = { root, mtime: cacheMtime, skills: visible }
-  return visible
+  _cache = { root, mtime: cacheMtime, fileKey, skills: deduped }
+  return deduped
 }
 
 /** Compact index block injected into the system prompt (content stays on demand) */

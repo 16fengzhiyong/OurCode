@@ -34,13 +34,15 @@ test.describe('Problems Panel', () => {
       await app.evaluate(({ dialog }, folder) => {
         ;(dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [folder] })
       }, dir)
-      // Open the folder via Ctrl+O (stubbed dialog). Retry the shortcut until
-      // the tree renders — the keydown handler may not be attached yet on a
-      // cold start, and the tree lists the folder asynchronously.
+      // Open the folder via Ctrl+O (stubbed dialog). Ctrl+O opens the folder
+      // into the PROJECT LIST (new Stitch flow) — the file tree only mounts
+      // after clicking the project card.
       await expect(async () => {
         await win.keyboard.press('Control+o')
-        await expect(win.locator('#file-tree-root >> text=broken.ts').first()).toBeVisible({ timeout: 4000 })
+        await expect(win.locator(`text=${dir}`).first()).toBeVisible({ timeout: 4000 })
       }).toPass({ timeout: 25000 })
+      await win.locator(`text=${dir}`).first().click()
+      await expect(win.locator('#file-tree-root >> text=broken.ts').first()).toBeVisible({ timeout: 8000 })
 
       // Open the broken file — the TS worker emits a marker
       await win.locator('#file-tree-root >> text=broken.ts').first().click()

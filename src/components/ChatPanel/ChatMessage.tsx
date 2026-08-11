@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { ChatMessage as ChatMessageType } from '@/types'
+import { useState, useEffect, useRef, memo } from 'react'
+import { ChatMessage as ChatMessageType, AgentRun } from '@/types'
 import { useChatStore } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useMemoryStore } from '@/stores/memoryStore'
@@ -65,18 +65,176 @@ function GhostButton({
   )
 }
 
-export default function ChatMessage({ message, sessionId, isSelectMode, isSelected, onToggleSelect }: ChatMessageProps) {
+/** 44s / 1m 5s — compact run duration for the usage popover. */
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return s > 0 ? `${m}m ${s}s` : `${m}m`
+}
+
+/** One label/value row inside the usage popover (hairline divider between rows). */
+function UsageDetailRow({
+  icon,
+  label,
+  value,
+  last,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  last?: boolean
+}) {
+  return (
+    <div
+      className={`flex justify-between items-center text-[12px] text-nova-text-muted ${
+        last ? 'pb-1' : 'pb-1.5 border-b border-nova-border/60'
+      }`}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className="opacity-70 inline-flex">{icon}</span>
+        <span>{label}</span>
+      </div>
+      <span className="font-mono text-nova-text-primary">{value}</span>
+    </div>
+  )
+}
+
+/** Token badge detail popover — Stitch「现代玻璃态」: floating glass card with a
+ *  gradient hero number, cache-hit pill and mono detail rows. Anchored below the
+ *  badge with a small arrow; closes via the hint button or clicking outside. */
+function TokenUsagePopover({ run, model }: { run: AgentRun; model?: string }) {
+  const t = useI18n()
+  const tokensIn = run.tokensIn || 0
+  const tokensOut = run.tokensOut || 0
+  const cacheHits = run.cacheHits || 0
+  const cacheSaved = run.cacheTokensSaved || 0
+  const elapsed = run.finishedAt ? Math.max(0, Math.floor((run.finishedAt - run.startedAt) / 1000)) : 0
+
+  return (
+    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-[320px] z-50">
+      {/* Arrow pointing up at the token badge */}
+      <div className="absolute -top-[5px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-b-[6px] border-l-transparent border-r-transparent border-b-white/90" />
+      <div className="bg-white/90 backdrop-blur-xl border border-glass-border rounded-xl shadow-[0_8px_40px_rgba(15,23,42,0.08)] p-5 flex flex-col gap-4">
+        {/* Title row */}
+        <div className="flex justify-between items-center">
+          <span className="text-[13px] font-extrabold text-nova-text-primary">{t('chat.usage.title')}</span>
+          {model && <span className="font-mono text-[11px] text-nova-text-muted">{model}</span>}
+        </div>
+
+        {/* Hero metric */}
+        <div className="flex flex-col items-center py-2">
+          <div className="flex items-baseline gap-1">
+            <span className="font-mono text-3xl font-extrabold bg-gradient-to-r from-nova-accent to-[#3b82f6] bg-clip-text text-transparent">
+              {formatTokens(tokensIn + tokensOut)}
+            </span>
+            <span className="font-mono text-xs text-nova-text-muted">{t('statusBar.tokens').toLowerCase()}</span>
+          </div>
+          <div className="font-mono text-[11px] text-nova-text-muted mt-1">
+            <span className="text-nova-accent font-bold">↑</span> {t('chat.usage.input')} {formatTokens(tokensIn)} ·{' '}
+            <span className="text-nova-accent font-bold">↓</span> {t('chat.usage.output')} {formatTokens(tokensOut)}
+          </div>
+        </div>
+
+        {/* Cache-hit highlight (only when the run actually hit the client cache) */}
+        {cacheHits > 0 && (
+          <div className="bg-success-10 border border-success-20 rounded-full py-1.5 px-4 flex items-center justify-center gap-1.5">
+            <span className="text-[11px] font-bold text-success">
+              ⚡ {t('chat.usage.cacheHits', { count: cacheHits, saved: formatTokens(cacheSaved) })}
+            </span>
+          </div>
+        )}
+
+        {/* Detail rows */}
+        <div className="flex flex-col gap-2 mt-1">
+          <UsageDetailRow
+            icon={
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 17V7m0 0L3 11m4-4 4 4" />
+                <path d="M17 7v10m0 0-4-4m4 4 4-4" />
+              </svg>
+            }
+            label={t('chat.usage.requests')}
+            value={
+              run.requestCount !== undefined
+                ? t('chat.usage.requestCount', { count: run.requestCount })
+                : '—'
+            }
+          />
+          <UsageDetailRow
+            icon={
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+              </svg>
+            }
+            label={t('chat.usage.toolCalls')}
+            value={t('chat.usage.toolCallCount', { count: run.toolCallCount })}
+          />
+          <UsageDetailRow
+            icon={
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <path d="M14 2v6h6" />
+              </svg>
+            }
+            label={t('chat.usage.fileChanges')}
+            value={t('chat.usage.fileChangeCount', { count: run.fileChangeCount })}
+          />
+          <UsageDetailRow
+            last
+            icon={
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 3" />
+              </svg>
+            }
+            label={t('chat.usage.duration')}
+            value={elapsed > 0 ? formatDuration(elapsed) : '—'}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onToggleSelect }: ChatMessageProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
   const [remembered, setRemembered] = useState(false)
   const [isRemembering, setIsRemembering] = useState(false)
   const [previewMemory, setPreviewMemory] = useState<{ content: string; projectPath: string } | null>(null)
+  const [usageOpen, setUsageOpen] = useState(false)
+  const usageRef = useRef<HTMLSpanElement>(null)
+  // Close the token-usage popover on outside click or Escape (badge click toggles it).
+  useEffect(() => {
+    if (!usageOpen) return
+    const onDocDown = (e: MouseEvent) => {
+      if (usageRef.current && !usageRef.current.contains(e.target as Node)) setUsageOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setUsageOpen(false)
+    }
+    document.addEventListener('mousedown', onDocDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [usageOpen])
   const t = useI18n()
 
   // Inline editing and batch selection only apply in history-edit mode.
   const editEnabled = useEditorStore((s) => s.preferences.chatHistoryEditMode)
 
-  const { editMessage, regenerateFromMessage, createBranchFromMessage, continueGeneration, checkpoints, revertCheckpoint } = useChatStore()
+  // Individual selectors — subscribing to the whole store would re-render every
+  // message in the conversation on ANY chatStore change (e.g. each streaming
+  // chunk of an unrelated/streaming session).
+  const editMessage = useChatStore((s) => s.editMessage)
+  const regenerateFromMessage = useChatStore((s) => s.regenerateFromMessage)
+  const createBranchFromMessage = useChatStore((s) => s.createBranchFromMessage)
+  const continueGeneration = useChatStore((s) => s.continueGeneration)
+  const checkpoints = useChatStore((s) => s.checkpoints)
+  const revertCheckpoint = useChatStore((s) => s.revertCheckpoint)
   const condenseMemory = useMemoryStore((s) => s.condenseMemory)
 
   // ── Agent status for assistant header ──
@@ -248,9 +406,10 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
 
       {/* Content column */}
       <div className={`min-w-0 ${isUser ? 'max-w-[80%]' : 'flex-1'}`}>
-        {/* Assistant meta header */}
+        {/* Assistant meta header — Stitch: name + pulsing dot + elapsed +
+            mono token badge (glass chip) */}
         {!isUser && (
-          <div className="flex items-center gap-1.5 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
+          <div className="flex items-center gap-2 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
             <span className="font-bold text-nova-text-primary">OurCode AI</span>
             {agentBadge && (
               <span className={`flex items-center gap-1 ${agentBadge.cls}`}>
@@ -259,7 +418,22 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
                 )}
                 · {agentBadge.icon} {agentBadge.label}
                 {agentBadge.elapsed !== undefined && ` ${agentBadge.elapsed}s`}
-                {agentBadge.tokens !== undefined && ` · ${formatTokens(agentBadge.tokens)} ${t('statusBar.tokens')}`}
+              </span>
+            )}
+            {agentBadge?.tokens !== undefined && (
+              <span className="relative inline-flex" ref={usageRef}>
+                <button
+                  onClick={() => setUsageOpen((v) => !v)}
+                  title={t('chat.usage.hint')}
+                  className="flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-nova-hover border border-nova-border text-nova-text-muted hover:border-nova-accent/40 hover:text-nova-text-primary transition-colors cursor-pointer"
+                >
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 7v5l3 3" />
+                  </svg>
+                  {formatTokens(agentBadge.tokens)} {t('statusBar.tokens')}
+                </button>
+                {usageOpen && run && <TokenUsagePopover run={run} model={session?.model} />}
               </span>
             )}
           </div>
@@ -269,131 +443,126 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
           <ErrorCard error={message.error} onRetry={handleRegenerate} />
         ) : (
           <>
-            {/* Bubble / content card — user: gradient tinted glass; AI: glass panel */}
-            <div
-              className={isUser ? 'px-4 py-2.5 bubble-user' : 'px-4 py-3 rounded-xl border'}
-              style={
-                isUser
-                  ? { color: 'var(--text-primary)' }
-                  : {
-                      background: 'var(--ai-surface)',
-                      borderColor: 'var(--border-strong)',
-                    }
-              }
-            >
-              {/* Agent execution timeline (thinking + tool calls) */}
-              {hasProcess && (
-                <div className="mb-1.5">
+            {isUser ? (
+              /* User bubble — Stitch: white glass + electric-blue edge */
+              <div className="px-4 py-2.5 bubble-user" style={{ color: 'var(--text-primary)' }}>
+                <div className="text-sm leading-relaxed">
+                  <p className="whitespace-pre-wrap">{message.content}</p>
+                </div>
+              </div>
+            ) : (
+              /* Assistant — Stitch 高保真: content floats on the canvas as
+                  individual glass cards (thinking → tool chips → timeline →
+                  plan → markdown), no enclosing heavy border box. */
+              <div className="flex flex-col gap-2">
+                {/* Agent execution timeline (thinking + tool calls) */}
+                {hasProcess && (
                   <AgentTimeline
                     toolCalls={message.toolCalls}
                     toolResults={message.toolResults}
                     thinking={message.thinking}
                   />
-                </div>
-              )}
+                )}
 
-              {/* Edited indicator */}
-              {message.editedAt && (
-                <div className="text-[10px] text-nova-text-muted mb-1 italic">{t('chat.edited')}</div>
-              )}
+                {/* Edited indicator */}
+                {message.editedAt && (
+                  <div className="text-[10px] text-nova-text-muted italic">{t('chat.edited')}</div>
+                )}
 
-              {/* Content */}
-              {isEditing ? (
-                <div>
-                  <textarea
-                    value={editContent}
-                    onChange={(e) => setEditContent(e.target.value)}
-                    className="w-full p-2 bg-nova-bg text-text-primary rounded-lg border border-nova-border focus:border-nova-accent focus:outline-none min-h-[80px] font-mono text-sm resize-none"
-                    rows={3}
-                  />
-                  <div className="flex justify-end gap-2 mt-2">
-                    <button
-                      onClick={handleCancelEdit}
-                      className="px-3 py-1 text-xs bg-nova-hover rounded-lg hover:bg-nova-border transition-colors text-nova-text-secondary"
-                    >
-                      {t('common.cancel')}
-                    </button>
-                    <button
-                      onClick={handleSaveEdit}
-                      className="px-3 py-1 text-xs bg-nova-accent rounded-lg hover:opacity-90 transition-opacity text-white"
-                    >
-                      {t('common.save')}
-                    </button>
+                {/* Content */}
+                {isEditing ? (
+                  <div>
+                    <textarea
+                      value={editContent}
+                      onChange={(e) => setEditContent(e.target.value)}
+                      className="w-full p-2 bg-nova-bg text-text-primary rounded-lg border border-nova-border focus:border-nova-accent focus:outline-none min-h-[80px] font-mono text-sm resize-none"
+                      rows={3}
+                    />
+                    <div className="flex justify-end gap-2 mt-2">
+                      <button
+                        onClick={handleCancelEdit}
+                        className="px-3 py-1 text-xs bg-nova-hover rounded-lg hover:bg-nova-border transition-colors text-nova-text-secondary"
+                      >
+                        {t('common.cancel')}
+                      </button>
+                      <button
+                        onClick={handleSaveEdit}
+                        className="px-3 py-1 text-xs bg-nova-accent rounded-lg hover:opacity-90 transition-opacity text-white"
+                      >
+                        {t('common.save')}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className="text-sm leading-relaxed">
-                  {isAssistant ? (
+                ) : (
+                  <div className="text-sm leading-relaxed">
                     <MarkdownRenderer content={message.content} />
-                  ) : (
-                    <p className="whitespace-pre-wrap">{message.content}</p>
-                  )}
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
 
-            {/* Submitted plan — rendered inline inside the assistant message
-                that called submit_plan (approve/cancel, or the kept record) */}
-            {isAssistant && (message.toolCalls || []).some((tc) => tc.name === 'submit_plan') && (
-              <PlanCard sessionId={sessionId} />
-            )}
+                {/* Submitted plan — rendered inline inside the assistant message
+                    that called submit_plan (approve/cancel, or the kept record) */}
+                {isAssistant && (message.toolCalls || []).some((tc) => tc.name === 'submit_plan') && (
+                  <PlanCard sessionId={sessionId} />
+                )}
 
-            {/* Actions — hover-reveal ghost toolbar */}
-            {!isEditing && (
-              <div className={`flex flex-wrap items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'justify-end' : 'justify-start'}`}>
-                {isExhausted && (
-                  <GhostButton onClick={() => continueGeneration(sessionId)} title={t('chat.continueRun')} accent>
-                    ▶ {t('chat.continueRun')}
-                  </GhostButton>
+                {/* Actions — hover-reveal ghost toolbar */}
+                {!isEditing && (
+                  <div className={`flex flex-wrap items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'justify-end' : 'justify-start'}`}>
+                    {isExhausted && (
+                      <GhostButton onClick={() => continueGeneration(sessionId)} title={t('chat.continueRun')} accent>
+                        ▶ {t('chat.continueRun')}
+                      </GhostButton>
+                    )}
+                    {isAssistant && msgCheckpoints.length > 0 && (
+                      <GhostButton onClick={handleRevertMessage} title={t('chat.rollbackHint')} danger>
+                        {t('chat.rollback')}
+                      </GhostButton>
+                    )}
+                    {editEnabled && (
+                      <GhostButton onClick={() => setIsEditing(true)} title={t('chat.editMessage')}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                        </svg>
+                        {t('chat.edit')}
+                      </GhostButton>
+                    )}
+                    {isAssistant && (
+                      <GhostButton onClick={handleRegenerate} title={t('chat.regenerate')}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="23 4 23 10 17 10" />
+                          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                        </svg>
+                        {t('chat.regenerate')}
+                      </GhostButton>
+                    )}
+                    {isAssistant && !isExhausted && (
+                      <GhostButton onClick={handleRemember} title={t('chat.rememberHint')}>
+                        {isRemembering ? (
+                          <>
+                            <span className="w-3 h-3 border-2 border-nova-accent/30 border-t-nova-accent rounded-full animate-spin inline-block align-[-2px]" />
+                            {t('chat.remembering')}
+                          </>
+                        ) : remembered ? t('chat.remembered') : t('chat.remember')}
+                      </GhostButton>
+                    )}
+                    <GhostButton
+                      onClick={() => createBranchFromMessage(sessionId, message.id)}
+                      title={t('chat.branchFromMessage')}
+                    >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="6" y1="3" x2="6" y2="15" />
+                        <circle cx="18" cy="6" r="3" />
+                        <circle cx="6" cy="18" r="3" />
+                        <path d="M18 9a9 9 0 0 1-9 9" />
+                      </svg>
+                      {t('chat.branch')}
+                    </GhostButton>
+                    <GhostButton onClick={handleCopy} title={t('common.copy')}>
+                      {t('common.copy')}
+                    </GhostButton>
+                  </div>
                 )}
-                {isAssistant && msgCheckpoints.length > 0 && (
-                  <GhostButton onClick={handleRevertMessage} title={t('chat.rollbackHint')} danger>
-                    {t('chat.rollback')}
-                  </GhostButton>
-                )}
-                {editEnabled && (
-                  <GhostButton onClick={() => setIsEditing(true)} title={t('chat.editMessage')}>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                    </svg>
-                    {t('chat.edit')}
-                  </GhostButton>
-                )}
-                {isAssistant && (
-                  <GhostButton onClick={handleRegenerate} title={t('chat.regenerate')}>
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="23 4 23 10 17 10" />
-                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                    </svg>
-                    {t('chat.regenerate')}
-                  </GhostButton>
-                )}
-                {isAssistant && !isExhausted && (
-                  <GhostButton onClick={handleRemember} title={t('chat.rememberHint')}>
-                    {isRemembering ? (
-                      <>
-                        <span className="w-3 h-3 border-2 border-nova-accent/30 border-t-nova-accent rounded-full animate-spin inline-block align-[-2px]" />
-                        {t('chat.remembering')}
-                      </>
-                    ) : remembered ? t('chat.remembered') : t('chat.remember')}
-                  </GhostButton>
-                )}
-                <GhostButton
-                  onClick={() => createBranchFromMessage(sessionId, message.id)}
-                  title={t('chat.branchFromMessage')}
-                >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="6" y1="3" x2="6" y2="15" />
-                    <circle cx="18" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <path d="M18 9a9 9 0 0 1-9 9" />
-                  </svg>
-                  {t('chat.branch')}
-                </GhostButton>
-                <GhostButton onClick={handleCopy} title={t('common.copy')}>
-                  {t('common.copy')}
-                </GhostButton>
               </div>
             )}
           </>
@@ -402,3 +571,8 @@ export default function ChatMessage({ message, sessionId, isSelectMode, isSelect
     </div>
   )
 }
+
+// memo: `message` (and the merged display message in ChatMessages) keeps a
+// stable reference between renders unless the message itself changes, so during
+// streaming only the newly-added message re-renders — not the whole history.
+export default memo(ChatMessageInner)

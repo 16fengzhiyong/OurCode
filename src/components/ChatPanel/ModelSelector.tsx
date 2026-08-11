@@ -24,11 +24,18 @@ const PROVIDER_COLORS: Record<string, string> = {
 }
 
 export default function ModelSelector() {
-  const {
-    models, isLoadingModels, modelsError, configGroups, activeConfigGroupId,
-    setActiveConfigGroup, fetchModels, getActiveConfigGroup, toggleFavorite,
-  } = useConfigStore()
-  const { activeSessionId, getActiveSession, updateSessionModel } = useChatStore()
+  const models = useConfigStore((s) => s.models)
+  const isLoadingModels = useConfigStore((s) => s.isLoadingModels)
+  const modelsError = useConfigStore((s) => s.modelsError)
+  const configGroups = useConfigStore((s) => s.configGroups)
+  const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
+  const setActiveConfigGroup = useConfigStore((s) => s.setActiveConfigGroup)
+  const fetchModels = useConfigStore((s) => s.fetchModels)
+  const getActiveConfigGroup = useConfigStore((s) => s.getActiveConfigGroup)
+  const toggleFavorite = useConfigStore((s) => s.toggleFavorite)
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const getActiveSession = useChatStore((s) => s.getActiveSession)
+  const updateSessionModel = useChatStore((s) => s.updateSessionModel)
   const openSettings = useUIStore((s) => s.openSettings)
 
   const [showProviderMenu, setShowProviderMenu] = useState(false)

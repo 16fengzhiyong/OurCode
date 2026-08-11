@@ -149,6 +149,10 @@ interface EditorState {
   updateFileContent: (path: string, content: string) => void
   restoreFromBackup: (filePath: string, content: string, encoding: string, hasBom: boolean) => Promise<void>
 
+  /** Re-open the tabs that were open when the app last closed (VS Code-style
+   *  session restore). Called once at startup after the project is restored. */
+  restoreSession: () => Promise<void>
+
   getActiveFile: () => OpenFile | undefined
   getLanguageByPath: (path: string) => string
 }
@@ -163,6 +167,56 @@ const syncDerivedState = (s: EditorState) => {
     tabOrder: panel?.tabOrder ?? [],
   }
 }
+
+// ── Session restore (VS Code-style tab persistence) ─────────────────────────
+// The open-tab / panel layout is mirrored to localStorage (debounced) so the
+// next launch can re-open the same files. Only the tab STRUCTURE is saved —
+// file contents are re-read from disk (or hot-exit backups) on restore.
+const SESSION_STORAGE_KEY = 'ourcode.editorSession.v1'
+const SESSION_WRITE_DEBOUNCE_MS = 400
+
+interface SessionSnapshot {
+  panels: Record<string, Panel>
+  panelOrder: string[]
+  activePanelId: string
+  splitDirection: 'horizontal' | 'vertical'
+  splitRatios: number[]
+}
+
+/** Serializable tab/panel layout — the ONLY thing session persistence tracks.
+ *  Content churn (cursor moves, isDirty, streaming progress) never enters it. */
+const snapshotOf = (s: EditorState): string => JSON.stringify({
+  panels: s.panels,
+  panelOrder: s.panelOrder,
+  activePanelId: s.activePanelId,
+  splitDirection: s.splitDirection,
+  splitRatios: s.splitRatios,
+})
+
+function loadSessionSnapshot(): SessionSnapshot | null {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as SessionSnapshot
+    if (!parsed || typeof parsed !== 'object' || !parsed.panels) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+let sessionWriteTimer: ReturnType<typeof setTimeout> | null = null
+function scheduleSessionPersist(s: EditorState): void {
+  if (sessionWriteTimer) clearTimeout(sessionWriteTimer)
+  sessionWriteTimer = setTimeout(() => {
+    sessionWriteTimer = null
+    try { localStorage.setItem(SESSION_STORAGE_KEY, snapshotOf(s)) } catch { /* storage full / unavailable */ }
+  }, SESSION_WRITE_DEBOUNCE_MS)
+}
+
+// Seeded with the initial (empty) layout and kept in sync by the subscription
+// below — see the note next to it.
+let lastSessionSnapshot = ''
 
 /**
  * Load a file's content into its model. Chunks are pulled over IPC in 8 MB
@@ -841,6 +895,52 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })
   },
 
+  /** Re-open the tabs that were open when the app last closed. Called once at
+   *  startup (after restoreLastProject) so the editor shows the same files the
+   *  user left open — and stays hidden when none were open. */
+  restoreSession: async () => {
+    const saved = loadSessionSnapshot()
+    if (!saved) {
+      // Nothing was saved — the middle editor area stays hidden (no files open
+      // = nothing to show).
+      useUIStore.getState().setEditorVisible(false)
+      return
+    }
+    const paths = [...new Set(Object.values(saved.panels).flatMap((p) => p.tabOrder || []))]
+    if (paths.length === 0) {
+      useUIStore.getState().setEditorVisible(false)
+      return
+    }
+
+    // Re-open every file so openFiles is populated and content streams in when
+    // its tab becomes active (openFile registers the lazy loader, then returns).
+    for (const path of paths) {
+      await get().openFile(path)
+    }
+
+    // Advance the panel-id counter past any restored ids so a later split can't
+    // collide with a restored panel (the fresh process restarts at panel-1).
+    for (const id of Object.keys(saved.panels)) {
+      const n = parseInt(id.split('-').pop() || '0', 10)
+      if (Number.isFinite(n)) panelCounter = Math.max(panelCounter, n)
+    }
+
+    // Apply the saved layout exactly — tab order, the active file per panel,
+    // and any split configuration.
+    const panelOrder = saved.panelOrder.length > 0 ? saved.panelOrder : [initialPanelId]
+    const activePanelId = saved.panels[saved.activePanelId] ? saved.activePanelId : (saved.panels[panelOrder[0]] ? panelOrder[0] : initialPanelId)
+    const next = {
+      ...get(),
+      panels: saved.panels,
+      panelOrder,
+      activePanelId,
+      splitDirection: saved.splitDirection || 'horizontal',
+      splitRatios: saved.splitRatios || [],
+    }
+    set({ ...next, ...syncDerivedState(next) })
+    useUIStore.getState().setEditorVisible(true)
+  },
+
   getActiveFile: () => {
     const { openFiles, activeFilePath } = get()
     return openFiles.find((f) => f.path === activeFilePath)
@@ -851,3 +951,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return LANGUAGE_MAP[ext] || 'plaintext'
   },
 }))
+
+// Mirror the tab/panel layout to localStorage whenever it changes (debounced).
+// Cursor moves / streaming progress / isDirty toggles never change the
+// snapshot, so they never reach the disk. The snapshot is pre-seeded with the
+// current (empty) layout so unrelated startup writes (e.g. loadPreferences)
+// can't clobber a saved session before restoreSession has read it.
+lastSessionSnapshot = snapshotOf(useEditorStore.getState())
+useEditorStore.subscribe((s) => {
+  const snap = snapshotOf(s)
+  if (snap === lastSessionSnapshot) return
+  lastSessionSnapshot = snap
+  scheduleSessionPersist(s)
+})

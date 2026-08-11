@@ -69,9 +69,9 @@ test.describe('Plugin System', () => {
 
     // Enable it → the sandbox must send 'ready' back over the MessageChannel.
     // Before the RPC fix, activation threw DataCloneError and the badge showed
-    // "错误" instead of "运行中".
+    // "错误" instead of "已启用" (the active badge label — 运行中 was renamed).
     await window.locator('button', { hasText: '启用' }).first().click()
-    await expect(window.locator('text=运行中').first()).toBeVisible({ timeout: 8000 })
+    await expect(window.locator('text=已启用').first()).toBeVisible({ timeout: 8000 })
 
     await app.close()
   })

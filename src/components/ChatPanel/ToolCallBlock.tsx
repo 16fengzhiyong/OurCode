@@ -73,21 +73,16 @@ export default function ToolCallBlock({ toolCalls, toolResults, embedded = false
 
   const getResult = (toolCallId: string) => toolResults?.find((r) => r.toolCallId === toolCallId)
 
-  const allDone = toolCalls.every((tc) => !!getResult(tc.id))
   const hasAnyError = toolCalls.some((tc) => getResult(tc.id)?.isError)
   const pendingCount = toolCalls.filter((tc) => !getResult(tc.id)).length
 
   let statusIcon: string
-  let statusLabel: string
   if (pendingCount > 0) {
     statusIcon = '⏳'
-    statusLabel = `${pendingCount}/${toolCalls.length}`
   } else if (hasAnyError) {
     statusIcon = '✗'
-    statusLabel = t('tool.completedWithError')
   } else {
     statusIcon = '✓'
-    statusLabel = ''
   }
 
   // Group same-type tools for aggregation

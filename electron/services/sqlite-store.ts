@@ -433,9 +433,6 @@ export class SQLiteStore {
         (session as any).projectPath || '',
         id
       )
-
-      // Delete old messages and insert new ones
-      this.db.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(id)
     } else {
       this.db.prepare(`
         INSERT INTO chat_sessions (id, title, config_group_id, model, model_params, created_at, updated_at,
@@ -462,13 +459,18 @@ export class SQLiteStore {
       )
     }
 
-    // Insert messages
+    // Insert messages — ATOMICALLY: deleting the old rows and inserting the new
+    // ones must be one transaction. Previously the DELETE auto-committed on its
+    // own and a failure mid-insert (bad renderer data → NOT NULL/constraint
+    // violation) rolled back the insert while the messages were already gone —
+    // the session's entire history was silently wiped.
     const insertMsg = this.db.prepare(`
       INSERT INTO chat_messages (id, session_id, role, content, sort_order, context_files, token_count, thinking, tool_calls, tool_results, edited_at, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
-    const insertMany = this.db.transaction((messages: ChatMessage[]) => {
+    const replaceMessages = this.db.transaction((messages: ChatMessage[]) => {
+      if (existing) this.db.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(id)
       for (const msg of messages) {
         insertMsg.run(
           msg.id,
@@ -487,7 +489,7 @@ export class SQLiteStore {
       }
     })
 
-    insertMany(session.messages)
+    replaceMessages(session.messages)
 
     return {
       ...session,
@@ -807,7 +809,13 @@ export class SQLiteStore {
     this.db.exec('DELETE FROM usage_events')
   }
 
+  private closed = false
+
   close(): void {
+    // Idempotent — close() is called from both window-all-closed and will-quit
+    // on some platforms; better-sqlite3 throws on a double close.
+    if (this.closed) return
+    this.closed = true
     this.db.close()
   }
 }

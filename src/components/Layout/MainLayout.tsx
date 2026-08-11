@@ -31,13 +31,22 @@ const COMPACT_BREAKPOINT = 1024
 const NARROW_BREAKPOINT = 768
 
 export default function MainLayout() {
-  const {
-    isSidebarVisible, sidebarWidth, chatWidth, isChatVisible, isTerminalVisible,
-    terminalHeight, isCommandPaletteOpen, isQuickOpenOpen, contextMenu,
-    rootPath, isEditorVisible,
-  } = useUIStore()
-
-  const { panelOrder, splitDirection, splitRatios } = useEditorStore()
+  // Individual selectors: the layout must not re-render on every uiStore change
+  // (notifications, context menus) or every editorStore keystroke/cursor move.
+  const isSidebarVisible = useUIStore((s) => s.isSidebarVisible)
+  const sidebarWidth = useUIStore((s) => s.sidebarWidth)
+  const chatWidth = useUIStore((s) => s.chatWidth)
+  const isChatVisible = useUIStore((s) => s.isChatVisible)
+  const isTerminalVisible = useUIStore((s) => s.isTerminalVisible)
+  const terminalHeight = useUIStore((s) => s.terminalHeight)
+  const isCommandPaletteOpen = useUIStore((s) => s.isCommandPaletteOpen)
+  const isQuickOpenOpen = useUIStore((s) => s.isQuickOpenOpen)
+  const contextMenu = useUIStore((s) => s.contextMenu)
+  const rootPath = useUIStore((s) => s.rootPath)
+  const isEditorVisible = useUIStore((s) => s.isEditorVisible)
+  const panelOrder = useEditorStore((s) => s.panelOrder)
+  const splitDirection = useEditorStore((s) => s.splitDirection)
+  const splitRatios = useEditorStore((s) => s.splitRatios)
   const isProblemsOpen = useProblemsStore((s) => s.isOpen)
   const isRecentFilesOpen = useRecentFilesStore((s) => s.isOpen)
   const isDebugOpen = useDebugStore((s) => s.isOpen)

@@ -26,7 +26,7 @@ interface UIState {
   // Sidebar
   isSidebarVisible: boolean
   sidebarWidth: number
-  activeSidebarTab: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage'
+  activeSidebarTab: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage' | 'skills'
   rootPath: string | null
   recentProjects: string[]
   /** Last time each recent project was opened (ms epoch) — lets the project
@@ -78,6 +78,10 @@ interface UIState {
   activeProjectPath: string | null
   enterProject: (path: string) => void
   backToProjectList: () => void
+  /** User-pinned order of the project list (null = default add-order). Set by
+   *  drag-reordering the project list — the list never re-sorts on its own. */
+  projectOrder: string[] | null
+  reorderProjects: (orderedPaths: string[]) => void
   /** Re-select the last opened project after a restart (persisted via localStorage) */
   restoreLastProject: () => Promise<void>
 
@@ -92,7 +96,7 @@ interface UIState {
   // Actions
   toggleSidebar: () => void
   setSidebarWidth: (width: number) => void
-  setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage') => void
+  setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage' | 'skills') => void
   setRootPath: (path: string | null) => void
   removeRecentProject: (path: string) => void
 
@@ -183,9 +187,12 @@ export const useUIStore = create<UIState>((set, get) => ({
   chatPosition: 'right',
   isChatSessionListOpen: false,
 
-  // Editor area — closable so the chat panel can take the whole width
+  // Editor area — closable so the chat panel can take the whole width. Defaults
+  // to HIDDEN: with no open tabs there is nothing to show (the chat panel fills
+  // the window instead). It only becomes visible when a file is opened, or when
+  // the last session's tabs are restored on launch (see editorStore).
   isEditorVisible: (() => {
-    try { return localStorage.getItem('isEditorVisible') !== 'false' } catch { return true }
+    try { return localStorage.getItem('isEditorVisible') === 'true' } catch { return false }
   })(),
 
   // Terminal
@@ -220,6 +227,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   // Project navigation
   projectListView: 'list',
   activeProjectPath: null,
+  projectOrder: (() => { try { return JSON.parse(localStorage.getItem('projectOrder') || 'null') } catch { return null } })(),
 
   // Context Menu
   contextMenu: null,
@@ -241,8 +249,13 @@ export const useUIStore = create<UIState>((set, get) => ({
       // rejected with "路径不在允许范围内".
       window.electronAPI?.authorize?.(path)
       set((s) => {
-        const filtered = s.recentProjects.filter((p) => p !== path)
-        const updated = [path, ...filtered].slice(0, 20) // keep last 20
+        // The project list keeps a STABLE order — a project is added once and
+        // keeps its position (re-opening it never bumps it to the front). NEWLY
+        // added projects land at the TOP (add order, newest first). The user
+        // can pin a custom order via drag (projectOrder).
+        const updated = s.recentProjects.includes(path)
+          ? s.recentProjects
+          : [path, ...s.recentProjects].slice(0, 20) // keep last 20
         localStorage.setItem('recentProjects', JSON.stringify(updated))
         // Record when this project was (re)opened so the list can show a real
         // "last opened" time.
@@ -264,6 +277,13 @@ export const useUIStore = create<UIState>((set, get) => ({
       const newRoot = s.rootPath === path ? null : s.rootPath
       return { recentProjects: updated, recentProjectTimes: times, rootPath: newRoot }
     })
+  },
+  /** Persist the user's drag-pinned project order. The list never re-sorts on
+   *  its own afterwards — only newly opened projects (unknown to the pinned
+   *  order) land at the top. */
+  reorderProjects: (orderedPaths) => {
+    localStorage.setItem('projectOrder', JSON.stringify(orderedPaths))
+    set({ projectOrder: orderedPaths })
   },
 
   toggleChat: () => set((s) => {

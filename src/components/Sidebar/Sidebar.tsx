@@ -3,12 +3,16 @@ import ProjectListPanel from './ProjectListPanel'
 import FileChangesPanel from './FileChangesPanel'
 import AgentTasksPanel from './AgentTasksPanel'
 import UsagePanel from './UsagePanel'
+import SkillPanel from '../Skills/SkillPanel'
 import GitPanel from '../Git/GitPanel'
 import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
 
 export default function Sidebar() {
-  const { activeSidebarTab, toggleSidebar, rootPath, projectListView } = useUIStore()
+  const activeSidebarTab = useUIStore((s) => s.activeSidebarTab)
+  const toggleSidebar = useUIStore((s) => s.toggleSidebar)
+  const rootPath = useUIStore((s) => s.rootPath)
+  const projectListView = useUIStore((s) => s.projectListView)
   const t = useI18n()
 
   const headerTitle = useMemo(() => {
@@ -27,10 +31,14 @@ export default function Sidebar() {
         return t('usage.panelTitle')
       case 'extensions':
         return '扩展'
+      case 'skills':
+        return t('skillPanel.title')
       default:
         return ''
     }
-  }, [activeSidebarTab, projectListView, rootPath])
+    // `t` must be a dependency — otherwise switching the app language leaves
+    // the panel title in the old locale until another dep happens to change.
+  }, [activeSidebarTab, projectListView, rootPath, t])
 
   // Sidebar header icon
   const HeaderIcon = () => {
@@ -94,8 +102,8 @@ export default function Sidebar() {
 
   return (
     <div className="h-full flex flex-col bg-transparent">
-      {/* Sidebar Header — files 页的标题/返回/折叠都在面板内部（列表视图标题行、树视图「← 项目列表」行），头栏不渲染以免顶部留大片空白 */}
-      {activeSidebarTab !== 'files' && (
+      {/* Sidebar Header — files 页的标题/返回/折叠都在面板内部（列表视图标题行、树视图「← 项目列表」行），头栏不渲染以免顶部留大片空白；skills 页同理（SkillPanel 自带 header：管理按钮 + 折叠） */}
+      {activeSidebarTab !== 'files' && activeSidebarTab !== 'skills' && (
         <div
           className="flex items-center justify-between shrink-0"
           style={{ padding: '0 12px', height: 36 }}
@@ -149,6 +157,8 @@ export default function Sidebar() {
           <AgentTasksPanel />
         ) : activeSidebarTab === 'usage' ? (
           <UsagePanel />
+        ) : activeSidebarTab === 'skills' ? (
+          <SkillPanel />
         ) : null}
       </div>
     </div>

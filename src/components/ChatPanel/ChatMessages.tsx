@@ -19,11 +19,20 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
 
 export default function ChatMessages() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const activeSession = useChatStore((s) => s.getActiveSession())
-  const { reorderMessages, undoStack, undoDelete, switchBranch } = useChatStore()
+  // Derive the active session via id + find: the selector returns the session
+  // OBJECT (stable reference unless that session itself changes), so unrelated
+  // store churn — other sessions streaming, checkpoints loading, queue updates —
+  // never re-renders the whole conversation. (The old getActiveSession()
+  // function selector returns a stable function reference and never re-renders
+  // at all; it only worked because of whole-store subscriptions elsewhere.)
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const activeSession = useChatStore((s) => (s.activeSessionId ? s.sessions.find((x) => x.id === s.activeSessionId) ?? null : null))
+  const reorderMessages = useChatStore((s) => s.reorderMessages)
+  const undoStack = useChatStore((s) => s.undoStack)
+  const undoDelete = useChatStore((s) => s.undoDelete)
+  const switchBranch = useChatStore((s) => s.switchBranch)
   // Loading / streaming state is per session — only the conversation the user
   // is viewing reacts to its own run; parallel sessions stream independently.
-  const activeSessionId = activeSession?.id || ''
   const isThisSessionLoading = useChatStore((s) => !!activeSessionId && s.runningSessionIds.includes(activeSessionId))
   const stream = useChatStore((s) => (activeSessionId ? s.streamingBySession[activeSessionId] : undefined))
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -39,6 +48,10 @@ export default function ChatMessages() {
   const editEnabled = useEditorStore((s) => s.preferences.chatHistoryEditMode)
   const scrollRef = useRef<HTMLDivElement>(null)
   const dragLockTopRef = useRef<number | null>(null)
+  // True while the user is looking at the newest messages (near the bottom).
+  // While the model streams a reply we only auto-scroll when this is true —
+  // reading an earlier message must never get yanked down by new output.
+  const isNearBottomRef = useRef(true)
 
   // Context truncation warning
   const tokenWarning = useMemo(() => {
@@ -57,7 +70,9 @@ export default function ChatMessages() {
   // reorders/edits history — that used to yank the whole view to the bottom
   // right after dropping a dragged message. We scroll ONLY the messages
   // container (never scrollIntoView, which would also scroll outer layout
-  // containers if they ever overflow).
+  // containers if they ever overflow). New output only follows along while
+  // the user is at the bottom — scrolling up to read an earlier message
+  // pauses the auto-scroll until they return to the bottom.
   const prevLenRef = useRef(0)
   const prevSessionRef = useRef('')
   useEffect(() => {
@@ -70,7 +85,23 @@ export default function ChatMessages() {
     prevLenRef.current = len
     if (sessionChanged || grew || stream?.content) {
       const el = scrollRef.current
-      if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      if (!el) return
+      // Entering a session resets the reading position — always follow the new
+      // content; growth and streaming respect the user's scroll position.
+      if (sessionChanged) {
+        isNearBottomRef.current = true
+      } else if (!isNearBottomRef.current) {
+        return
+      }
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      // chat-msg-row uses content-visibility, so rows resolve their real
+      // height one frame after layout; nudge again if the first pass landed
+      // short so long histories still end up at the true bottom.
+      requestAnimationFrame(() => {
+        if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
+          el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+        }
+      })
     }
   }, [activeSession, stream?.content])
 
@@ -171,8 +202,8 @@ export default function ChatMessages() {
     return result
   }, [messages])
 
-  if (!activeSession) return null
-
+  // Defined BEFORE the early return — React hooks must run unconditionally
+  // (useCallback would otherwise be called conditionally when no session is open).
   const handleBatchDelete = () => {
     if (!activeSession || selectedIds.size === 0) return
     // Single batched operation: one undo entry, one save, no cascade side-effects
@@ -181,14 +212,16 @@ export default function ChatMessages() {
     setIsSelectMode(false)
   }
 
-  const toggleSelect = (msgId: string) => {
+  const toggleSelect = useCallback((msgId: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev)
       if (next.has(msgId)) next.delete(msgId)
       else next.add(msgId)
       return next
     })
-  }
+  }, [])
+
+  if (!activeSession) return null
 
   return (
     <div
@@ -199,20 +232,14 @@ export default function ChatMessages() {
         const lock = dragLockTopRef.current
         const el = scrollRef.current
         if (lock !== null && el && Math.abs(el.scrollTop - lock) > 1) el.scrollTop = lock
+        // Track whether the user is near the bottom — auto-scroll during
+        // streaming only follows along while they are.
+        if (el) {
+          isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+        }
       }}
       className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4 relative"
     >
-      {/* Decorative gradient glow (vibrant-gradient variant) — top-right aura,
-          matches the Stitch chat design; pointer-events-none so it never
-          blocks scrolling or message interactions. */}
-      <div
-        className="pointer-events-none absolute top-[-80px] right-[-60px] w-[360px] h-[280px] rounded-full opacity-[0.14]"
-        style={{ background: 'radial-gradient(ellipse at center, #0ea5e9 0%, #6366f1 45%, transparent 70%)' }}
-      />
-      <div
-        className="pointer-events-none absolute top-[120px] right-[-100px] w-[280px] h-[220px] rounded-full opacity-[0.08]"
-        style={{ background: 'radial-gradient(ellipse at center, #a855f7 0%, transparent 70%)' }}
-      />
       {/* Batch select toolbar — only in history-edit mode */}
       {editEnabled && displayMessages.length > 0 && (
         <div className="flex items-center gap-2">
@@ -320,7 +347,7 @@ export default function ChatMessages() {
           onDragOver={editEnabled ? (e) => handleDragOver(originalIndex, e) : undefined}
           onDrop={editEnabled ? (e) => handleDrop(originalIndex, e) : undefined}
           onDragEnd={editEnabled ? handleDragEnd : undefined}
-          className={`transition-all ${
+          className={`chat-msg-row transition-all ${
             dragIndex === originalIndex ? 'opacity-40' : ''
           } ${
             overIndex === originalIndex && dragIndex !== null && dragIndex !== originalIndex
@@ -345,9 +372,14 @@ export default function ChatMessages() {
             <WaveLogo size={16} />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
+            <div className="flex items-center gap-2 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
               <span className="font-bold text-nova-text-primary">OurCode AI</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
+              <span className="flex items-center gap-1 text-nova-accent">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
+                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border">
+                  {t('chat.thinking')}…
+                </span>
+              </span>
             </div>
             {stream?.thinking && <ThinkingBlock content={stream.thinking} defaultExpanded />}
             {stream?.content ? (

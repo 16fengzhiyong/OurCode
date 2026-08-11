@@ -433,12 +433,22 @@ describe('chatStore agent run state', () => {
     useChatStore.getState().startAgentRun('s1', '任务')
     const runId = useChatStore.getState().activeRuns['s1']!.runId
 
-    useChatStore.getState().finishAgentRun('s1', runId, 'done', { tokensIn: 1200, tokensOut: 340 })
+    useChatStore.getState().finishAgentRun('s1', runId, 'done', {
+      tokensIn: 1200,
+      tokensOut: 340,
+      requestCount: 7,
+      cacheHits: 3,
+      cacheTokensSaved: 12400,
+    })
 
     const run = useChatStore.getState().sessions.find((s) => s.id === 's1')!.agentRuns!.find((r) => r.id === runId)!
     expect(run.status).toBe('done')
     expect(run.tokensIn).toBe(1200)
     expect(run.tokensOut).toBe(340)
+    // New usage-detail fields (token badge popover data)
+    expect(run.requestCount).toBe(7)
+    expect(run.cacheHits).toBe(3)
+    expect(run.cacheTokensSaved).toBe(12400)
   })
 
   it('decideBatchApproval clears the dialog and approveBatchRun sets the flag', () => {

@@ -87,7 +87,12 @@ export default function ChatInput() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileSearchRef = useRef<HTMLDivElement>(null)
 
-  const { sendMessage, stopGeneration, queueMessage, removeQueuedMessage, sendQueuedNow, clearQueue } = useChatStore()
+  const sendMessage = useChatStore((s) => s.sendMessage)
+  const stopGeneration = useChatStore((s) => s.stopGeneration)
+  const queueMessage = useChatStore((s) => s.queueMessage)
+  const removeQueuedMessage = useChatStore((s) => s.removeQueuedMessage)
+  const sendQueuedNow = useChatStore((s) => s.sendQueuedNow)
+  const clearQueue = useChatStore((s) => s.clearQueue)
   // Loading/stop state is per session: while THIS conversation generates the
   // send button turns into stop; other conversations running in parallel keep
   // their own buttons (and stopping here must never abort them).

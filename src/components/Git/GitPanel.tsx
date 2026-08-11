@@ -4,7 +4,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useConfigStore } from '@/stores/configStore'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { runLifeguardCheck, LifeguardFinding } from '@/services/lifeguard'
-import DiffView from '../Editor/DiffView'
+import GitDiffView from './GitDiffView'
 import { useI18n } from '@/i18n/useI18n'
 
 interface GitStatus {
@@ -30,11 +30,14 @@ export default function GitPanel() {
   const [showLog, setShowLog] = useState(false)
   const [diffContent, setDiffContent] = useState<string | null>(null)
   const [diffFile, setDiffFile] = useState<string | null>(null)
-  const [monacoDiff, setMonacoDiff] = useState<{ original: string; modified: string; language: string } | null>(null)
+  const [diffStaged, setDiffStaged] = useState(false)
   const [generatingCommit, setGeneratingCommit] = useState(false)
   const t = useI18n()
 
-  const { openFile } = useEditorStore()
+  // Select the ACTION only — a whole-store subscription would re-render the
+  // git panel on every editorStore change (each cursor move / dirty toggle
+  // while this sidebar tab is open).
+  const openFile = useEditorStore((s) => s.openFile)
 
   // Get root path from store
   const getRootPath = useCallback(() => {
@@ -49,10 +52,10 @@ export default function GitPanel() {
     return rootPath.replace(/[/\\]$/, '') + sep + file
   }, [getRootPath])
 
-  const runGitCommand = useCallback(async (args: string[]): Promise<{ success: boolean; output: string; error?: string }> => {
+  const runGitCommand = useCallback(async (args: string[], input?: string): Promise<{ success: boolean; output: string; error?: string }> => {
     const rootPath = getRootPath()
     if (!rootPath) return { success: false, output: '', error: t('git.noFolder') }
-    return window.electronAPI.gitExec(rootPath, args)
+    return window.electronAPI.gitExec(rootPath, args, input)
   }, [getRootPath, t])
   const refreshStatus = useCallback(async () => {
     const rootPath = getRootPath()
@@ -210,38 +213,50 @@ export default function GitPanel() {
     refreshStatus()
   }
 
-  const handleViewDiff = async (file: string) => {
-    // Get original (HEAD) content
-    const headResult = await runGitCommand(['show', `HEAD:${file}`])
-    // Get current working content
-    let currentContent = ''
-    try {
-      const fullPath = resolveFilePath(file)
-      const readResult = await window.electronAPI.readFile(fullPath)
-      currentContent = readResult.content
-    } catch { /* file might be deleted or new */ }
-
-    const ext = file.split('.').pop() || ''
-    const langMap: Record<string, string> = {
-      ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
-      py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java',
-      html: 'html', css: 'css', json: 'json', md: 'markdown', yaml: 'yaml', yml: 'yaml',
-    }
-    const language = langMap[ext] || ext
-
-    if (headResult.success) {
-      setMonacoDiff({ original: headResult.output, modified: currentContent, language })
+  const handleViewDiff = async (file: string, staged: boolean) => {
+    // Staged file → diff of the index vs HEAD; unstaged → working tree vs index.
+    // The GitDiffView renders this as a dark hunked diff with per-hunk
+    // stage/revert actions (Stitch: 源代码管理与差异对比 高保真).
+    const args = staged ? ['diff', '--cached', '--', file] : ['diff', '--', file]
+    const result = await runGitCommand(args)
+    if (result.success) {
+      setDiffContent(result.output || t('git.noDiffShort'))
       setDiffFile(file)
-      setDiffContent(null)
-    } else {
-      // New file - show raw diff
-      const result = await runGitCommand(['diff', file])
-      if (result.success) {
-        setDiffContent(result.output || t('git.noDiffShort'))
-        setDiffFile(file)
-        setMonacoDiff(null)
-      }
+      setDiffStaged(staged)
     }
+  }
+
+  const handleCloseDiff = () => {
+    setDiffContent(null)
+    setDiffFile(null)
+    setDiffStaged(false)
+  }
+
+  const handleDiffChanged = async () => {
+    // After a hunk action the status list and the open diff must both refresh.
+    await refreshStatus()
+    const file = diffFile
+    if (!file) return
+
+    // A hunk action can move the file between staged/unstaged (e.g. staging the
+    // last hunk of a modified file). Detect its current state instead of
+    // trusting the stale flag: pick whichever diff still has content.
+    const cached = await runGitCommand(['diff', '--cached', '--', file])
+    if (cached.success && cached.output) {
+      setDiffStaged(true)
+      setDiffContent(cached.output)
+      return
+    }
+    const work = await runGitCommand(['diff', '--', file])
+    if (work.success && work.output) {
+      setDiffStaged(false)
+      setDiffContent(work.output)
+      return
+    }
+    // No diff left in either state — the file was fully staged or reverted.
+    setDiffContent(null)
+    setDiffFile(null)
+    setDiffStaged(false)
   }
 
   const handleViewLog = async () => {
@@ -337,7 +352,7 @@ export default function GitPanel() {
           value={commitMessage}
           onChange={(e) => setCommitMessage(e.target.value)}
           placeholder={t('git.commitPlaceholder')}
-          className="w-full bg-white/60 dark:bg-white/10 border border-glass-border rounded-md px-2.5 py-2 text-xs text-nova-text-primary placeholder:text-nova-text-muted/70 outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 resize-none transition-all"
+          className="w-full bg-white/60 dark:bg-white/10 border border-glass-border rounded-md px-2.5 py-2 text-xs text-nova-text-primary placeholder:text-nova-text-muted outline-none focus:border-nova-accent focus:ring-1 focus:ring-blue-500/30 resize-none transition-all"
           rows={2}
           style={{ minHeight: 44, lineHeight: 1.5 }}
           onKeyDown={(e) => {
@@ -486,13 +501,19 @@ export default function GitPanel() {
               {stagedChanges.map((item) => {
                 const { icon, color } = getStatusIcon(item.status)
                 const fileName = item.file.split(/[/\\]/).pop() || item.file
+                const isDiffOpen = diffFile === item.file && diffStaged
                 return (
                   <div
                     key={item.file}
-                    className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/70 dark:hover:bg-white/10 cursor-pointer transition-colors mx-1"
+                    className={`group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors mx-1 ${
+                      isDiffOpen
+                        ? 'bg-primary-container border-l-2 border-nova-accent'
+                        : 'hover:bg-white/70 dark:hover:bg-white/10'
+                    }`}
+                    onClick={() => handleViewDiff(item.file, true)}
                   >
                     <button
-                      onClick={() => handleToggleStage(item.file, true)}
+                      onClick={(e) => { e.stopPropagation(); handleToggleStage(item.file, true) }}
                       className="text-nova-text-muted hover:text-nova-text-primary rounded p-0.5 transition-colors"
                       title={t('git.unstage')}
                     >
@@ -505,16 +526,16 @@ export default function GitPanel() {
                     </span>
                     <span
                       className="font-mono text-[12px] text-nova-text-primary truncate flex-1 hover:text-nova-accent transition-colors"
-                      onClick={() => openFile(resolveFilePath(item.file))}
+                      onClick={(e) => { e.stopPropagation(); openFile(resolveFilePath(item.file)) }}
                     >
                       {fileName}
                     </span>
                     <button
-                      onClick={() => handleViewDiff(item.file)}
+                      onClick={(e) => { e.stopPropagation(); handleViewDiff(item.file, true) }}
                       className="hidden group-hover:block text-[10px] text-primary font-medium tracking-wide"
                       title={t('git.viewDiff')}
                     >
-                      差异
+                      {t('git.viewDiff')}
                     </button>
                   </div>
                 )
@@ -543,13 +564,19 @@ export default function GitPanel() {
               {unstagedChanges.map((item) => {
                 const { icon, color } = getStatusIcon(item.status)
                 const fileName = item.file.split(/[/\\]/).pop() || item.file
+                const isDiffOpen = diffFile === item.file && !diffStaged
                 return (
                   <div
                     key={item.file}
-                    className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/70 dark:hover:bg-white/10 cursor-pointer transition-colors mx-1"
+                    className={`group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors mx-1 ${
+                      isDiffOpen
+                        ? 'bg-primary-container border-l-2 border-nova-accent'
+                        : 'hover:bg-white/70 dark:hover:bg-white/10'
+                    }`}
+                    onClick={() => handleViewDiff(item.file, false)}
                   >
                     <button
-                      onClick={() => handleToggleStage(item.file, false)}
+                      onClick={(e) => { e.stopPropagation(); handleToggleStage(item.file, false) }}
                       className="text-nova-text-muted hover:text-nova-accent rounded p-0.5 transition-colors"
                       title={t('git.stage')}
                     >
@@ -562,16 +589,16 @@ export default function GitPanel() {
                     </span>
                     <span
                       className="font-mono text-[12px] text-nova-text-primary truncate flex-1 hover:text-nova-accent transition-colors"
-                      onClick={() => openFile(resolveFilePath(item.file))}
+                      onClick={(e) => { e.stopPropagation(); openFile(resolveFilePath(item.file)) }}
                     >
                       {fileName}
                     </span>
                     <button
-                      onClick={() => handleViewDiff(item.file)}
+                      onClick={(e) => { e.stopPropagation(); handleViewDiff(item.file, false) }}
                       className="hidden group-hover:block text-[10px] text-primary font-medium tracking-wide"
                       title={t('git.viewDiff')}
                     >
-                      差异
+                      {t('git.viewDiff')}
                     </button>
                   </div>
                 )
@@ -606,7 +633,7 @@ export default function GitPanel() {
                       {fileName}
                     </span>
                     <button
-                      onClick={() => handleToggleStage(item.file, false)}
+                      onClick={(e) => { e.stopPropagation(); handleToggleStage(item.file, false) }}
                       className="hidden group-hover:block text-[10px] text-primary font-medium tracking-wide"
                       title={t('git.track')}
                     >
@@ -660,36 +687,17 @@ export default function GitPanel() {
         )}
       </div>
 
-      {/* Monaco Diff view */}
-      {monacoDiff && diffFile && (
-        <div className="border-t border-nova-border h-[300px]">
-          <DiffView
-            original={monacoDiff.original}
-            modified={monacoDiff.modified}
-            language={monacoDiff.language}
-            onClose={() => { setMonacoDiff(null); setDiffFile(null) }}
-          />
-        </div>
-      )}
-
-      {/* Raw diff fallback (for new files) */}
-      {diffContent && diffFile && !monacoDiff && (
-        <div className="border-t border-nova-border max-h-[200px] overflow-y-auto">
-          <div className="flex items-center justify-between px-3 py-1.5 bg-nova-bg">
-            <span className="text-[10px] text-nova-text-muted truncate">{t('git.diffTitle', { file: diffFile })}</span>
-            <button
-              onClick={() => { setDiffContent(null); setDiffFile(null) }}
-              className="text-nova-text-muted hover:text-nova-text-primary"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <pre className="px-3 py-2 text-[11px] text-nova-text-secondary font-mono whitespace-pre-wrap overflow-x-auto">
-            {diffContent}
-          </pre>
-        </div>
+      {/* Diff view — dark hunked diff with per-hunk stage/revert (Stitch: 高保真) */}
+      {diffContent !== null && diffFile && (
+        <GitDiffView
+          file={diffFile}
+          diffText={diffContent}
+          staged={diffStaged}
+          onClose={handleCloseDiff}
+          onChanged={handleDiffChanged}
+          runGitCommand={runGitCommand}
+          onEditFile={(file) => openFile(resolveFilePath(file))}
+        />
       )}
 
       {/* Git Log */}

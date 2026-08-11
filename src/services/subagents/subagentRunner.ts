@@ -236,7 +236,9 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
     }
 
     recordEvent({
-      ok: !lastError || !!finalText,
+      // A run is only "ok" when no error surfaced — finalText falling back to
+      // lastError made a hard failure (network/timeout) record as ok=true.
+      ok: !lastError,
       error: lastError || undefined,
       durationMs: Date.now() - startedAt,
       payload: { toolCallCount, fileChangeCount: changedPaths.size, tokensUsed, summary: finalText.slice(0, 500) },

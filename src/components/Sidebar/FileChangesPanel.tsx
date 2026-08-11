@@ -63,10 +63,11 @@ function resolvePath(relative: string): string {
 
 export default function FileChangesPanel() {
   const sessions = useChatStore((s) => s.sessions)
-  const checkpoints = useChatStore((s) => s.checkpoints)
   const loadCheckpoints = useChatStore((s) => s.loadCheckpoints)
   const revertCheckpoint = useChatStore((s) => s.revertCheckpoint)
-  const { openFile } = useEditorStore()
+  // Select the ACTION only — a whole-store subscription would re-render this
+  // panel on every editorStore change (each cursor move while this tab is open).
+  const openFile = useEditorStore((s) => s.openFile)
 
   const [diffSession, setDiffSession] = useState<FileChange | null>(null)
   const [diffContent, setDiffContent] = useState<{ original: string; modified: string; language: string } | null>(null)

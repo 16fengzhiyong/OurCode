@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react'
 import FileTreeNode from './FileTreeNode'
 import { FileEntry } from '@/types'
 import { useEditorStore } from '@/stores/editorStore'
@@ -9,12 +9,74 @@ interface FileTreeProps {
   rootPath: string
 }
 
-export default function FileTree({ rootPath }: FileTreeProps) {
+/** Per-project expanded-directory persistence: the tree's fold/unfold state
+ *  survives restarts, keyed by project root. Capped so pathological trees
+ *  don't bloat localStorage. */
+const EXPANDED_KEY_PREFIX = 'fileTreeExpanded:'
+const EXPANDED_CAP = 300
+
+/** Fixed row height (matches the h-[26px] rows) + overscan rows rendered above
+ *  and below the viewport so scrolling feels instant. */
+const ROW_HEIGHT = 26
+const ROW_OVERSCAN = 12
+
+/** One visible tree row: the entry plus its indent depth in the flattened list.
+ *  The tree is rendered as a windowed list of these rows instead of one huge
+ *  recursive DOM tree — expanding node_modules in a big project used to mount
+ *  tens of thousands of nodes and freeze every interaction. */
+interface TreeRow {
+  entry: FileEntry
+  depth: number
+}
+
+/** Flatten the (already filtered) tree into a row list, descending only into
+ *  directories that are actually expanded — same traversal rule the recursive
+ *  renderer used, so fold/search behavior is unchanged. */
+function flattenRows(entries: FileEntry[], expandedDirs: Set<string>): TreeRow[] {
+  const rows: TreeRow[] = []
+  const walk = (list: FileEntry[], depth: number) => {
+    for (const entry of list) {
+      rows.push({ entry, depth })
+      if (entry.isDirectory && entry.children && expandedDirs.has(entry.path)) {
+        walk(entry.children, depth + 1)
+      }
+    }
+  }
+  walk(entries, 0)
+  return rows
+}
+
+function loadExpandedDirs(rootPath: string): Set<string> {
+  try {
+    const arr: unknown = JSON.parse(localStorage.getItem(EXPANDED_KEY_PREFIX + rootPath) || 'null')
+    if (Array.isArray(arr)) return new Set(arr.filter((p): p is string => typeof p === 'string'))
+  } catch { /* ignore */ }
+  return new Set()
+}
+
+function saveExpandedDirs(rootPath: string, dirs: Set<string>): void {
+  try {
+    const arr = Array.from(dirs)
+    const capped = arr.length > EXPANDED_CAP ? arr.slice(-EXPANDED_CAP) : arr
+    localStorage.setItem(EXPANDED_KEY_PREFIX + rootPath, JSON.stringify(capped))
+  } catch { /* ignore */ }
+}
+
+function FileTree({ rootPath }: FileTreeProps) {
   const [files, setFiles] = useState<FileEntry[]>([])
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set([rootPath]))
+  // The root itself is always expanded; the rest of the fold state is restored
+  // from this project's last visit.
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set([rootPath, ...loadExpandedDirs(rootPath)]))
   const [searchQuery, setSearchQuery] = useState('')
   const [isLoading, setIsLoading] = useState(true)
-  const { openFile } = useEditorStore()
+  // Virtualization: track scroll offset + container height so only the visible
+  // rows are mounted (see flattenRows). Measured on scroll and via a
+  // ResizeObserver so collapsing/expanding the sidebar re-windows correctly.
+  const [scrollTop, setScrollTop] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
+  // Select the ACTION only (stable reference) — subscribing to the whole
+  // editorStore would re-render the entire tree on every cursor move/keystroke.
+  const openFile = useEditorStore((s) => s.openFile)
   const activeFilePath = useEditorStore((s) => s.activeFilePath)
   const { showHiddenFiles } = useEditorStore((s) => s.preferences)
   const t = useI18n()
@@ -24,9 +86,33 @@ export default function FileTree({ rootPath }: FileTreeProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const dragLockTopRef = useRef<number | null>(null)
 
+  // Debounce for watcher events — bursts (git ops, build output) coalesce into
+  // one refresh instead of reloading the tree per event.
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // Mirror expandedDirs in a ref so the watcher callback never sees a stale closure
   const expandedDirsRef = useRef(expandedDirs)
   useEffect(() => { expandedDirsRef.current = expandedDirs }, [expandedDirs])
+
+  // files is read through a ref inside stable callbacks so memoized tree nodes
+  // don't re-render when the array reference changes.
+  const filesRef = useRef(files)
+  useEffect(() => { filesRef.current = files }, [files])
+
+  // Monotonic token — bumped every time the project root changes, so a slow
+  // in-flight load from the PREVIOUS project can never overwrite the new one
+  // (quick project switching used to race and show the wrong files).
+  const loadSeqRef = useRef(0)
+
+  // Switching projects restores THAT project's own fold state (the component
+  // instance is reused across projects, so state must not leak between them).
+  useEffect(() => {
+    loadSeqRef.current++
+    setExpandedDirs(new Set([rootPath, ...loadExpandedDirs(rootPath)]))
+    setSearchQuery('')
+    setScrollTop(0) // stale offset from the previous project must not persist
+    if (scrollRef.current) scrollRef.current.scrollTop = 0
+  }, [rootPath])
 
   const loadFiles = useCallback(async (dirPath: string) => {
     try {
@@ -38,26 +124,75 @@ export default function FileTree({ rootPath }: FileTreeProps) {
     }
   }, [])
 
+  /** Progressively load children of every expanded directory, updating the
+   *  tree as each level arrives — a project with many expanded folders never
+   *  blocks the first paint on the whole recursive read. */
+  const loadExpandedChildren = useCallback(async (entries: FileEntry[], seq: number) => {
+    for (const entry of entries) {
+      if (!entry.isDirectory || !expandedDirsRef.current.has(entry.path)) continue
+      const children = await loadFiles(entry.path)
+      if (seq !== loadSeqRef.current) return // project switched mid-load — discard
+      setFiles((prev) => {
+        const next = [...prev]
+        updateEntryChildren(next, entry.path, children)
+        return next
+      })
+      // Nested expanded folders inside this one
+      await loadExpandedChildren(children, seq)
+    }
+  }, [loadFiles])
+
   // Load root files (and re-load children of every expanded directory, so a
   // watcher-triggered refresh does NOT flatten the tree)
   const refreshTree = useCallback(async (initial = false) => {
+    const seq = loadSeqRef.current
     if (initial) setIsLoading(true)
     const rootEntries = await loadFiles(rootPath)
-
-    const rebuildChildren = async (entries: FileEntry[]): Promise<FileEntry[]> => {
-      for (const entry of entries) {
-        if (entry.isDirectory && expandedDirsRef.current.has(entry.path)) {
-          const children = await loadFiles(entry.path)
-          entry.children = await rebuildChildren(children)
-        }
-      }
-      return entries
-    }
-
-    const tree = await rebuildChildren(rootEntries)
-    setFiles(tree)
+    if (seq !== loadSeqRef.current) return // project switched mid-load — discard
+    setFiles(rootEntries)
     if (initial) setIsLoading(false)
-  }, [rootPath, loadFiles])
+    await loadExpandedChildren(rootEntries, seq)
+  }, [rootPath, loadFiles, loadExpandedChildren])
+
+  /** Surgically reload ONE directory's listing and merge it into the tree,
+   *  keeping deeper expanded folders populated. Used for watcher events — a
+   *  full `refreshTree()` per change would recursively reload every expanded
+   *  folder (catastrophic on big projects with node_modules etc.). */
+  const refreshDir = useCallback(async (dirPath: string) => {
+    const seq = loadSeqRef.current
+    if (dirPath === rootPath) {
+      const entries = await loadFiles(rootPath)
+      if (seq !== loadSeqRef.current) return
+      setFiles(entries)
+      await loadExpandedChildren(entries, seq)
+      return
+    }
+    // Only reload directories that are actually visible (expanded) — a change
+    // inside a collapsed folder has nothing to update.
+    if (!expandedDirsRef.current.has(dirPath)) return
+    const children = await loadFiles(dirPath)
+    if (seq !== loadSeqRef.current) return
+    setFiles((prev) => {
+      const next = [...prev]
+      updateEntryChildren(next, dirPath, children)
+      return next
+    })
+    await loadExpandedChildren(children, seq)
+  }, [rootPath, loadFiles, loadExpandedChildren])
+
+  /** Watcher callback. Autosave fires every second while typing and writes the
+   *  file we're editing — the tree entry doesn't move (only name + git badge
+   *  are shown, and git is polled separately), so self-saves are skipped. Other
+   *  changes refresh only the affected directory. */
+  const handleFileChanged = useCallback((changedPath: string) => {
+    const openFiles = useEditorStore.getState().openFiles
+    if (openFiles.some((f) => f.path === changedPath)) return
+
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+    refreshTimerRef.current = setTimeout(() => {
+      refreshDir(parentDir(changedPath))
+    }, 300)
+  }, [refreshDir])
 
   // Fetch git status and apply to file entries
   const fetchGitStatus = useCallback(async () => {
@@ -79,73 +214,92 @@ export default function FileTree({ rootPath }: FileTreeProps) {
     } catch { /* ignore git errors */ }
   }, [rootPath])
 
-  // Watch for file changes, then load the tree. fs:* calls are rejected by the
-  // main process until the root is registered (via this fs:watch), so the first
-  // listDir must wait for it — a mount-time listDir that raced the watch used
-  // to fail and leave the tree empty on every fresh open.
+  // Load the tree IMMEDIATELY — the watcher must not gate the first paint.
+  // fs:* calls are rejected by the main process until the root is registered;
+  // enterProject / setRootPath / restoreLastProject authorize it up front, and
+  // we authorize again here (belt-and-suspenders) so the first listDir can
+  // never be rejected.
   useEffect(() => {
     let cancelled = false
-    window.electronAPI.watch(rootPath)
-      .then(() => {
-        if (cancelled) return
-        refreshTree(true)
-        fetchGitStatus()
-      })
-      .catch(() => {
-        // Watcher failed to start (e.g. MCP config error) — load the tree
-        // anyway; the root may have been registered before the failure.
-        if (!cancelled) refreshTree(true)
-      })
-    const unsubscribe = window.electronAPI.onFileChanged(() => {
-      // Reload files while preserving the expanded directory structure
-      refreshTree()
-    })
+    ;(async () => {
+      try { await window.electronAPI.authorize?.(rootPath) } catch { /* ignore */ }
+      if (cancelled) return
+      await refreshTree(true)
+      fetchGitStatus()
+    })()
+    // Start the watcher in the BACKGROUND — its initial recursive scan
+    // (chokidar depth 10) and MCP-config load can take a while on big
+    // projects, and the file tree must not wait for it to show files.
+    window.electronAPI.watch?.(rootPath)?.catch?.(() => { /* watcher failed — the tree still loads */ })
+    const unsubscribe = window.electronAPI.onFileChanged?.(handleFileChanged)
 
     return () => {
       cancelled = true
-      window.electronAPI.unwatch(rootPath)
-      unsubscribe()
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+      window.electronAPI.unwatch?.(rootPath)
+      unsubscribe?.()
     }
-  }, [rootPath, refreshTree, fetchGitStatus])
+  }, [rootPath, refreshTree, fetchGitStatus, handleFileChanged])
 
   // Git status badges refresh on a timer; the initial fetch happens once the
-  // watcher is active (see the watch effect above, where the root is already
-  // registered so the git call is not rejected).
+  // tree is loaded (see the watch effect above).
   useEffect(() => {
     const interval = setInterval(fetchGitStatus, 15000)
     return () => clearInterval(interval)
   }, [fetchGitStatus])
 
-  const toggleDir = async (path: string) => {
-    const newExpanded = new Set(expandedDirs)
+  // Stable callbacks (read state via refs) so memoized FileTreeNodes only
+  // re-render when their own props actually change.
+  const toggleDir = useCallback(async (path: string) => {
+    const newExpanded = new Set(expandedDirsRef.current)
     if (newExpanded.has(path)) {
       newExpanded.delete(path)
     } else {
       newExpanded.add(path)
       // Load children if not loaded
-      const entry = findEntry(files, path)
+      const entry = findEntry(filesRef.current, path)
       if (entry && !entry.children) {
         const children = await loadFiles(path)
-        updateEntryChildren(files, path, children)
-        setFiles([...files])
+        setFiles((prev) => updateEntryChildren(prev, path, children))
       }
     }
     setExpandedDirs(newExpanded)
-  }
+    saveExpandedDirs(rootPath, newExpanded)
+  }, [loadFiles, rootPath])
 
-  const handleFileClick = (path: string, isDirectory: boolean) => {
+  const handleFileClick = useCallback((path: string, isDirectory: boolean) => {
     if (isDirectory) {
       toggleDir(path)
     } else {
       openFile(path)
     }
-  }
+  }, [toggleDir, openFile])
 
-  const filteredFiles = searchQuery
+  const filteredFiles = useMemo(() => searchQuery
     ? filterFiles(files, searchQuery)
     : showHiddenFiles
     ? files
-    : files.filter((f) => !f.isHidden)
+    : files.filter((f) => !f.isHidden), [files, searchQuery, showHiddenFiles])
+
+  // Flatten the visible tree once per files/fold-state change; the render pass
+  // only mounts the rows that fall inside the viewport.
+  const rows = useMemo(() => flattenRows(filteredFiles, expandedDirs), [filteredFiles, expandedDirs])
+  const totalHeight = rows.length * ROW_HEIGHT
+  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - ROW_OVERSCAN)
+  const endIndex = Math.min(rows.length, startIndex + Math.ceil(viewportHeight / ROW_HEIGHT) + ROW_OVERSCAN * 2)
+  const visibleRows = rows.slice(startIndex, endIndex)
+
+  // Measure the scroll container so the windowed slice stays correct when the
+  // panel is resized / first laid out.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const update = () => setViewportHeight(el.clientHeight)
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <div className="h-full flex flex-col" id="file-tree-root" data-root-path={rootPath}>
@@ -177,9 +331,14 @@ export default function FileTree({ rootPath }: FileTreeProps) {
         }}
         onDragEndCapture={() => { dragLockTopRef.current = null }}
         onScroll={() => {
-          const lock = dragLockTopRef.current
           const el = scrollRef.current
-          if (lock !== null && el && Math.abs(el.scrollTop - lock) > 1) el.scrollTop = lock
+          if (!el) return
+          // While a drag is active, hold the list in place so edge auto-scroll
+          // can't slide the whole tree around mid-drag; otherwise feed the new
+          // scroll offset into the windowed renderer.
+          const lock = dragLockTopRef.current
+          if (lock !== null && Math.abs(el.scrollTop - lock) > 1) el.scrollTop = lock
+          else setScrollTop(el.scrollTop)
         }}
         className="flex-1 overflow-y-auto bg-white/95 dark:bg-black/40 shadow-inner"
       >
@@ -187,25 +346,42 @@ export default function FileTree({ rootPath }: FileTreeProps) {
           <div className="flex items-center justify-center py-8">
             <LoadingSpinner size="md" text={t('sidebar.loading')} />
           </div>
-        ) : (filteredFiles.map((entry) => (
-          <FileTreeNode
-            key={entry.path}
-            entry={entry}
-            depth={0}
-            isExpanded={expandedDirs.has(entry.path)}
-            onToggle={toggleDir}
-            onClick={handleFileClick}
-            searchQuery={searchQuery}
-            onRefresh={() => refreshTree()}
-            activePath={activeFilePath}
-          />
-        )))}
+        ) : (
+          <div style={{ height: totalHeight, position: 'relative' }}>
+            <div style={{ transform: `translateY(${startIndex * ROW_HEIGHT}px)` }}>
+              {visibleRows.map(({ entry, depth }) => (
+                <div key={entry.path} style={{ height: ROW_HEIGHT }}>
+                  <FileTreeNode
+                    entry={entry}
+                    depth={depth}
+                    isExpanded={expandedDirs.has(entry.path)}
+                    onClick={handleFileClick}
+                    onRefresh={refreshTree}
+                    activePath={activeFilePath}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
+// memo: the parent (ProjectListPanel) re-renders whenever the chat store's
+// session list changes — the tree must NOT re-render (or re-run memo checks on
+// every node) for that. Props are just the root path, so memo keeps the whole
+// windowed tree untouched across unrelated store churn.
+export default memo(FileTree)
+
 // Helper functions
+/** Parent of a file/dir path (handles both / and \ separators). */
+function parentDir(p: string): string {
+  const idx = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+  return idx > 0 ? p.slice(0, idx) : p
+}
+
 function findEntry(entries: FileEntry[], path: string): FileEntry | null {
   for (const entry of entries) {
     if (entry.path === path) return entry
@@ -217,39 +393,63 @@ function findEntry(entries: FileEntry[], path: string): FileEntry | null {
   return null
 }
 
-function updateEntryChildren(entries: FileEntry[], path: string, children: FileEntry[]): boolean {
-  for (const entry of entries) {
+/** Immutable update: returns a NEW tree where only the path chain leading to
+ *  `path` gets new object references, so memoized FileTreeNodes for untouched
+ *  subtrees don't re-render. Returns the SAME array when `path` is not present
+ *  (e.g. the folder was removed meanwhile). */
+function updateEntryChildren(entries: FileEntry[], path: string, children: FileEntry[]): FileEntry[] {
+  let changed = false
+  const next = entries.map((entry) => {
     if (entry.path === path) {
-      entry.children = children
-      return true
+      changed = true
+      return { ...entry, children }
     }
-    if (entry.children && updateEntryChildren(entry.children, path, children)) {
-      return true
+    if (entry.children) {
+      const newChildren = updateEntryChildren(entry.children, path, children)
+      if (newChildren !== entry.children) {
+        changed = true
+        return { ...entry, children: newChildren }
+      }
     }
-  }
-  return false
+    return entry
+  })
+  return changed ? next : entries
 }
 
+/** Immutable filter — never mutates the source tree (memoized nodes share
+ *  entry references with the real tree, so searching must not clobber their
+ *  children). */
 function filterFiles(entries: FileEntry[], query: string): FileEntry[] {
   const lowerQuery = query.toLowerCase()
-  return entries.filter((entry) => {
-    if (entry.name.toLowerCase().includes(lowerQuery)) return true
-    if (entry.children) {
-      entry.children = filterFiles(entry.children, query)
-      return entry.children.length > 0
+  const next: FileEntry[] = []
+  for (const entry of entries) {
+    if (entry.name.toLowerCase().includes(lowerQuery)) {
+      next.push(entry)
+      continue
     }
-    return false
-  })
+    if (entry.children) {
+      const filteredChildren = filterFiles(entry.children, query)
+      if (filteredChildren.length > 0) {
+        next.push(filteredChildren === entry.children ? entry : { ...entry, children: filteredChildren })
+      }
+    }
+  }
+  return next
 }
 
+/** Reference-preserving git-status pass: only entries whose status (or whose
+ *  subtree) actually changed get new objects, so the 15s git poll doesn't
+ *  re-render the whole tree when nothing moved. */
 function applyGitStatus(entries: FileEntry[], statusMap: Map<string, string>, rootPath: string): FileEntry[] {
-  return entries.map(entry => {
+  let changed = false
+  const next = entries.map((entry) => {
     const relativePath = entry.path.replace(rootPath + '/', '').replace(rootPath + '\\', '')
-    const status = statusMap.get(relativePath) as FileEntry['gitStatus'] || null
-    const updated = { ...entry, gitStatus: status }
-    if (entry.children) {
-      updated.children = applyGitStatus(entry.children, statusMap, rootPath)
-    }
-    return updated
+    const status = (statusMap.get(relativePath) as FileEntry['gitStatus']) || null
+    const childResult = entry.children ? applyGitStatus(entry.children, statusMap, rootPath) : null
+    const children = childResult ?? entry.children
+    if (entry.gitStatus === status && children === entry.children) return entry
+    changed = true
+    return { ...entry, gitStatus: status, children }
   })
+  return changed ? next : entries
 }

@@ -154,4 +154,27 @@ describe('setRootPath', () => {
 
     expect(authorize).not.toHaveBeenCalled()
   })
+
+  it('keeps the project list stable — re-opening a project never bumps it to the front', () => {
+    vi.stubGlobal('window', { electronAPI: { authorize: vi.fn(async () => {}) } })
+
+    useUIStore.getState().setRootPath('A')
+    useUIStore.getState().setRootPath('B')
+    useUIStore.getState().setRootPath('C')
+    // Newly added projects land at the TOP (add order, newest first)
+    expect(useUIStore.getState().recentProjects).toEqual(['C', 'B', 'A'])
+
+    // Re-opening an existing project must NOT move it
+    useUIStore.getState().setRootPath('A')
+    expect(useUIStore.getState().recentProjects).toEqual(['C', 'B', 'A'])
+
+    // A brand-new project goes to the top
+    useUIStore.getState().setRootPath('D')
+    expect(useUIStore.getState().recentProjects).toEqual(['D', 'C', 'B', 'A'])
+  })
+
+  it('persists the user-pinned drag order via reorderProjects', () => {
+    useUIStore.getState().reorderProjects(['C', 'A', 'D'])
+    expect(useUIStore.getState().projectOrder).toEqual(['C', 'A', 'D'])
+  })
 })

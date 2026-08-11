@@ -79,10 +79,19 @@ function SessionStatusDot({ running, needsAttention, hasError, color }: {
 }
 
 export default function ProjectListPanel() {
-  const {
-    setRootPath, recentProjects, recentProjectTimes, projectListView, activeProjectPath,
-    enterProject, backToProjectList, setActiveSidebarTab,
-  } = useUIStore()
+  // Individual uiStore selectors — the whole-store subscription re-rendered
+  // the panel (and, via its child FileTree, the whole tree) on every uiStore
+  // change, e.g. each notification or context-menu toggle.
+  const setRootPath = useUIStore((s) => s.setRootPath)
+  const recentProjects = useUIStore((s) => s.recentProjects)
+  const recentProjectTimes = useUIStore((s) => s.recentProjectTimes)
+  const projectListView = useUIStore((s) => s.projectListView)
+  const activeProjectPath = useUIStore((s) => s.activeProjectPath)
+  const enterProject = useUIStore((s) => s.enterProject)
+  const backToProjectList = useUIStore((s) => s.backToProjectList)
+  const setActiveSidebarTab = useUIStore((s) => s.setActiveSidebarTab)
+  const projectOrder = useUIStore((s) => s.projectOrder)
+  const reorderProjects = useUIStore((s) => s.reorderProjects)
   const sessions = useChatStore((s) => s.sessions)
   const runningSessionIds = useChatStore((s) => s.runningSessionIds)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
@@ -122,15 +131,16 @@ export default function ProjectListPanel() {
   }, [sessions])
 
   // Collect unique projects from recentProjects + sessions' projectPath.
-  // Recently opened projects keep their open-order (most recent first) so the
-  // list doesn't re-sort/jump when a chat session is created or updated —
-  // previously a new session bumped the project's recency key and the whole
-  // list shifted, which read as "the project list collapses by itself".
+  // The order is STABLE: newly added projects land at the TOP (add order,
+  // newest first), and re-opening an existing project never moves it — the
+  // list only changes when a genuinely new project appears. Session-only
+  // projects sort by when their first session was created. The user can pin
+  // a custom order by dragging (projectOrder).
   const projects = useMemo(() => {
     const map = new Map<string, { name: string; path: string; lastOpened: number; sessionCount: number }>()
 
-    // Recently opened projects keep their open-order (most recent first) with a
-    // stable recency key, so creating/updating sessions never re-sorts the list.
+    // Recently opened projects keep their add-order (newest first) —
+    // creating/updating/opening sessions never re-sorts the list.
     // lastOpened is the REAL open time recorded in setRootPath (recentProjectTimes);
     // installs that predate timestamps fall back to session activity below.
     recentProjects.forEach((rp) => {
@@ -139,9 +149,10 @@ export default function ProjectListPanel() {
     })
 
     // Projects only known from chat sessions go after the recent ones, ordered
-    // by their latest session activity.
-    const sessionOnly: Array<{ name: string; path: string; lastOpened: number; sessionCount: number }> = []
-    const byPath = new Map<string, { name: string; path: string; lastOpened: number; sessionCount: number }>()
+    // by when their FIRST session was created (newest first — never re-sorts
+    // when a session is merely updated).
+    const sessionOnly: Array<{ name: string; path: string; lastOpened: number; sessionCount: number; firstAdded: number }> = []
+    const byPath = new Map<string, { name: string; path: string; lastOpened: number; sessionCount: number; firstAdded: number }>()
 
     for (const s of sessions) {
       if (!s.projectPath) continue
@@ -160,14 +171,16 @@ export default function ProjectListPanel() {
           path: s.projectPath,
           lastOpened: 0,
           sessionCount: 0,
+          firstAdded: Number.MAX_SAFE_INTEGER,
         }
         byPath.set(s.projectPath, entry)
         sessionOnly.push(entry)
       }
       entry.sessionCount++
+      if (s.createdAt < entry.firstAdded) entry.firstAdded = s.createdAt
       if (s.updatedAt > entry.lastOpened) entry.lastOpened = s.updatedAt
     }
-    sessionOnly.sort((a, b) => b.lastOpened - a.lastOpened)
+    sessionOnly.sort((a, b) => b.firstAdded - a.firstAdded)
 
     return [
       ...Array.from(map.entries()).map(([path, info]) => ({ ...info, path })),
@@ -175,19 +188,56 @@ export default function ProjectListPanel() {
     ]
   }, [recentProjects, recentProjectTimes, sessions])
 
+  // User-pinned order (drag). When set, the pinned order wins; projects that
+  // are new to it (opened after the pin) go to the TOP — newly added projects
+  // always land at the top of the list.
+  const displayedProjects = useMemo(() => {
+    if (!projectOrder || projectOrder.length === 0) return projects
+    const byPath = new Map(projects.map((p) => [p.path, p]))
+    const pinned = new Set(projectOrder)
+    const ordered: typeof projects = []
+    // Projects unknown to the pinned order first (newly opened)…
+    for (const p of projects) if (!pinned.has(p.path)) { ordered.push(p); byPath.delete(p.path) }
+    // …then the pinned order itself.
+    for (const path of projectOrder) {
+      const p = byPath.get(path)
+      if (p) { ordered.push(p); byPath.delete(path) }
+    }
+    return ordered
+  }, [projects, projectOrder])
+
+  // Drag-to-reorder the project list (disabled while searching — the list is
+  // filtered then, and dropping into a filtered view would be confusing).
+  const [dragPath, setDragPath] = useState<string | null>(null)
+  const [overPath, setOverPath] = useState<string | null>(null)
+  const handleProjectDrop = (toPath: string) => {
+    const from = dragPath
+    if (!from || from === toPath) return
+    const paths = displayedProjects.map((p) => p.path)
+    const fromIdx = paths.indexOf(from)
+    const toIdx = paths.indexOf(toPath)
+    if (fromIdx < 0 || toIdx < 0) return
+    const next = [...paths]
+    next.splice(fromIdx, 1)
+    next.splice(toIdx, 0, from)
+    reorderProjects(next)
+    setDragPath(null)
+    setOverPath(null)
+  }
+
   // Filter by search
   const filteredProjects = useMemo(() => {
-    if (!searchQuery.trim()) return projects
+    if (!searchQuery.trim()) return displayedProjects
     const q = searchQuery.toLowerCase()
     // Also check session titles
-    return projects.filter((p) => {
+    return displayedProjects.filter((p) => {
       if (p.name.toLowerCase().includes(q)) return true
       if (p.path.toLowerCase().includes(q)) return true
       // Check session titles matching this project
       const projectSessions = sessions.filter((s) => s.projectPath === p.path)
       return projectSessions.some((s) => s.title.toLowerCase().includes(q))
     })
-  }, [projects, searchQuery, sessions])
+  }, [displayedProjects, searchQuery, sessions])
 
   // Sessions for a specific project path (limited to 5, expandable)
   const getProjectSessions = (projectPath: string) => {
@@ -235,11 +285,13 @@ export default function ProjectListPanel() {
     if (!useUIStore.getState().isChatVisible) useUIStore.getState().toggleChat()
   }
 
-  /** Tree-view header "new chat" — keeps the old chrome-header behavior. */
+  /** Tree-view header "new chat" — the conversation starts in the project the
+   *  user is currently VIEWING (activeProjectPath), so it binds to that project
+   *  (and, per the current-project-follows-the-session rule, becomes current). */
   const handleNewSession = () => {
     const configId = useConfigStore.getState().activeConfigGroupId
     if (configId) {
-      createSession(configId)
+      createSession(configId, activeProjectPath || undefined)
     } else {
       useUIStore.getState().openSettings()
     }
@@ -365,13 +417,39 @@ export default function ProjectListPanel() {
           const tile = PROJECT_TILES[idx % PROJECT_TILES.length]
 
           return (
-            <div key={project.path} className="space-y-1">
+            <div
+              key={project.path}
+              className={`space-y-1 ${overPath === project.path && dragPath && dragPath !== project.path ? 'rounded-[24px] ring-1 ring-accent-60' : ''}`}
+              onDragOver={(e) => {
+                // Only reorder on drag of a project card (dragPath set); the
+                // session rows inside a project must not become drop targets.
+                if (!dragPath || dragPath === project.path) return
+                e.preventDefault()
+                e.dataTransfer.dropEffect = 'move'
+                setOverPath(project.path)
+              }}
+              onDrop={(e) => {
+                if (!dragPath || dragPath === project.path) return
+                e.preventDefault()
+                handleProjectDrop(project.path)
+              }}
+            >
               {/* Project card (Stitch: gradient tile + name + status badge) */}
               <div
+                draggable={!searchQuery.trim()}
+                onDragStart={(e) => {
+                  if (searchQuery.trim()) return
+                  setDragPath(project.path)
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('text/plain', project.path)
+                }}
+                onDragEnd={() => { setDragPath(null); setOverPath(null) }}
                 className={`group flex items-start gap-3 rounded-[24px] p-3 cursor-pointer transition-all border ${
-                  isCurrent
-                    ? 'bg-accent-5 border-accent-40'
-                    : 'border-transparent hover:bg-white/50 dark:hover:bg-white/10 hover:border-glass-border'
+                  dragPath === project.path
+                    ? 'opacity-40'
+                    : isCurrent
+                      ? 'bg-accent-5 border-accent-40'
+                      : 'border-transparent hover:bg-white/50 dark:hover:bg-white/10 hover:border-glass-border'
                 }`}
                 onClick={() => handleEnterProject(project.path)}
               >

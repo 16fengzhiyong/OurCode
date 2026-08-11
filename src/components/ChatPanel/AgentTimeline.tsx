@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useI18n } from '@/i18n/useI18n'
+import ThinkingBlock from './ThinkingBlock'
 
 interface AgentTimelineProps {
   toolCalls?: Array<{ id: string; name: string; arguments: Record<string, any> }>
@@ -7,7 +8,7 @@ interface AgentTimelineProps {
   thinking?: string
 }
 
-/** Fixed emoji icons per tool type — for rapid visual scanning */
+/** Emoji icon per tool type — shown inside the timeline's round step icon */
 const TOOL_ICONS: Record<string, string> = {
   read_file: '📄',
   list_directory: '📁',
@@ -68,6 +69,11 @@ function truncateResult(result: string, maxLen = 200): string {
   return result.slice(0, maxLen) + '…'
 }
 
+/**
+ * Agent execution flow — Stitch 高保真玻璃拟态版:
+ * glass card header + thinking block + per-tool status chips + a vertical
+ * timeline with round colored step icons.
+ */
 export default function AgentTimeline({ toolCalls, toolResults, thinking }: AgentTimelineProps) {
   const [expanded, setExpanded] = useState(false)
   const [detailId, setDetailId] = useState<string | null>(null)
@@ -79,6 +85,7 @@ export default function AgentTimeline({ toolCalls, toolResults, thinking }: Agen
   const calls = toolCalls || []
   const hasAnyError = calls.some((tc) => getResult(tc.id)?.isError)
   const pendingCount = calls.filter((tc) => !getResult(tc.id)).length
+  const doneCount = calls.length - pendingCount
 
   let statusIcon: string
   if (pendingCount > 0) {
@@ -94,161 +101,190 @@ export default function AgentTimeline({ toolCalls, toolResults, thinking }: Agen
   // Don't render if there's nothing to show
   if (stepCount === 0 && !thinking) return null
 
+  // Status chip class per tool (Stitch: green done / blue running / red error)
+  const chipCls = (tc: { id: string }) => {
+    const result = getResult(tc.id)
+    if (result?.isError) return 'tool-chip-err'
+    if (result) return 'tool-chip-ok'
+    return 'tool-chip-run'
+  }
+  const chipStatus = (tc: { id: string }) => {
+    const result = getResult(tc.id)
+    if (result?.isError) return '✗'
+    if (result) return '✓'
+    return null // spinner rendered below
+  }
+
   return (
-    <div className="workflow-wrapper">
-      {/* ── Collapsed summary bar ── */}
-      {!expanded ? (
-        <button
-          onClick={() => setExpanded(true)}
-          className="timeline-toggle w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[var(--hl-bg)] hover:bg-[var(--hl-bg-hover)] transition-colors"
+    <div className="glass-panel rounded-xl overflow-hidden">
+      {/* ── Header (Stitch: psychology icon + label-caps + step pill + status) ── */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 cursor-pointer select-none hover:bg-nova-hover transition-colors"
+      >
+        <span className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-white bg-accent-purple">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 4.5a2.5 2.5 0 0 1 2.5 2.5c0 1.2.4 1.9 1.2 2.6a4.2 4.2 0 0 1 1.3 3.1c0 2.1-1.6 3.8-3.7 3.8H11a4 4 0 0 1-4-4c0-.8.2-1.5.6-2.1" />
+            <path d="M12 2.5v2M12 19.5v2M3.5 9h2M18.5 9h2M5.6 4.6l1.4 1.4M17 14.9l1.4 1.4" opacity=".7" />
+          </svg>
+        </span>
+        <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-accent-purple">
+          {t('chat.agentExecutionFlow')}
+        </span>
+        <span className="text-[10px] font-semibold text-white bg-accent-purple px-2 py-0.5 rounded-full">
+          {t('chat.totalSteps', { count: stepCount })}
+        </span>
+        <span className={`ml-auto text-[13px] font-bold ${pendingCount > 0 ? 'text-warning' : hasAnyError ? 'text-error' : 'text-success'}`}>
+          {statusIcon}
+        </span>
+        <svg
+          className={`w-4 h-4 text-nova-text-muted transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"
         >
-          <span className="arrow text-[10px] text-nova-text-muted">▶</span>
-          <span className="text-[13px] text-nova-text-muted">🤖 {t('chat.agentExecutionFlow')}</span>
-          <span
-            className="text-[11px] px-2 py-px rounded-full font-semibold"
-            style={{ background: 'color-mix(in srgb, var(--accent-purple, #7c3aed) 12%, transparent)', color: 'var(--accent-purple, #7c3aed)' }}
-          >
-            {t('chat.totalSteps', { count: stepCount })}
-          </span>
-          <span className="text-nova-accent text-[11px] ml-auto">{statusIcon}</span>
-        </button>
-      ) : (
-        /* ── Expanded timeline ── */
-        <>
-          <button
-            onClick={() => setExpanded(false)}
-            className="timeline-toggle open w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[var(--hl-bg)] hover:bg-[var(--hl-bg-hover)] transition-colors"
-          >
-            <span className="arrow open text-[10px] text-nova-text-muted">▶</span>
-            <span className="text-[13px] text-nova-text-muted">🤖 {t('chat.agentExecutionFlow')}</span>
-            <span
-              className="text-[11px] px-2 py-px rounded-full font-semibold"
-              style={{ background: 'color-mix(in srgb, var(--accent-purple, #7c3aed) 12%, transparent)', color: 'var(--accent-purple, #7c3aed)' }}
-            >
-              {t('chat.totalSteps', { count: stepCount })}
-            </span>
-            <span className="text-nova-accent text-[11px] ml-auto">{statusIcon}</span>
-          </button>
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
 
-          <div className="workflow-content">
-            {/* ── Thinking block (interleaved at top) ── */}
-            {thinking && (
-              <div className="step-text-output">
-                💬 {t('chat.thinkingOutput')}：{thinking}
+      {expanded && (
+        <div className="border-t border-nova-border px-3 py-3 flex flex-col gap-3">
+          {/* ── Thinking block (Stitch: violet glass card) ── */}
+          {thinking && <ThinkingBlock content={thinking} />}
+
+          {/* ── Tool call chips (Stitch: colored status pills) ── */}
+          {stepCount > 0 && (
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-widest text-nova-text-muted mb-1.5">
+                {t('tool.toolCallLabel')} · {stepCount}
               </div>
-            )}
+              <div className="flex flex-wrap gap-1.5">
+                {calls.map((tc) => {
+                  const key = extractKey(tc)
+                  const isDetailOpen = detailId === tc.id
+                  const status = chipStatus(tc)
+                  return (
+                    <button
+                      key={tc.id}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setDetailId(isDetailOpen ? null : tc.id)
+                      }}
+                      className={`${chipCls(tc)} ${isDetailOpen ? 'active' : ''}`}
+                    >
+                      {status ? (
+                        <span className="shrink-0">{status}</span>
+                      ) : (
+                        <svg className="w-3 h-3 animate-spin-slow shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+                          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                        </svg>
+                      )}
+                      <span>{tc.name}</span>
+                      {key && <span className="opacity-70 truncate max-w-[110px]">“{key}”</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
-            {/* ── Tool call steps ── */}
-            {calls.map((tc, idx) => {
-              const icon = TOOL_ICONS[tc.name] || '🔧'
-              const key = extractKey(tc)
-              const result = getResult(tc.id)
-              const isDetailOpen = detailId === tc.id
-              const isSubAgent = tc.name === 'run_subagent'
-              // Vibrant-gradient status: done=green check, running/queued=amber
-              // pulse + spinning icon, error=red. Matches the Stitch design.
-              const isPending = !result
-              const chipCls = result?.isError
-                ? 'tool-chip-err'
-                : result
-                  ? 'tool-chip-ok'
-                  : 'tool-chip-warn'
-              const chipAnim = isPending ? ' animate-pulse-soft' : ''
+          {/* ── Vertical timeline (Stitch: round colored step icons + connector) ── */}
+          {stepCount > 0 && (
+            <div className="relative">
+              <div className="absolute left-[15px] top-4 bottom-4 w-[2px] bg-nova-border" />
+              <div className="flex flex-col gap-3.5">
+                {calls.map((tc) => {
+                  const icon = TOOL_ICONS[tc.name] || '🔧'
+                  const key = extractKey(tc)
+                  const result = getResult(tc.id)
+                  const isDetailOpen = detailId === tc.id
+                  const isSubAgent = tc.name === 'run_subagent'
+                  const isPending = !result
+                  const done = result && !result.isError
+                  const failed = result?.isError
 
-              return (
-                <div key={tc.id}>
-                  {/* Step row */}
-                  <div
-                    className={`timeline-row ${idx < calls.length - 1 ? 'border-l-2 border-[var(--border-strong)] ml-[10px] pl-2.5 mb-0.5' : 'border-l-2 border-transparent ml-[10px] pl-2.5'}`}
-                  >
-                    <span className="step-icon">{icon}</span>
-                    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                      <span className="text-nova-text-muted text-[13px] shrink-0">
-                        {t('tool.toolCallLabel')}：
-                      </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setDetailId(isDetailOpen ? null : tc.id)
-                        }}
-                        className={`${chipCls}${chipAnim} ${isDetailOpen ? 'active' : ''}`}
-                      >
-                        <span className="shrink-0 flex items-center">
-                          {result?.isError ? (
-                            '✗'
-                          ) : result ? (
-                            '✓'
-                          ) : (
-                            <svg className="w-3 h-3 animate-spin-slow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+                  const iconBg = failed
+                    ? 'bg-error text-white'
+                    : done
+                      ? 'bg-success text-white'
+                      : 'bg-nova-accent text-white ring-2 ring-blue-500/30 shadow-[0_0_15px_rgba(0,88,188,0.4)]'
+
+                  return (
+                    <div key={tc.id}>
+                      <div className="flex items-start gap-3 relative">
+                        {/* Round step icon */}
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 z-10 text-[15px] ${iconBg}`}>
+                          {isPending ? (
+                            <svg className="w-4 h-4 animate-spin-slow" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
                               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                             </svg>
+                          ) : (
+                            <span>{icon}</span>
                           )}
-                        </span>
-                        <span>{tc.name}</span>
-                        {key && (
-                          <>
-                            {' '}
-                            <span className="param opacity-70">&quot;{key}&quot;</span>
-                          </>
-                        )}
-                      </button>
-                      {/* Status */}
-                      <span
-                        className={`text-[11px] shrink-0 ${
-                          result?.isError ? 'text-red-400' : result ? 'text-green-400' : 'text-nova-text-muted'
-                        }`}
-                      >
-                        {result?.isError ? '✗' : result ? '✓' : '⏳'}
-                      </span>
-                    </div>
-                  </div>
+                        </div>
+                        {/* Step label + status */}
+                        <div className="min-w-0 flex-1 pt-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`text-[13px] font-semibold ${failed ? 'text-error' : done ? 'text-nova-text-primary' : 'text-nova-accent'}`}>
+                              {tc.name}
+                            </span>
+                            {key && <span className="font-mono text-[11px] text-nova-text-muted truncate">“{key}”</span>}
+                          </div>
+                          <div className="text-[11px] text-nova-text-muted">
+                            {failed
+                              ? `✗ ${t('tool.failed')}`
+                              : done
+                                ? `✓ ${result?.result?.length ? truncateResult(result.result, 60) : t('tool.done')}`
+                                : <span className="flex items-center gap-1 text-warning animate-pulse-soft"><span className="w-1.5 h-1.5 rounded-full bg-warning" />{t('tool.running')}…</span>}
+                          </div>
 
-                  {/* ── Sub-agent nested block ── */}
-                  {isSubAgent && (
-                    <div className="sub-agent-block">
-                      <div className="text-[12px] text-[var(--hl-text)] bg-[var(--hl-bg)] inline-block px-2 py-0.5 rounded mb-1">
-                        🔄 {t('chat.subAgentRunning')}
+                          {/* Sub-agent nested card */}
+                          {isSubAgent && !failed && (
+                            <div className="mt-2 glass-panel rounded-md px-2.5 py-1.5 flex items-center gap-2 text-[12px]">
+                              <span className="text-nova-accent animate-spin-slow inline-flex shrink-0">
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21 12a9 9 0 1 1-9-9" />
+                                  <path d="M21 3v6h-6" />
+                                </svg>
+                              </span>
+                              <span className="font-semibold text-nova-text-secondary">{t('chat.subAgentRunning')}</span>
+                              <span className="text-nova-text-muted truncate">{key}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      {result && (
-                        <div className="text-[12px] text-nova-text-muted whitespace-pre-wrap leading-[1.5] opacity-80">
-                          {truncateResult(result.result, 300)}
+
+                      {/* ── Detail panel (args + result) ── */}
+                      {isDetailOpen && (
+                        <div className="ml-[44px] mt-1.5 border border-nova-border rounded-md bg-nova-hover overflow-hidden">
+                          <div className="px-2 py-1 text-[11px] text-nova-text-muted">{t('tool.params')}</div>
+                          <pre className="text-[12px] text-nova-text-secondary whitespace-pre-wrap break-all bg-nova-hover px-2 py-1 max-h-20 overflow-y-auto font-mono">
+                            {JSON.stringify(tc.arguments, null, 2)}
+                          </pre>
+                          {result && (
+                            <>
+                              <div className="px-2 py-1 text-[11px] text-nova-text-muted border-t border-nova-border/50">{t('tool.result')}</div>
+                              <pre className={`text-[12px] whitespace-pre-wrap break-all px-2 py-1 max-h-24 overflow-y-auto font-mono ${
+                                result.isError ? 'text-error bg-error-10' : 'text-nova-text-secondary bg-nova-hover'
+                              }`}>
+                                {result.result}
+                              </pre>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
-                  )}
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
-                  {/* ── Detail panel (args + result) ── */}
-                  {isDetailOpen && (
-                    <div className="ml-[30px] mb-1.5 border border-nova-border rounded-md bg-nova-bg/50 overflow-hidden">
-                      <div className="px-2 py-1 text-[11px] text-nova-text-muted">
-                        {t('tool.params')}
-                      </div>
-                      <pre className="text-[12px] text-nova-text-secondary whitespace-pre-wrap break-all bg-nova-bg/60 px-2 py-1 max-h-20 overflow-y-auto font-mono">
-                        {JSON.stringify(tc.arguments, null, 2)}
-                      </pre>
-                      {result && (
-                        <>
-                          <div className="px-2 py-1 text-[11px] text-nova-text-muted border-t border-nova-border/50">
-                            {t('tool.result')}
-                          </div>
-                          <pre
-                            className={`text-[12px] whitespace-pre-wrap break-all px-2 py-1 max-h-24 overflow-y-auto font-mono ${
-                              result.isError
-                                ? 'text-red-400 bg-red-500/10'
-                                : 'text-nova-text-secondary bg-nova-bg/60'
-                            }`}
-                          >
-                            {result.result}
-                          </pre>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+          {/* Summary footer */}
+          <div className="text-[10px] text-nova-text-muted flex items-center gap-2 border-t border-nova-border pt-2">
+            <span className="text-success">✓ {doneCount}</span>
+            {pendingCount > 0 && <span className="text-warning">⏳ {pendingCount}</span>}
+            {hasAnyError && <span className="text-error">✗</span>}
           </div>
-        </>
+        </div>
       )}
     </div>
   )

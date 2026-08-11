@@ -119,6 +119,11 @@ export interface AgentRun {
   // LLM requests (0 / absent when the provider reported no usage).
   tokensIn?: number
   tokensOut?: number
+  // Extra usage detail for the token badge popover: how many LLM requests the
+  // run made, and how many were client-side cache hits (plus tokens saved).
+  requestCount?: number
+  cacheHits?: number
+  cacheTokensSaved?: number
 }
 
 // One file's content snapshot inside a checkpoint

@@ -70,7 +70,11 @@ interface TerminalPanelProps {
 }
 
 export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
-  const { terminalHeight, setTerminalHeight, isTerminalVisible } = useUIStore()
+  // Individual selectors — a whole-store subscription would re-render the
+  // terminal on every uiStore change (notifications, sidebar drag, ...).
+  const terminalHeight = useUIStore((s) => s.terminalHeight)
+  const setTerminalHeight = useUIStore((s) => s.setTerminalHeight)
+  const isTerminalVisible = useUIStore((s) => s.isTerminalVisible)
   const t = useI18n()
 
   const [tabs, setTabs] = useState<TerminalTab[]>([])

@@ -174,11 +174,16 @@ export class AnthropicAdapter implements LLMAdapter {
               content.push({ type: 'text', text: m.content })
             }
             for (const tc of m.toolCalls) {
+              // History replays store arguments as a JSON string; it can be ''
+              // (empty-args calls) or partial (a call captured mid-stream), so
+              // a throw here would break every subsequent turn of the loop.
+              let input: Record<string, any> = {}
+              try { input = JSON.parse(tc.function.arguments) } catch { /* keep empty */ }
               content.push({
                 type: 'tool_use',
                 id: tc.id,
                 name: tc.function.name,
-                input: JSON.parse(tc.function.arguments),
+                input,
               })
             }
             return { role: 'assistant' as const, content }

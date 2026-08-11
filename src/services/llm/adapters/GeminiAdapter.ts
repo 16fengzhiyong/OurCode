@@ -129,24 +129,31 @@ export class GeminiAdapter implements LLMAdapter {
           const trimmed = line.trim()
           if (!trimmed) continue
 
-          // Gemini uses JSON array streaming, find individual objects
-          const jsonMatch = trimmed.match(/\{"candidates":\[.*?\]\}/)
-          if (!jsonMatch) continue
+          // Gemini's streamGenerateContent returns one complete JSON object per
+          // line (no SSE `data:` prefix). The old regex /\{"candidates":\[.*?\]\}/
+          // matched every chunk EXCEPT the final one — which appends
+          // "usageMetadata":{...} after the candidates array, so `]}` never
+          // occurs and the whole chunk (usage + possibly the last text delta)
+          // was silently dropped. Parse the full line instead.
+          const json = tryParseLine(trimmed)
+          if (!json) continue
+          const text = json.candidates?.[0]?.content?.parts?.[0]?.text
+          const usage = json.usageMetadata
 
-          try {
-            const json = JSON.parse(jsonMatch[0])
-            const text = json.candidates?.[0]?.content?.parts?.[0]?.text
-            const usage = json.usageMetadata
-
-            if (text) {
-              yield {
-                content: text,
-                done: false,
-                usage: usage ? { promptTokens: usage.promptTokenCount || 0, completionTokens: usage.candidatesTokenCount || 0 } : undefined,
-              }
+          if (text) {
+            yield {
+              content: text,
+              done: false,
+              usage: usage ? { promptTokens: usage.promptTokenCount || 0, completionTokens: usage.candidatesTokenCount || 0 } : undefined,
             }
-          } catch {
-            // Skip invalid JSON
+          } else if (usage) {
+            // The final chunk may carry usage with no text — surface it so the
+            // dashboard's token counts are real instead of 0.
+            yield {
+              content: '',
+              done: false,
+              usage: { promptTokens: usage.promptTokenCount || 0, completionTokens: usage.candidatesTokenCount || 0 },
+            }
           }
         }
       }
@@ -173,5 +180,25 @@ export class GeminiAdapter implements LLMAdapter {
     } catch {
       return GEMINI_MODELS
     }
+  }
+}
+
+/**
+ * Parse a Gemini stream line into a JSON object. The line is one complete
+ * `{ candidates, usageMetadata }` object; some gateways additionally wrap it
+ * in SSE (`data: ` prefix) or an array (`[{...}]`), so strip those first.
+ * Returns null on malformed JSON (skipped, never throws).
+ */
+function tryParseLine(line: string): any {
+  try {
+    let s = line
+    if (s.startsWith('data:')) s = s.slice(5)
+    s = s.trim()
+    // `[{...}]` array wrapper from some relay gateways
+    if (s.startsWith('[') && s.endsWith(']')) s = s.slice(1, -1).trim()
+    if (!s) return null
+    return JSON.parse(s)
+  } catch {
+    return null
   }
 }

@@ -146,7 +146,6 @@ export async function retrieveRelevantContext(
     if (lines.length >= MAX_CONTEXT_FILES) break
     if (seenPaths.has(m.path)) continue
     seenPaths.add(m.path)
-    const fileName = m.path.split(/[/\\]/).pop() || m.path
 
     if (m.content != null) {
       const line = `- ${m.path}:${m.line}: ${m.content.slice(0, 160)}`
@@ -244,12 +243,15 @@ let ignoreCache = { root: '', mtime: 0, patterns: [] as string[] }
 
 /** Reload .ourcodeignore (gitignore-style) from the workspace root */
 export async function loadIgnorePatterns(rootPath: string): Promise<void> {
-  if (!rootPath || rootPath === ignoreCache.root) return
+  if (!rootPath) return
   try {
     const { stat } = window.electronAPI
     const ignorePath = joinPath(rootPath, '.ourcodeignore')
     const s = await stat(ignorePath)
-    if (s.modifiedAt === ignoreCache.mtime && ignoreCache.root === rootPath) return
+    // Re-validate the mtime even for the SAME root — the old code returned
+    // early on `rootPath === ignoreCache.root`, which made the mtime check
+    // below it dead code: editing .ourcodeignore never refreshed the rules.
+    if (ignoreCache.root === rootPath && s.modifiedAt === ignoreCache.mtime) return
     const { content } = await window.electronAPI.readFile(ignorePath)
     ignoreCache = {
       root: rootPath,
@@ -257,6 +259,7 @@ export async function loadIgnorePatterns(rootPath: string): Promise<void> {
       patterns: content.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')),
     }
   } catch {
+    // .ourcodeignore missing — no patterns for this root
     ignoreCache = { root: rootPath, mtime: 0, patterns: [] }
   }
 }

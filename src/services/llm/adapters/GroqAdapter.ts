@@ -1,4 +1,4 @@
-import { LLMRequest, LLMStreamChunk, ApiConfigGroup } from '@/types'
+import { LLMRequest, LLMStreamChunk, ApiConfigGroup, LLMToolCall } from '@/types'
 import { LLMAdapter } from '../types'
 import { llmFetch } from '../http'
 import { buildChatUrl, buildModelsUrl } from '../endpoints'
@@ -70,49 +70,71 @@ export class GroqAdapter implements LLMAdapter {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      // Groq is OpenAI-compatible: tool calls arrive as delta.tool_calls and
+      // must be accumulated (like OpenAIAdapter) or agent loops get empty
+      // output. releaseLock in finally so an abort/early break releases the
+      // reader (otherwise the underlying stream is never cancelled).
+      const toolCallsAcc: Map<number, { id: string; name: string; arguments: string }> = new Map()
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
 
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
 
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (!trimmed || !trimmed.startsWith('data: ')) continue
-          const data = trimmed.slice(6)
-          if (data === '[DONE]') {
-            yield { content: '', done: true }
-            return
-          }
-
-          try {
-            const json = JSON.parse(data)
-            const delta = json.choices?.[0]?.delta
-
-            if (delta?.content) {
-              yield { content: delta.content, done: false }
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed || !trimmed.startsWith('data: ')) continue
+            const data = trimmed.slice(6)
+            if (data === '[DONE]') {
+              const toolCalls = toLlmToolCalls(toolCallsAcc)
+              yield { content: '', done: true, toolCalls: toolCalls.length > 0 ? toolCalls : undefined }
+              return
             }
 
-            if (json.x_groq?.usage) {
-              yield {
-                content: '',
-                done: false,
-                usage: {
-                  promptTokens: json.x_groq.usage.prompt_tokens,
-                  completionTokens: json.x_groq.usage.completion_tokens,
-                },
+            try {
+              const json = JSON.parse(data)
+              const delta = json.choices?.[0]?.delta
+
+              if (delta?.content) {
+                yield { content: delta.content, done: false }
               }
+              if (delta?.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index ?? 0
+                  if (!toolCallsAcc.has(idx)) {
+                    toolCallsAcc.set(idx, { id: tc.id || '', name: '', arguments: '' })
+                  }
+                  const acc = toolCallsAcc.get(idx)!
+                  if (tc.id) acc.id = tc.id
+                  if (tc.function?.name) acc.name = tc.function.name
+                  if (tc.function?.arguments) acc.arguments += tc.function.arguments
+                }
+              }
+
+              if (json.x_groq?.usage) {
+                yield {
+                  content: '',
+                  done: false,
+                  usage: {
+                    promptTokens: json.x_groq.usage.prompt_tokens,
+                    completionTokens: json.x_groq.usage.completion_tokens,
+                  },
+                }
+              }
+            } catch {
+              // Skip malformed JSON
             }
-          } catch {
-            // Skip malformed JSON
           }
         }
-      }
 
-      yield { content: '', done: true }
+        yield { content: '', done: true }
+      } finally {
+        reader.releaseLock()
+      }
     } else {
       const json = await response.json()
       const content = json.choices?.[0]?.message?.content || ''
@@ -155,4 +177,13 @@ export class GroqAdapter implements LLMAdapter {
       'llama-3.3-70b-versatile',
     ]
   }
+}
+
+/** Convert the accumulated tool-call map into the LLMToolCall wire format. */
+function toLlmToolCalls(acc: Map<number, { id: string; name: string; arguments: string }>): LLMToolCall[] {
+  return Array.from(acc.values()).map((tc) => ({
+    id: tc.id,
+    type: 'function' as const,
+    function: { name: tc.name, arguments: tc.arguments },
+  }))
 }

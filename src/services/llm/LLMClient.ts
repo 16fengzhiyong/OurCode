@@ -122,6 +122,11 @@ export async function* sendLLMRequest(
     throw error
   } finally {
     clearTimeout(timer)
+    // Abort the underlying HTTP request unconditionally. A consumer that stops
+    // early (stop generation / abort) breaks out of the for-await — without
+    // this the main-process fetch keeps downloading the rest of the body and
+    // the renderer keeps buffering chunks for up to the 120s timeout.
+    controller.abort()
     // Persist only on a completed (non-aborted, non-failed) response.
     if (cacheKey && completed) {
       void storeCachedResponse(cacheKey, config.provider, req.model, chunks, tokensIn, tokensOut)

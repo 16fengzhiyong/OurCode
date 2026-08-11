@@ -108,14 +108,15 @@ test('git panel has no duplicated title and buttons wrap', async () => {
     const headerText = await win.locator('text=代码管理').first().isVisible().catch(() => false)
     expect(headerText).toBe(true)
 
-    // Buttons row: commit/push/pull/log must be visible (not clipped)
-    await expect(win.locator('text=✓ 提交').first()).toBeVisible({ timeout: 3000 })
-    await expect(win.locator('text=↑ 推送').first()).toBeVisible({ timeout: 3000 })
-    await expect(win.locator('text=📋 日志').first()).toBeVisible({ timeout: 3000 })
-    await expect(win.locator('text=🔍 预检').first()).toBeVisible({ timeout: 3000 })
+    // Buttons row: commit/push/log/lifeguard must be visible (not clipped)
+    // (labels are text-only since the Stitch redesign replaced text glyphs with SVGs)
+    await expect(win.locator('button', { hasText: '提交' }).first()).toBeVisible({ timeout: 3000 })
+    await expect(win.locator('button', { hasText: '推送' }).first()).toBeVisible({ timeout: 3000 })
+    await expect(win.locator('button', { hasText: '日志' }).first()).toBeVisible({ timeout: 3000 })
+    await expect(win.locator('button', { hasText: '提交前检查' }).first()).toBeVisible({ timeout: 3000 })
 
     // Open the log — entries should render
-    await win.locator('text=📋 日志').first().click()
+    await win.locator('button', { hasText: '日志' }).first().click()
     await expect(win.locator('text=最近提交').first()).toBeVisible({ timeout: 3000 })
     await expect(win.locator('text=initial').first()).toBeVisible({ timeout: 3000 })
 
