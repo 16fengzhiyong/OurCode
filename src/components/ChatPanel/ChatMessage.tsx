@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, memo } from 'react'
+import { useState, useEffect, useRef, useMemo, memo } from 'react'
 import { ChatMessage as ChatMessageType, AgentRun } from '@/types'
 import { useChatStore } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
@@ -11,6 +11,8 @@ import { PlanCard } from './AgentPanel'
 import WaveLogo from './WaveLogo'
 import ErrorCard from './ErrorCard'
 import MemoryPreviewModal from './MemoryPreviewModal'
+import FileChip from './FileChip'
+import { splitFileLinks } from '@/utils/fileRefs'
 import { useI18n } from '@/i18n/useI18n'
 
 interface ChatMessageProps {
@@ -19,6 +21,38 @@ interface ChatMessageProps {
   isSelectMode?: boolean
   isSelected?: boolean
   onToggleSelect?: (id: string) => void
+}
+
+/**
+ * User bubble content: plain text with attached files rendered as chips.
+ * Only links that resolve to the message's own contextFiles become chips —
+ * pasted text that merely looks like `[name](path)` stays plain text.
+ */
+function UserMessageContent({
+  content,
+  contextFiles,
+  rootPath,
+}: {
+  content: string
+  contextFiles: string[]
+  rootPath: string
+}) {
+  const segments = useMemo(
+    () => splitFileLinks(content, contextFiles, rootPath),
+    [content, contextFiles, rootPath],
+  )
+  const openFile = (p: string) => useEditorStore.getState().openFile(p)
+  return (
+    <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+      {segments.map((seg, i) =>
+        seg.kind === 'file' && seg.path ? (
+          <FileChip key={i} path={seg.path} rootPath={rootPath} onOpen={openFile} />
+        ) : (
+          <span key={i}>{seg.text}</span>
+        ),
+      )}
+    </div>
+  )
 }
 
 /** Compact token count for the agent header badge (1.2K / 3.4M / 512) */
@@ -444,11 +478,15 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
         ) : (
           <>
             {isUser ? (
-              /* User bubble — Stitch: white glass + electric-blue edge */
+              /* User bubble — Stitch: white glass + electric-blue edge.
+                  Attached files render as chips (from message.contextFiles);
+                  pasted markdown links stay plain text. */
               <div className="px-4 py-2.5 bubble-user" style={{ color: 'var(--text-primary)' }}>
-                <div className="text-sm leading-relaxed">
-                  <p className="whitespace-pre-wrap">{message.content}</p>
-                </div>
+                <UserMessageContent
+                  content={message.content}
+                  contextFiles={message.contextFiles || []}
+                  rootPath={session?.projectPath || useUIStore.getState().rootPath || ''}
+                />
               </div>
             ) : (
               /* Assistant — Stitch 高保真: content floats on the canvas as

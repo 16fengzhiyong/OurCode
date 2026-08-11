@@ -90,16 +90,23 @@ export async function retrieveRelevantContext(
 ): Promise<string> {
   if (!rootPath) return ''
 
+  // Explicitly attached files are ALWAYS read (the user pointed at them) even
+  // when the message has no extractable keywords — e.g. pure-Chinese prompts
+  // or Chinese filenames. Keyword search is only for auto-discovering RELATED
+  // files; it must never gate the user's own attachments.
   const keywords = extractKeywords(userContent).slice(0, MAX_KEYWORDS)
-  if (keywords.length === 0) return ''
+  if (keywords.length === 0 && contextFiles.length === 0) return ''
 
   const matches: Array<{ path: string; line?: number; content?: string; score: number }> = []
 
-  // 1) File-name matches (highest signal)
-  try {
-    const nameHits = await window.electronAPI.searchFiles(rootPath, keywords[0])
-    for (const p of nameHits.slice(0, 10)) matches.push({ path: p, score: 10 })
-  } catch { /* ignore */ }
+  // 1) File-name matches (highest signal) — only when we have a keyword to
+  //    search by (explicit attachments alone must not call search with undefined)
+  if (keywords.length > 0) {
+    try {
+      const nameHits = await window.electronAPI.searchFiles(rootPath, keywords[0])
+      for (const p of nameHits.slice(0, 10)) matches.push({ path: p, score: 10 })
+    } catch { /* ignore */ }
+  }
 
   // 2) Content keyword search
   const seen = new Set<string>()
@@ -122,9 +129,10 @@ export async function retrieveRelevantContext(
     } catch { /* ignore */ }
   }
 
-  // 3) Context files explicitly referenced by the user
+  // 3) Context files explicitly referenced by the user — highest priority so
+  //    they are ALWAYS read before auto-search results crowd the byte budget.
   for (const f of contextFiles) {
-    matches.push({ path: f, score: 8 })
+    matches.push({ path: f, score: 12 })
   }
 
   if (matches.length === 0) return ''

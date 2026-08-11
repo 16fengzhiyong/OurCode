@@ -7,6 +7,8 @@ import { takePendingVibeReplace } from '@/services/vibeReplace'
 import { useI18n } from '@/i18n/useI18n'
 import type { TranslationKey } from '@/i18n'
 import { dragSource } from '../Sidebar/FileTreeNode'
+import FileChip from './FileChip'
+import { isPathInside, makeFileLink, extractPathsFromUriList } from '@/utils/fileRefs'
 
 /** Localized description for a slash command (falls back to the stored text). */
 const slashDescription = (cmd: SlashCommand, t: (key: TranslationKey, vars?: Record<string, string | number>) => string) =>
@@ -16,21 +18,6 @@ const slashDescription = (cmd: SlashCommand, t: (key: TranslationKey, vars?: Rec
  *  ChatInput on every store update (e.g. each streaming chunk of a parallel
  *  conversation), since zustand compares with Object.is. */
 const EMPTY_QUEUE: string[] = []
-
-/**
- * Whether `path` sits inside `root`. The main process only grants fs access to
- * registered roots (project + dialog-picked files), so out-of-workspace drops
- * must not become @context refs — they'd hit the path guard on every read.
- * Windows drive letters are case-insensitive.
- */
-function isPathInside(path: string, root: string): boolean {
-  if (!root) return false
-  const isWin = /^[A-Za-z]:[\\/]/.test(root) || root.startsWith('\\\\')
-  const p = isWin ? path.toLowerCase() : path
-  const r = isWin ? root.toLowerCase() : root
-  const base = r.replace(/[\\/]+$/, '')
-  return p === base || p.startsWith(base + (r.includes('\\') ? '\\' : '/'))
-}
 
 /**
  * Resolve the absolute path of a dropped File. Prefers the preload's
@@ -53,9 +40,69 @@ function resolveFilePath(file: File): string {
   return typeof legacy === 'string' ? legacy : ''
 }
 
+/**
+ * Extract absolute paths from a drop's DataTransfer through every channel that
+ * can carry them. Some drag sources / environments don't populate
+ * `dataTransfer.files` on drop even though the drag was accepted (dragover
+ * showed the hint); the files may still be reachable via `items` or the
+ * `text/uri-list` payload (file:// URLs). Returns [] when nothing resolved.
+ */
+function extractDroppedPaths(dt: DataTransfer | null): string[] {
+  if (!dt) return []
+  const paths: string[] = []
+
+  // 1) dataTransfer.files (standard OS file drags)
+  for (const file of Array.from(dt.files)) {
+    const p = resolveFilePath(file)
+    if (p) paths.push(p)
+  }
+
+  // 2) dataTransfer.items — file-kind items when .files came up empty. Prefer
+  //    webkitGetAsEntry(): it reports the real absolute path (drive + fullPath)
+  //    for BOTH files and folders, and works even when the File objects carry
+  //    no path (files:0 is common on some drag sources / sandboxed renderers).
+  if (paths.length === 0) {
+    for (const item of Array.from(dt.items)) {
+      if (item.kind !== 'file') continue
+      const entry = (item as any).webkitGetAsEntry?.()
+      if (entry) {
+        const rootName = String(entry.filesystem?.name || '')
+        const fullPath = String(entry.fullPath || '')
+        if (rootName && fullPath) {
+          const drive = rootName.endsWith(':') ? rootName : rootName + ':'
+          paths.push(drive + fullPath.replace(/\//g, '\\'))
+          continue
+        }
+      }
+      const f = item.getAsFile()
+      if (!f) continue
+      const p = resolveFilePath(f)
+      if (p) paths.push(p)
+    }
+  }
+
+  // 3) text/uri-list → file:// URLs (last resort; some drag sources send only
+  //    URI data and no File objects — e.g. browsers / virtual file items)
+  if (paths.length === 0) {
+    const uris = dt.getData('text/uri-list') || dt.getData('text/plain') || ''
+    for (const p of extractPathsFromUriList(uris)) paths.push(p)
+  }
+  return paths
+}
+
+/** Whether a drag payload carries file data at all (used to decide whether an
+ *  empty result is an error worth surfacing vs. a plain text drag). */
+function dragHasFiles(dt: DataTransfer | null): boolean {
+  if (!dt) return false
+  return Array.from(dt.types).includes('Files') || dt.files.length > 0 || Array.from(dt.items).some((i) => i.kind === 'file')
+}
+
 export default function ChatInput() {
   const [input, setInput] = useState('')
   const [contextFiles, setContextFiles] = useState<string[]>([])
+  /** path → isDirectory, resolved lazily via fs:stat (in-workspace only) so
+   *  chips can show a folder icon and links get a trailing slash. */
+  const [dirMap, setDirMap] = useState<Record<string, boolean>>({})
   const [showFileSearch, setShowFileSearch] = useState(false)
   const [fileSearchResults, setFileSearchResults] = useState<{ name: string; path: string }[]>([])
   const [selectedFileIndex, setSelectedFileIndex] = useState(0)
@@ -223,37 +270,75 @@ export default function ChatInput() {
     })
   }, [input])
 
-  const insertFileReference = useCallback((filePath: string) => {
-    const cursorPos = textareaRef.current?.selectionStart || input.length
-    const textBeforeCursor = input.slice(0, cursorPos)
-    const atIndex = textBeforeCursor.lastIndexOf('@')
-    const textAfter = input.slice(cursorPos)
+  /** Workspace root — store value first, file-tree attr as fallback. */
+  const effectiveRoot = useCallback(
+    () => rootPath || document.getElementById('file-tree-root')?.getAttribute('data-root-path') || '',
+    [rootPath],
+  )
 
-    const newInput = input.slice(0, atIndex) + `@${filePath} ` + textAfter
-    setInput(newInput)
-    setContextFiles((prev) => [...new Set([...prev, filePath])])
+  /** Attach files as chips. Folder-ness is resolved lazily via fs:stat so
+   *  chips can show a folder icon and links get a trailing slash. */
+  const addContextFiles = useCallback((paths: string[]) => {
+    const unique = [...new Set(paths)]
+    setContextFiles((prev) => [...new Set([...prev, ...unique])])
+    const root = effectiveRoot()
+    for (const p of unique) {
+      if (!isPathInside(p, root)) continue
+      window.electronAPI
+        .stat(p)
+        .then((s) => {
+          if (!s.isDirectory) return
+          setDirMap((m) => (m[p] ? m : { ...m, [p]: true }))
+        })
+        .catch(() => { /* unreadable — stays a file chip */ })
+    }
+  }, [effectiveRoot])
+
+  const insertFileReference = useCallback((filePath: string) => {
+    // @-picker selection: drop the dangling "@query" and attach the file as a
+    // chip — no @path text goes into the message.
+    const textarea = textareaRef.current
+    const cursorPos = textarea?.selectionStart ?? input.length
+    const textBeforeCursor = input.slice(0, cursorPos)
+    const atMatch = textBeforeCursor.match(/@(\S*)$/)
+    const atIndex = atMatch ? cursorPos - atMatch[1].length - 1 : cursorPos
+    setInput(input.slice(0, atIndex) + input.slice(cursorPos))
+    addContextFiles([filePath])
     setShowFileSearch(false)
-    textareaRef.current?.focus()
-  }, [input])
+    requestAnimationFrame(() => {
+      textarea?.focus()
+      textarea?.setSelectionRange(atIndex, atIndex)
+    })
+  }, [input, addContextFiles])
 
   const removeContextFile = useCallback((filePath: string) => {
     setContextFiles((prev) => prev.filter((f) => f !== filePath))
-    setInput((prev) => prev.replace(new RegExp(`@${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, 'g'), ''))
+    setDirMap((m) => {
+      const { [filePath]: _drop, ...rest } = m
+      return rest
+    })
   }, [])
 
-  // --- Drag & drop: OS files or file-tree nodes land here as @path refs ---
+  // --- Drag & drop: OS files or file-tree nodes land here as chips ---
 
   const handleDragOver = (e: React.DragEvent) => {
-    // Accept OS file drags (dataTransfer.files / types) and internal file-tree
-    // drags (the tree stores the dragged path in the module-level dragSource).
-    // `types` is the standard signal, but some platforms/Electron versions
-    // don't populate it during dragover — files.length is the more reliable
-    // one, so accept either.
+    // Accept OS file drags and internal file-tree drags (the tree stores the
+    // dragged path in the module-level dragSource AND a custom MIME type so
+    // HMR module-replacement doesn't break the reference). A drag counts as a
+    // file drag when it carries File objects, the 'Files' type, OR a uri-list
+    // payload — Explorer delivers some files/folders as ['text/plain',
+    // 'text/uri-list'] with no 'Files' type and an empty dataTransfer.files.
+    const types = Array.from(e.dataTransfer.types)
     const hasOsFiles =
-      e.dataTransfer.files.length > 0 || Array.from(e.dataTransfer.types).includes('Files')
-    if (!hasOsFiles && !dragSource.path) return
+      e.dataTransfer.files.length > 0 || types.includes('Files') || types.includes('text/uri-list')
+    const hasTreeFile =
+      types.includes('application/x-ourcode-path') || !!dragSource.path
+    if (!hasOsFiles && !hasTreeFile) return
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
+    // Drop only fires when dropEffect is compatible with the source's
+    // effectAllowed — the file tree drags with 'move', so force 'move' there,
+    // otherwise Chromium rejects the drop (dragend without drop).
+    e.dataTransfer.dropEffect = e.dataTransfer.effectAllowed === 'move' ? 'move' : 'copy'
     setIsDragOver(true)
   }
 
@@ -263,81 +348,44 @@ export default function ChatInput() {
     setIsDragOver(false)
   }
 
-  /**
-   * Insert dropped files at the cursor: in-workspace paths become @refs (also
-   * added to contextFiles so the model can read them); external paths are
-   * inserted as plain text. One setInput call so a mixed drop can't clobber
-   * itself.
-   */
-  const insertDroppedFiles = useCallback((refs: string[], plain: string[]) => {
-    const textarea = textareaRef.current
-    const cursorPos = textarea?.selectionStart ?? input.length
-    const textBeforeCursor = input.slice(0, cursorPos)
-
-    // A dangling "@" (with an in-progress query) right before the cursor gets
-    // replaced by the dropped refs — same behavior as picking a suggestion.
-    const atMatch = textBeforeCursor.match(/@(\S*)$/)
-    const insertStart = atMatch ? cursorPos - atMatch[1].length - 1 : cursorPos
-
-    const refText = refs.map((p) => `@${p}`).join(' ')
-    const plainText = plain.join(' ')
-    const insert = [refText, plainText].filter(Boolean).join(' ')
-    const newInput = input.slice(0, insertStart) + insert + ' ' + input.slice(cursorPos)
-    setInput(newInput)
-    if (refs.length > 0) {
-      setContextFiles((prev) => [...new Set([...prev, ...refs])])
-    }
-    setShowFileSearch(false)
-    requestAnimationFrame(() => {
-      textarea?.focus()
-      const pos = insertStart + insert.length + 1
-      textarea?.setSelectionRange(pos, pos)
-    })
-  }, [input])
-
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
 
-    const paths: string[] = []
-    let unresolved = 0
-    // 1) External drag from the OS file manager — resolve real absolute paths
-    if (e.dataTransfer.files.length > 0) {
-      for (const file of Array.from(e.dataTransfer.files)) {
-        const p = resolveFilePath(file)
-        if (p) {
-          paths.push(p)
-        } else {
-          unresolved++
-        }
-      }
+    // 1) External drag from the OS file manager — resolve paths through every
+    //    DataTransfer channel (files / items / uri-list).
+    const paths = extractDroppedPaths(e.dataTransfer)
+    // 2) Internal drag from the file tree via custom MIME type (more reliable
+    //    than the module-level dragSource which can get stale after HMR).
+    if (paths.length === 0) {
+      const treePath = e.dataTransfer.getData('application/x-ourcode-path')
+      if (treePath) paths.push(treePath)
     }
-    // 2) Internal drag from the file tree (path lives in the module dragSource)
+    // 3) Fallback: module-level dragSource (kept for backward compatibility)
     if (paths.length === 0 && dragSource.path) {
       paths.push(dragSource.path)
     }
     if (paths.length === 0) {
-      // Never fail silently: if the drop carried files we couldn't resolve
-      // (e.g. a stale preload without getPathForFile and no legacy File.path),
-      // tell the user instead of looking like the input ignored the drag.
-      if (unresolved > 0) {
+      // Never fail silently: if the drop carried file data we couldn't resolve
+      // (empty dataTransfer.files, stale preload, exotic drag source), tell the
+      // user instead of looking like the input ignored the drag.
+      if (dragHasFiles(e.dataTransfer)) {
         useUIStore.getState().showNotification(t('chat.dropPathUnavailable'), 'warning')
       }
       return
     }
 
-    const unique = [...new Set(paths)]
-    // In-workspace drops become @refs + context files the model can read;
-    // external paths are inserted as plain text so they never hit the
-    // main-process path guard (allowedRoots).
-    const root = rootPath || document.getElementById('file-tree-root')?.getAttribute('data-root-path') || ''
-    const inside = unique.filter((p) => isPathInside(p, root))
-    const outside = unique.filter((p) => !isPathInside(p, root))
-
-    insertDroppedFiles(inside, outside)
-    if (outside.length > 0) {
-      useUIStore.getState().showNotification(t('chat.dropOutsideProject'), 'info')
+    // Attach every dropped path as a chip — nothing goes into the textarea.
+    addContextFiles([...new Set(paths)])
+    // Clear a dangling "@" (in-progress query) the user typed before the drop.
+    const textarea = textareaRef.current
+    const cursorPos = textarea?.selectionStart ?? input.length
+    const atMatch = input.slice(0, cursorPos).match(/@(\S*)$/)
+    if (atMatch) {
+      const start = cursorPos - atMatch[1].length - 1
+      setInput((prev) => prev.slice(0, start) + prev.slice(cursorPos))
     }
+    setShowFileSearch(false)
   }
 
   // Window-level file-drop safety net. A real OS drag is only delivered as a
@@ -349,35 +397,36 @@ export default function ChatInput() {
   // where on the window it is released.
   useEffect(() => {
     const onDragOver = (e: DragEvent) => {
-      // Accept the drag so the drop is delivered instead of rejected.
+      // Accept the drag so the drop is delivered instead of rejected. dropEffect
+      // must stay compatible with the source's effectAllowed (file tree drags
+      // use 'move'), otherwise Chromium rejects the drop (dragend, no drop).
       e.preventDefault()
-      if (Array.from(e.dataTransfer?.types ?? []).includes('Files') && e.dataTransfer) {
-        e.dataTransfer.dropEffect = 'copy'
+      if (dragHasFiles(e.dataTransfer) && e.dataTransfer) {
+        e.dataTransfer.dropEffect = e.dataTransfer.effectAllowed === 'move' ? 'move' : 'copy'
       }
     }
     const onDrop = (e: DragEvent) => {
-      const files = Array.from(e.dataTransfer?.files ?? [])
-      if (files.length === 0) return
-      // The input box handles drops on itself (cursor-position insert); other
-      // zones (file tree move, tab reorder) carry no OS files, so a file drop
-      // anywhere else in the window safely lands in the chat input.
+      const dt = e.dataTransfer
+      // The input box handles drops on itself; other zones (file tree move, tab
+      // reorder) carry no OS files, so a file drop anywhere else in the window
+      // safely lands in the chat input.
       if ((e.target as HTMLElement)?.closest?.('[data-chat-drop]')) return
       e.preventDefault()
-      const paths = files.map((f) => resolveFilePath(f)).filter(Boolean) as string[]
-      if (paths.length === 0) return
-      const root = useUIStore.getState().rootPath || ''
-      const inside = paths.filter((p) => isPathInside(p, root))
-      const outside = paths.filter((p) => !isPathInside(p, root))
-      if (inside.length > 0) {
-        setContextFiles((prev) => [...new Set([...prev, ...inside])])
+      const paths = extractDroppedPaths(dt)
+      // Internal file-tree drags carry the path in a custom MIME type.
+      if (paths.length === 0) {
+        const treePath = dt?.getData('application/x-ourcode-path')
+        if (treePath) paths.push(treePath)
       }
-      setInput((prev) => {
-        const insert = inside.map((p) => `@${p}`).concat(outside).filter(Boolean).join(' ')
-        return prev ? `${prev} ${insert}` : insert
-      })
-      if (outside.length > 0) {
-        useUIStore.getState().showNotification(t('chat.dropOutsideProject'), 'info')
+      if (paths.length === 0) {
+        // Files arrived but none resolved to a path — say so instead of making
+        // the drop look like it was ignored.
+        if (dragHasFiles(dt)) {
+          useUIStore.getState().showNotification(t('chat.dropPathUnavailable'), 'warning')
+        }
+        return
       }
+      addContextFiles([...new Set(paths)])
     }
     document.addEventListener('dragover', onDragOver, true)
     document.addEventListener('drop', onDrop, true)
@@ -385,16 +434,23 @@ export default function ChatInput() {
       document.removeEventListener('dragover', onDragOver, true)
       document.removeEventListener('drop', onDrop, true)
     }
-  }, [t])
+  }, [t, addContextFiles])
 
   const handleSubmit = async () => {
-    if (!input.trim()) return
+    const text = input.trim()
+    // Sending is allowed with only attached files (no typed text).
+    if (!text && contextFiles.length === 0) return
 
     // Vibe-and-Replace: combine the user's description with the stashed selection
     const vibe = takePendingVibeReplace()
-    const content = vibe
-      ? `（Vibe 替换）请按我的要求改写下面的代码，直接输出替换后的完整新代码（单个代码块，不要解释）：\n\n要求: ${input.trim()}\n\n--- 当前选中代码 (${vibe.filePath}) ---\n\`\`\`${vibe.language}\n${vibe.text}\n\`\`\``
-      : input.trim()
+    const base = vibe
+      ? `（Vibe 替换）请按我的要求改写下面的代码，直接输出替换后的完整新代码（单个代码块，不要解释）：\n\n要求: ${text}\n\n--- 当前选中代码 (${vibe.filePath}) ---\n\`\`\`${vibe.language}\n${vibe.text}\n\`\`\``
+      : text
+    // Attached files travel as markdown links: [name](./relative/path) for
+    // in-workspace paths (folders get a trailing slash), [name](abs) outside.
+    const root = effectiveRoot()
+    const links = contextFiles.map((f) => makeFileLink(f, root, dirMap[f] === true))
+    const content = [base, links.join('  ')].filter(Boolean).join('  ')
 
     // While the agent is working, Enter queues the message (type-ahead) —
     // scoped to the active session, so parallel conversations are unaffected.
@@ -402,6 +458,7 @@ export default function ChatInput() {
       queueMessage(activeSessionId, content)
       setInput('')
       setContextFiles([])
+      setDirMap({})
       setQueuedHint(true)
       setTimeout(() => setQueuedHint(false), 2000)
       return
@@ -409,6 +466,7 @@ export default function ChatInput() {
 
     setInput('')
     setContextFiles([])
+    setDirMap({})
 
     if (activeSessionId) {
       await sendMessage(activeSessionId, content, contextFiles)
@@ -511,33 +569,27 @@ export default function ChatInput() {
     try {
       const filePath = await window.electronAPI.openFile()
       if (filePath) {
-        setContextFiles((prev) => [...new Set([...prev, filePath])])
+        addContextFiles([filePath])
       }
     } catch (error) {
       console.error('打开文件失败:', error)
     }
   }
 
-  const getFileName = (path: string) => path.split(/[/\\]/).pop() || path
-
   return (
     <div className="border-t border-nova-border p-3">
-      {/* Context Files */}
+      {/* Attached files — Stitch glass chips (icon + name + ×) */}
       {contextFiles.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-2">
           {contextFiles.map((file) => (
-            <span
+            <FileChip
               key={file}
-              className="inline-flex items-center gap-1 px-2 py-0.5 bg-nova-accent/20 text-nova-accent text-xs rounded-full"
-            >
-              <span>@{getFileName(file)}</span>
-              <button
-                onClick={() => removeContextFile(file)}
-                className="hover:text-white ml-0.5"
-              >
-                &times;
-              </button>
-            </span>
+              path={file}
+              rootPath={rootPath || ''}
+              removable
+              onRemove={removeContextFile}
+              removeLabel={t('chat.removeFile')}
+            />
           ))}
         </div>
       )}
@@ -597,10 +649,9 @@ export default function ChatInput() {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {/* Drag-over hint: tells the user a file/folder drop will attach its
-            path (as @context for in-project files, plain text otherwise).
-            pointer-events-none so it never steals the drop from the handlers
-            on this container. */}
+        {/* Drag-over hint: tells the user a file/folder drop will attach it as
+            a chip (sent as a [name](./path) link). pointer-events-none so it
+            never steals the drop from the handlers on this container. */}
         {isDragOver && (
           <div
             className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none rounded-lg"
@@ -742,7 +793,7 @@ export default function ChatInput() {
               ) : (
                 <button
                   onClick={handleSubmit}
-                  disabled={!input.trim() || !activeConfigGroupId}
+                  disabled={(!input.trim() && contextFiles.length === 0) || !activeConfigGroupId}
                   className="text-white text-xs font-medium px-4 py-1.5 rounded-full transition-all hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
                   style={{ background: 'var(--grad-brand)' }}
                 >

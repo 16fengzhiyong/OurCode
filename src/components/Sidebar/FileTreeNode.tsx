@@ -161,6 +161,10 @@ function FileTreeNode({
     dragSource.isDirectory = entry.isDirectory
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', entry.path)
+    // Custom MIME type so ChatInput can reliably read the path even when
+    // Vite HMR creates a fresh module instance of FileTreeNode (which would
+    // break the module-level dragSource reference held by ChatInput).
+    e.dataTransfer.setData('application/x-ourcode-path', entry.path)
   }
 
   const handleDragOver = (e: React.DragEvent) => {
