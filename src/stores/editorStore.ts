@@ -206,11 +206,13 @@ function loadSessionSnapshot(): SessionSnapshot | null {
 }
 
 let sessionWriteTimer: ReturnType<typeof setTimeout> | null = null
-function scheduleSessionPersist(s: EditorState): void {
+function scheduleSessionPersist(): void {
   if (sessionWriteTimer) clearTimeout(sessionWriteTimer)
   sessionWriteTimer = setTimeout(() => {
     sessionWriteTimer = null
-    try { localStorage.setItem(SESSION_STORAGE_KEY, snapshotOf(s)) } catch { /* storage full / unavailable */ }
+    // Read the freshest state at write time (never a captured snapshot) so a
+    // burst of tab changes always lands on the final layout.
+    try { localStorage.setItem(SESSION_STORAGE_KEY, snapshotOf(useEditorStore.getState())) } catch { /* storage full / unavailable */ }
   }, SESSION_WRITE_DEBOUNCE_MS)
 }
 
@@ -897,48 +899,60 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   /** Re-open the tabs that were open when the app last closed. Called once at
    *  startup (after restoreLastProject) so the editor shows the same files the
-   *  user left open — and stays hidden when none were open. */
+   *  user left open — and stays hidden when none were open. Best-effort: any
+   *  failure (a file deleted on disk, localStorage full, ...) must never block
+   *  app startup, so the whole body is guarded. */
   restoreSession: async () => {
-    const saved = loadSessionSnapshot()
-    if (!saved) {
-      // Nothing was saved — the middle editor area stays hidden (no files open
-      // = nothing to show).
-      useUIStore.getState().setEditorVisible(false)
-      return
-    }
-    const paths = [...new Set(Object.values(saved.panels).flatMap((p) => p.tabOrder || []))]
-    if (paths.length === 0) {
-      useUIStore.getState().setEditorVisible(false)
-      return
-    }
+    try {
+      const saved = loadSessionSnapshot()
+      if (!saved) {
+        // Nothing was saved — the middle editor area stays hidden (no files
+        // open = nothing to show).
+        useUIStore.getState().setEditorVisible(false)
+        return
+      }
+      // Untitled buffers are throwaway — don't resurrect empty ones here. If
+      // one held unsaved content, the hot-exit backup flow restores it.
+      const paths = [...new Set(
+        Object.values(saved.panels).flatMap((p) => (p.tabOrder || []).filter((path) => !path.startsWith('/untitled/'))),
+      )]
+      if (paths.length === 0) {
+        useUIStore.getState().setEditorVisible(false)
+        return
+      }
 
-    // Re-open every file so openFiles is populated and content streams in when
-    // its tab becomes active (openFile registers the lazy loader, then returns).
-    for (const path of paths) {
-      await get().openFile(path)
-    }
+      // Re-open every file so openFiles is populated and content streams in
+      // when its tab becomes active (openFile registers the lazy loader, then
+      // returns immediately).
+      for (const path of paths) {
+        await get().openFile(path)
+      }
 
-    // Advance the panel-id counter past any restored ids so a later split can't
-    // collide with a restored panel (the fresh process restarts at panel-1).
-    for (const id of Object.keys(saved.panels)) {
-      const n = parseInt(id.split('-').pop() || '0', 10)
-      if (Number.isFinite(n)) panelCounter = Math.max(panelCounter, n)
-    }
+      // Advance the panel-id counter past any restored ids so a later split
+      // can't collide with a restored panel (the fresh process restarts at
+      // panel-1).
+      for (const id of Object.keys(saved.panels)) {
+        const n = parseInt(id.split('-').pop() || '0', 10)
+        if (Number.isFinite(n)) panelCounter = Math.max(panelCounter, n)
+      }
 
-    // Apply the saved layout exactly — tab order, the active file per panel,
-    // and any split configuration.
-    const panelOrder = saved.panelOrder.length > 0 ? saved.panelOrder : [initialPanelId]
-    const activePanelId = saved.panels[saved.activePanelId] ? saved.activePanelId : (saved.panels[panelOrder[0]] ? panelOrder[0] : initialPanelId)
-    const next = {
-      ...get(),
-      panels: saved.panels,
-      panelOrder,
-      activePanelId,
-      splitDirection: saved.splitDirection || 'horizontal',
-      splitRatios: saved.splitRatios || [],
+      // Apply the saved layout exactly — tab order, the active file per panel,
+      // and any split configuration.
+      const panelOrder = saved.panelOrder.length > 0 ? saved.panelOrder : [initialPanelId]
+      const activePanelId = saved.panels[saved.activePanelId] ? saved.activePanelId : (saved.panels[panelOrder[0]] ? panelOrder[0] : initialPanelId)
+      const next = {
+        ...get(),
+        panels: saved.panels,
+        panelOrder,
+        activePanelId,
+        splitDirection: saved.splitDirection || 'horizontal',
+        splitRatios: saved.splitRatios || [],
+      }
+      set({ ...next, ...syncDerivedState(next) })
+      useUIStore.getState().setEditorVisible(true)
+    } catch (error) {
+      console.error('Failed to restore editor session:', error)
     }
-    set({ ...next, ...syncDerivedState(next) })
-    useUIStore.getState().setEditorVisible(true)
   },
 
   getActiveFile: () => {
@@ -962,5 +976,5 @@ useEditorStore.subscribe((s) => {
   const snap = snapshotOf(s)
   if (snap === lastSessionSnapshot) return
   lastSessionSnapshot = snap
-  scheduleSessionPersist(s)
+  scheduleSessionPersist()
 })
