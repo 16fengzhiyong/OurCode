@@ -21,7 +21,7 @@ const mockApi = {
 }
 vi.stubGlobal('window', { electronAPI: mockApi })
 
-import { useChatStore, stopGitBranchPolling, trimHistoryForContext, generateSessionTitle, generateAiSessionTitle, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
+import { useChatStore, stopGitBranchPolling, trimHistoryForContext, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { createToolRegistry } from '@/services/tools/ToolRegistry'
@@ -282,6 +282,87 @@ describe('chatStore trimHistoryForContext', () => {
       { role: 'user' as const, content: small },
     ]
     expect(trimHistoryForContext(messages, 'unknown-model-xyz')).toHaveLength(2)
+  })
+})
+
+describe('chatStore sanitizeToolPairing', () => {
+  const asst = (content: string, callIds: string[] = []) => ({
+    role: 'assistant' as const,
+    content,
+    toolCalls: callIds.length > 0
+      ? callIds.map((id) => ({ id, type: 'function' as const, function: { name: 'f', arguments: '{}' } }))
+      : undefined,
+  })
+  const tool = (id: string) => ({ role: 'tool' as const, content: `result of ${id}`, toolCallId: id })
+
+  it('keeps a complete tool round-trip intact', () => {
+    const messages = [
+      { role: 'system' as const, content: 'sys' },
+      { role: 'user' as const, content: 'q' },
+      asst('', ['c1']),
+      tool('c1'),
+      asst('answer'),
+      { role: 'user' as const, content: 'follow-up' },
+    ]
+    expect(sanitizeToolPairing(messages)).toEqual(messages)
+  })
+
+  it('keeps multiple tool responses for one round in order', () => {
+    const messages = [
+      { role: 'user' as const, content: 'q' },
+      asst('', ['c1', 'c2']),
+      tool('c1'),
+      tool('c2'),
+      asst('answer'),
+    ]
+    expect(sanitizeToolPairing(messages)).toEqual(messages)
+  })
+
+  it('strips toolCalls from an assistant message whose responses are missing', () => {
+    const messages = [
+      { role: 'user' as const, content: 'q' },
+      asst('', ['c1']),
+      asst('answer'),
+    ]
+    const result = sanitizeToolPairing(messages)
+    expect(result).toHaveLength(3)
+    expect(result[1].role).toBe('assistant')
+    expect(result[1].toolCalls).toBeUndefined()
+  })
+
+  it('strips a partial round (some ids unanswered) and drops its stray responses', () => {
+    const messages = [
+      { role: 'user' as const, content: 'q' },
+      asst('', ['c1', 'c2']),
+      tool('c1'), // c2 never answered
+      { role: 'user' as const, content: 'next' },
+    ]
+    const result = sanitizeToolPairing(messages)
+    expect(result.filter((m) => m.role === 'tool')).toHaveLength(0)
+    const asstMsg = result.find((m) => m.content === '')
+    expect(asstMsg?.toolCalls).toBeUndefined()
+  })
+
+  it('drops orphaned tool messages that answer no tool_calls', () => {
+    const messages = [
+      { role: 'user' as const, content: 'q' },
+      tool('c9'),
+      { role: 'user' as const, content: 'next' },
+    ]
+    const result = sanitizeToolPairing(messages)
+    expect(result).toEqual([
+      { role: 'user', content: 'q' },
+      { role: 'user', content: 'next' },
+    ])
+  })
+
+  it('strips an unanswered round that ends the history', () => {
+    const messages = [
+      { role: 'user' as const, content: 'q' },
+      asst('', ['c1']),
+    ]
+    const result = sanitizeToolPairing(messages)
+    expect(result[1].toolCalls).toBeUndefined()
   })
 })
 

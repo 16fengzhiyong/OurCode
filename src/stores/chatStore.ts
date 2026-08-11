@@ -598,6 +598,65 @@ export function trimHistoryForContext(messages: RequestMessage[], modelId: strin
 }
 
 /**
+ * Restore the API's tool-call pairing invariant on a rebuilt history: an
+ * assistant message that declares tool_calls must be followed by tool messages
+ * answering EVERY declared tool_call_id, and a tool message is only valid as
+ * the response to such a message. Interrupted runs (stop mid-batch), manual
+ * message edits and legacy sessions can leave orphaned halves of a round-trip
+ * behind — instead of letting the provider reject the whole request with a 400
+ * ("An assistant message with 'tool_calls' must be followed by tool messages
+ * responding to each 'tool_call_id'"), strip the unpaired side here. Exported
+ * for unit tests.
+ */
+export function sanitizeToolPairing(messages: RequestMessage[]): RequestMessage[] {
+  const out: RequestMessage[] = []
+  // The assistant tool_calls round currently being validated: the message, the
+  // ids still awaiting a tool response, and the buffered tool responses so far
+  // (emitted together with the assistant once every id is answered).
+  let round: RequestMessage | null = null
+  let roundMissing = new Set<string>()
+  let roundTools: RequestMessage[] = []
+
+  const endRound = (strip: boolean) => {
+    if (!round) return
+    out.push(strip ? { ...round, toolCalls: undefined } : round)
+    if (!strip) out.push(...roundTools)
+    round = null
+    roundMissing = new Set()
+    roundTools = []
+  }
+
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      const answersRound = round !== null && !!m.toolCallId && roundMissing.has(m.toolCallId)
+      if (!answersRound) {
+        // Orphaned tool message — no pending round declares this id (or no
+        // round is pending at all). Drop it; a broken pending round has its
+        // assistant side stripped so it degrades to a plain (valid) answer.
+        if (round) endRound(true)
+        continue
+      }
+      roundMissing.delete(m.toolCallId!)
+      roundTools.push(m)
+      continue
+    }
+    // Any non-tool message ends a pending round. If not every declared id got
+    // a response the pairing is broken → strip the toolCalls instead of 400-ing.
+    if (round) endRound(roundMissing.size > 0)
+    if (m.role === 'assistant' && m.toolCalls && m.toolCalls.length > 0) {
+      round = m
+      roundMissing = new Set(m.toolCalls.map((tc) => tc.id))
+      roundTools = []
+    } else {
+      out.push(m)
+    }
+  }
+  // Assistant tool_calls at the very end with un-answered ids → strip.
+  if (round) endRound(roundMissing.size > 0)
+  return out
+}
+
+/**
  * Convert stored (parsed) tool calls back to the raw LLM wire format.
  * ChatMessage.toolCalls is stored as {id, name, arguments(object)} for the UI,
  * but the LLM adapters (OpenAI/Anthropic) expect {id, type, function:{name, arguments(string)}}.
@@ -2003,6 +2062,12 @@ async function runAgentLoop(
   // exceeds the model's budget (keeps the current user turn + a notice).
   messages = trimHistoryForContext(messages, session.model || configGroup.defaultModel)
 
+  // Tool-call pairing: a rebuild (or the trim above) can leave an assistant
+  // tool_calls message without its tool responses — strip the unpaired side so
+  // the provider doesn't reject the whole request with a 400 ("insufficient
+  // tool messages following tool_calls message").
+  messages = sanitizeToolPairing(messages)
+
   // Agent mode with the default 'plan' edit mode exposes only read-only +
   // agent-control tools until a plan is approved (the planning phase is
   // read-only by design). Other edit modes expose all tools but vary approval.
@@ -2267,16 +2332,25 @@ async function runAgentLoop(
       // fired 8 concurrent LLM requests regardless of the limit.
       const deferredSubagents: Array<{ tc: ToolCall; run: () => Promise<ToolResult> }> = []
 
+      // Record a tool result BOTH in the live request history and as a
+      // standalone session message. The API requires every assistant tool_calls
+      // message to be followed by tool messages answering each tool_call_id —
+      // without the persisted copy, a later turn rebuilds a history with an
+      // orphaned tool_calls message and the provider rejects it with a 400
+      // ("insufficient tool messages following tool_calls message"). The UI
+      // still renders results inline via toolResults; the standalone messages
+      // are skipped by ChatMessages/ChatMessage and exist only to keep the
+      // request history pairing-valid.
+      const recordToolMessage = (toolCallId: string, content: string): void => {
+        messages.push({ role: 'tool', content, toolCallId, toolCalls: undefined })
+        chatStore.addMessage(sessionId, { role: 'tool', content, toolCallId, runId })
+      }
+
       const finalizeToolResult = (tc: ToolCall, result: ToolResult): void => {
         useChatStore.getState().setTraceStatus(sessionId, tc.id, result.isError ? 'error' : 'success')
-        // Append result inline to the assistant message (no separate tool message)
+        // Append the result inline to the assistant message for display
         chatStore.appendToolResult(sessionId, assistantMsgId, result)
-        messages.push({
-          role: 'tool',
-          content: result.result,
-          toolCallId: tc.id,
-          toolCalls: undefined,
-        })
+        recordToolMessage(tc.id, result.result)
         // Write tools changed files on disk — notify open editors to reload
         if (CHECKPOINT_TOOLS.has(tc.name) && tc.arguments?.path) {
           notifyFileChanged(tc.arguments.path)
@@ -2308,7 +2382,7 @@ async function runAgentLoop(
           chatStore.setTodos(sessionId, todos)
           const result = `任务列表已更新 (${todos.length} 项)`
           chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
-          messages.push({ role: 'tool', content: result, toolCallId: tc.id })
+          recordToolMessage(tc.id, result)
           useChatStore.getState().setTraceStatus(sessionId, tc.id, 'success')
           continue
         }
@@ -2332,7 +2406,7 @@ async function runAgentLoop(
           }
           const result = '计划已提交，等待用户批准。'
           chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
-          messages.push({ role: 'tool', content: result, toolCallId: tc.id })
+          recordToolMessage(tc.id, result)
           planSubmitted = true
           break
         }
@@ -2361,7 +2435,7 @@ async function runAgentLoop(
           })
           const result = `用户回答: ${answer}`
           chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
-          messages.push({ role: 'tool', content: result, toolCallId: tc.id })
+          recordToolMessage(tc.id, result)
           useChatStore.getState().setTraceStatus(sessionId, tc.id, 'success')
           continue
         }
@@ -2375,7 +2449,7 @@ async function runAgentLoop(
             isError: true,
           }
           chatStore.appendToolResult(sessionId, assistantMsgId, result)
-          messages.push({ role: 'tool', content: result.result, toolCallId: tc.id })
+          recordToolMessage(tc.id, result.result)
           useChatStore.getState().setTraceStatus(sessionId, tc.id, 'rejected')
           continue
         }
@@ -2419,12 +2493,7 @@ async function runAgentLoop(
               isError: true,
             }
             chatStore.appendToolResult(sessionId, assistantMsgId, result)
-            messages.push({
-              role: 'tool',
-              content: result.result,
-              toolCallId: tc.id,
-              toolCalls: undefined,
-            })
+            recordToolMessage(tc.id, result.result)
             continue
           }
         }
