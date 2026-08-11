@@ -102,7 +102,7 @@ function UsageDetailRow({
 
 /** Token badge detail popover — Stitch「现代玻璃态」: floating glass card with a
  *  gradient hero number, cache-hit pill and mono detail rows. Anchored below the
- *  badge with a small arrow; closes via the hint button or clicking outside. */
+ *  badge with a small arrow; closes on outside click or Escape. */
 function TokenUsagePopover({ run, model }: { run: AgentRun; model?: string }) {
   const t = useI18n()
   const tokensIn = run.tokensIn || 0
@@ -424,7 +424,7 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
               <span className="relative inline-flex" ref={usageRef}>
                 <button
                   onClick={() => setUsageOpen((v) => !v)}
-                  title={t('chat.usage.hint')}
+                  title={usageOpen ? t('chat.usage.hint') : t('chat.usage.viewHint')}
                   className="flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-nova-hover border border-nova-border text-nova-text-muted hover:border-nova-accent/40 hover:text-nova-text-primary transition-colors cursor-pointer"
                 >
                   <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

@@ -381,6 +381,7 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.usage.toolCallCount': '{count}',
   'chat.usage.fileChangeCount': '{count}',
   'chat.usage.hint': 'Click the badge again to close',
+  'chat.usage.viewHint': 'View run usage',
   'chat.memoryScopeInProject': '→ {project}',
   'chat.branchFromMessage': 'Create branch from this message',
   'chat.branch': 'Branch',

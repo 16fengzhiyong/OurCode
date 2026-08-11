@@ -378,6 +378,7 @@ export const zhCN = {
   'chat.usage.toolCallCount': '{count} 次',
   'chat.usage.fileChangeCount': '{count} 个',
   'chat.usage.hint': '再次点击徽章关闭',
+  'chat.usage.viewHint': '查看本次消耗详情',
   'chat.memoryScopeInProject': '→ {project}',
   'chat.branchFromMessage': '从此消息创建分支',
   'chat.branch': '分支',
