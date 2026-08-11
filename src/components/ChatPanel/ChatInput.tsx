@@ -32,6 +32,27 @@ function isPathInside(path: string, root: string): boolean {
   return p === base || p.startsWith(base + (r.includes('\\') ? '\\' : '/'))
 }
 
+/**
+ * Resolve the absolute path of a dropped File. Prefers the preload's
+ * webUtils.getPathForFile bridge, then falls back to the legacy File.path
+ * that Electron ≤ 31 still exposes. Without the fallback, a stale preload
+ * (app started before the bridge was added) makes every OS drop silently
+ * no-op. Returns '' when the file has no resolvable path.
+ */
+function resolveFilePath(file: File): string {
+  const api = (window as any).electronAPI
+  if (api?.getPathForFile) {
+    try {
+      const p: unknown = api.getPathForFile(file)
+      if (typeof p === 'string' && p) return p
+    } catch {
+      /* bridge unavailable/throws — try the legacy path below */
+    }
+  }
+  const legacy = (file as any).path
+  return typeof legacy === 'string' ? legacy : ''
+}
+
 export default function ChatInput() {
   const [input, setInput] = useState('')
   const [contextFiles, setContextFiles] = useState<string[]>([])
@@ -223,9 +244,13 @@ export default function ChatInput() {
   // --- Drag & drop: OS files or file-tree nodes land here as @path refs ---
 
   const handleDragOver = (e: React.DragEvent) => {
-    // Accept OS file drags (dataTransfer.files) and internal file-tree drags
-    // (the tree stores the dragged path in the module-level dragSource).
-    const hasOsFiles = Array.from(e.dataTransfer.types).includes('Files')
+    // Accept OS file drags (dataTransfer.files / types) and internal file-tree
+    // drags (the tree stores the dragged path in the module-level dragSource).
+    // `types` is the standard signal, but some platforms/Electron versions
+    // don't populate it during dragover — files.length is the more reliable
+    // one, so accept either.
+    const hasOsFiles =
+      e.dataTransfer.files.length > 0 || Array.from(e.dataTransfer.types).includes('Files')
     if (!hasOsFiles && !dragSource.path) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'copy'
@@ -275,20 +300,31 @@ export default function ChatInput() {
     setIsDragOver(false)
 
     const paths: string[] = []
+    let unresolved = 0
     // 1) External drag from the OS file manager — resolve real absolute paths
     if (e.dataTransfer.files.length > 0) {
       for (const file of Array.from(e.dataTransfer.files)) {
-        try {
-          const p = window.electronAPI.getPathForFile(file)
-          if (p) paths.push(p)
-        } catch { /* file type without a resolvable path — skip */ }
+        const p = resolveFilePath(file)
+        if (p) {
+          paths.push(p)
+        } else {
+          unresolved++
+        }
       }
     }
     // 2) Internal drag from the file tree (path lives in the module dragSource)
     if (paths.length === 0 && dragSource.path) {
       paths.push(dragSource.path)
     }
-    if (paths.length === 0) return
+    if (paths.length === 0) {
+      // Never fail silently: if the drop carried files we couldn't resolve
+      // (e.g. a stale preload without getPathForFile and no legacy File.path),
+      // tell the user instead of looking like the input ignored the drag.
+      if (unresolved > 0) {
+        useUIStore.getState().showNotification(t('chat.dropPathUnavailable'), 'warning')
+      }
+      return
+    }
 
     const unique = [...new Set(paths)]
     // In-workspace drops become @refs + context files the model can read;
@@ -303,6 +339,53 @@ export default function ChatInput() {
       useUIStore.getState().showNotification(t('chat.dropOutsideProject'), 'info')
     }
   }
+
+  // Window-level file-drop safety net. A real OS drag is only delivered as a
+  // `drop` when some dragover handler calls preventDefault() along the way; if
+  // that gate fails for any reason (platform, drag source, stale build), the
+  // input's own onDrop never fires and the drag silently does nothing. Accept
+  // file drags at the document level and forward any file drop that lands
+  // outside the input box into it, so attaching a file always works no matter
+  // where on the window it is released.
+  useEffect(() => {
+    const onDragOver = (e: DragEvent) => {
+      // Accept the drag so the drop is delivered instead of rejected.
+      e.preventDefault()
+      if (Array.from(e.dataTransfer?.types ?? []).includes('Files') && e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy'
+      }
+    }
+    const onDrop = (e: DragEvent) => {
+      const files = Array.from(e.dataTransfer?.files ?? [])
+      if (files.length === 0) return
+      // The input box handles drops on itself (cursor-position insert); other
+      // zones (file tree move, tab reorder) carry no OS files, so a file drop
+      // anywhere else in the window safely lands in the chat input.
+      if ((e.target as HTMLElement)?.closest?.('[data-chat-drop]')) return
+      e.preventDefault()
+      const paths = files.map((f) => resolveFilePath(f)).filter(Boolean) as string[]
+      if (paths.length === 0) return
+      const root = useUIStore.getState().rootPath || ''
+      const inside = paths.filter((p) => isPathInside(p, root))
+      const outside = paths.filter((p) => !isPathInside(p, root))
+      if (inside.length > 0) {
+        setContextFiles((prev) => [...new Set([...prev, ...inside])])
+      }
+      setInput((prev) => {
+        const insert = inside.map((p) => `@${p}`).concat(outside).filter(Boolean).join(' ')
+        return prev ? `${prev} ${insert}` : insert
+      })
+      if (outside.length > 0) {
+        useUIStore.getState().showNotification(t('chat.dropOutsideProject'), 'info')
+      }
+    }
+    document.addEventListener('dragover', onDragOver, true)
+    document.addEventListener('drop', onDrop, true)
+    return () => {
+      document.removeEventListener('dragover', onDragOver, true)
+      document.removeEventListener('drop', onDrop, true)
+    }
+  }, [t])
 
   const handleSubmit = async () => {
     if (!input.trim()) return
@@ -509,10 +592,28 @@ export default function ChatInput() {
       {/* Input Area — also a drop target for files (OS or file tree) */}
       <div
         className={`relative ${isDragOver ? 'ring-2 ring-nova-accent/70 rounded-lg' : ''}`}
+        data-chat-drop
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
+        {/* Drag-over hint: tells the user a file/folder drop will attach its
+            path (as @context for in-project files, plain text otherwise).
+            pointer-events-none so it never steals the drop from the handlers
+            on this container. */}
+        {isDragOver && (
+          <div
+            className="absolute inset-0 z-40 flex items-center justify-center pointer-events-none rounded-lg"
+            style={{ background: 'color-mix(in srgb, var(--accent) 16%, transparent)', border: '1.5px dashed var(--accent)' }}
+          >
+            <div
+              className="px-3 py-1.5 rounded-full text-xs font-medium text-white shadow-sm"
+              style={{ background: 'var(--accent)' }}
+            >
+              {t('chat.dropHint')}
+            </div>
+          </div>
+        )}
         {/* Slash-command menu ("/" at the start of a line) */}
         {showSlashMenu && filterSlashCommands(slashQuery, allSlashCommands).length > 0 && (
           <div

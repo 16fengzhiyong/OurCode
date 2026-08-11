@@ -314,6 +314,8 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.addFile': 'Add file',
   'chat.addAttachment': 'Add attachment',
   'chat.dropOutsideProject': 'Inserted as plain text (only in-project files become @context)',
+  'chat.dropHint': 'Release to attach file/folder path',
+  'chat.dropPathUnavailable': "Couldn't read the dropped file's location — paste the path instead",
   'chat.referenceFile': 'Reference file',
   'chat.voiceInput': 'Voice input',
   'chat.modelSettings': 'Model settings',
