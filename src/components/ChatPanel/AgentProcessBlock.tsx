@@ -101,18 +101,13 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full flex items-center gap-2 px-1 py-1 text-left cursor-pointer select-none group"
       >
-        {/* 紫色左线 —— 过程块的唯一点缀（与思考块同一风格） */}
-        <span className="w-[2px] self-stretch rounded-full bg-accent-purple/70 shrink-0" aria-hidden />
-        <span className="flex items-center gap-1 text-accent-purple shrink-0">
-          <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden>
-            psychology
-          </span>
-          <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">
+        <span className="flex items-center gap-1 text-nova-text-muted shrink-0">
+          <span className="text-[11px] font-medium">
             {hasToolCalls ? t('chat.thinkingProcess') : t('chat.thinkingTitle')}
           </span>
         </span>
         {hasToolCalls && totalTools > 0 && (
-          <span className="shrink-0 font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border text-nova-text-muted">
+          <span className="shrink-0 font-mono text-[10px] text-nova-text-muted">
             {buildToolStats(t, toolStats)}
           </span>
         )}

@@ -927,36 +927,24 @@ textarea[data-ai-input] {
   animation: pulseSoft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* User message bubble — white glass with electric-blue edge (Stitch:
-   高保真玻璃拟态版: rgba(255,255,255,0.8) + blur + rgba(0,88,188,0.3) border,
-   18px 4px 18px 18px radius). Stays crisp on the project's white canvas. */
+/* User message bubble — neutral flat gray (mainstream style): no electric-blue
+   edge, no glass blur; the theme-aware --hover/--border tokens give it a quiet
+   bubble that recedes behind the AI's answer. */
 .bubble-user {
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(0, 88, 188, 0.3);
-  border-radius: 18px 4px 18px 18px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  border-radius: 18px 18px 4px 18px;
   transition: background 0.15s, border-color 0.15s;
 }
 .bubble-user:hover {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: rgba(0, 88, 188, 0.42);
-}
-:root.dark .bubble-user {
-  background: rgba(27, 33, 48, 0.85);
-  border-color: rgba(77, 148, 255, 0.4);
-}
-:root.dark .bubble-user:hover {
-  background: rgba(36, 44, 63, 0.92);
-  border-color: rgba(77, 148, 255, 0.55);
+  border-color: var(--border-strong);
 }
 
-/* AI avatar — brand gradient + soft violet glow */
+/* AI avatar — flat neutral container; glow removed (the violet halo read as
+   decorative chrome next to mainstream AI tools). Components pair this with
+   the accent-colored WaveLogo. */
 .avatar-glow {
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.28);
-}
-:root.dark .avatar-glow {
-  box-shadow: 0 8px 28px rgba(99, 102, 241, 0.38);
+  box-shadow: none;
 }
 
 /* Todo panel — gradient accent bar */
@@ -996,9 +984,9 @@ textarea[data-ai-input] {
   color: var(--yellow, #d97706);
 }
 .banner-queue {
-  background: linear-gradient(90deg, rgba(124, 58, 237, 0.10) 0%, rgba(124, 58, 237, 0.02) 100%);
-  border: 1px solid color-mix(in srgb, var(--accent-purple, #7c3aed) 22%, transparent);
-  color: var(--accent-purple, #7c3aed);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent, #0058bc) 8%, transparent) 0%, color-mix(in srgb, var(--accent, #0058bc) 1%, transparent) 100%);
+  border: 1px solid color-mix(in srgb, var(--accent, #0058bc) 22%, transparent);
+  color: var(--accent, #0058bc);
 }
 .banner-warning button, .banner-queue button { color: inherit; }
 .banner-warning button:hover, .banner-queue button:hover { color: var(--text-primary); }

@@ -73,8 +73,9 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
-/** Ghost icon/label button (hover action toolbar) — vibrant-gradient variant:
- *  glass pill buttons that reveal a brand-colored gradient glow on hover. */
+/** Ghost icon/label button (hover action toolbar) — flat minimal variant:
+ *  no gradient glow layer, no springy scale, no glass pill. Just a quiet
+ *  text/icon button that tints on hover (mainstream hover-toolbar feel). */
 function GhostButton({
   onClick,
   title,
@@ -89,23 +90,15 @@ function GhostButton({
   children: React.ReactNode
 }) {
   const base =
-    'group relative overflow-hidden inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold ' +
-    'border border-nova-border bg-nova-surface/60 backdrop-blur transition-all duration-300 ' +
-    'hover:scale-[1.05] ease-[cubic-bezier(0.34,1.56,0.64,1)]'
+    'inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border border-transparent transition-colors'
   const tone = danger
-    ? 'text-[#F48771] hover:text-[#F48771] hover:border-[#F48771]/50'
+    ? 'text-error hover:bg-error/10 hover:border-error/20'
     : accent
-      ? 'text-nova-accent hover:text-nova-accent hover:border-nova-accent/50'
-      : 'text-nova-text-muted hover:text-nova-text-primary hover:border-nova-border'
-  const glow = danger
-    ? 'bg-gradient-sunset-peach'
-    : accent
-      ? 'bg-gradient-blue-violet'
-      : 'bg-gradient-blue-violet'
+      ? 'text-nova-accent hover:bg-nova-accent/10 hover:border-nova-accent/20'
+      : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'
   return (
     <button onClick={onClick} title={title} className={`${base} ${tone}`}>
-      <span className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity ${glow}`} />
-      <span className="relative z-[1] inline-flex items-center gap-1">{children}</span>
+      <span className="inline-flex items-center gap-1">{children}</span>
     </button>
   )
 }
@@ -329,33 +322,9 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   // waiting_plan gets its own label and no elapsed counter.
   const isLive = run && (run.status === 'running' || run.status === 'creating_plan' || run.status === 'approved_running')
   const isWaitingPlan = run?.status === 'waiting_plan'
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    if (!isLive) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [isLive])
-
-  let agentBadge: { icon: string; label: string; cls: string; elapsed?: number; tokens?: number } | null = null
-  if (isLive) {
-    agentBadge = { icon: '⏳', label: t('agent.runStatus.running'), cls: 'text-[#3B82F6]', elapsed: Math.floor((now - run!.startedAt) / 1000) }
-  } else if (isWaitingPlan) {
-    agentBadge = { icon: '📋', label: t('agent.runStatus.waitingPlan'), cls: 'text-yellow-400' }
-  } else if (run?.status === 'done' || run?.status === 'stopped' || run?.status === 'error') {
-    const runTokens = (run.tokensIn || 0) + (run.tokensOut || 0)
-    const statusLabel = run.status === 'done'
-      ? t('agent.runStatus.done')
-      : run.status === 'stopped'
-        ? t('agent.runStatus.stopped')
-        : t('agent.runStatus.error')
-    agentBadge = {
-      icon: run.status === 'error' ? '✗' : '✓',
-      label: statusLabel,
-      cls: run.status === 'error' ? 'text-red-400' : 'text-green-400',
-      elapsed: run.finishedAt ? Math.floor((run.finishedAt - run.startedAt) / 1000) : undefined,
-      tokens: runTokens > 0 ? runTokens : undefined,
-    }
-  }
+  // Token total for the hover-toolbar badge (kept out of the message header —
+  // mainstream keeps the transcript clean and reveals power details on hover).
+  const runTokens = (run?.tokensIn || 0) + (run?.tokensOut || 0)
 
   const handleSaveEdit = () => {
     editMessage(sessionId, message.id, editContent)
@@ -475,7 +444,12 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
       </div>
     </div>
   ) : (
-    <div className="text-sm leading-relaxed">
+    /* 最终回答 —— 扁平卡片（去玻璃半透明）：纯 surface + 细边框，安静地
+       承载正文；内容为空时退回无卡片排版，避免渲染一个空的占位框。 */
+    <div className={message.content
+      ? 'rounded-xl bg-nova-surface border border-nova-border px-4 py-3 text-sm leading-relaxed'
+      : 'text-sm leading-relaxed'}
+    >
       <MarkdownRenderer content={message.content} />
     </div>
   )
@@ -504,47 +478,41 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
         </label>
       )}
 
-      {/* Assistant avatar — brand gradient + soft violet glow (hidden on turn
+      {/* Assistant avatar — flat neutral container + accent wave mark (the
+          gradient + violet glow was decorative chrome; hidden on turn
           continuation messages so the grouped turn reads as one bubble) */}
       {!isUser && !hideMeta && (
         <div
-          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 avatar-glow"
-          style={{ background: 'var(--grad-brand)' }}
+          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 text-nova-accent bg-nova-surface border border-nova-border"
         >
-          <WaveLogo size={16} />
+          <WaveLogo size={16} color="currentColor" />
         </div>
       )}
 
       {/* Content column */}
       <div className={`min-w-0 ${isUser ? 'max-w-[80%]' : 'flex-1'}`}>
-        {/* Assistant meta header — Stitch: name + pulsing dot + elapsed +
-            mono token badge (glass chip). Hidden on turn continuation messages. */}
+        {/* Assistant meta header — minimal (mainstream): just the name plus a
+            quiet live/waiting/error state. No elapsed seconds, no token badge
+            (tokens live in the hover toolbar); done runs leave it clean. */}
         {!isUser && !hideMeta && (
-          <div className="flex items-center gap-2 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
+          <div className="flex items-center gap-1.5 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
             <span className="font-bold text-nova-text-primary">OurCode AI</span>
-            {agentBadge && (
-              <span className={`flex items-center gap-1 ${agentBadge.cls}`}>
-                {agentBadge.icon === '⏳' && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
-                )}
-                · {agentBadge.icon} {agentBadge.label}
-                {agentBadge.elapsed !== undefined && ` ${agentBadge.elapsed}s`}
+            {isLive && (
+              <span className="flex items-center gap-1 text-nova-accent">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
+                {t('agent.runStatus.running')}
               </span>
             )}
-            {agentBadge?.tokens !== undefined && (
-              <span className="relative inline-flex" ref={usageRef}>
-                <button
-                  onClick={() => setUsageOpen((v) => !v)}
-                  title={usageOpen ? t('chat.usage.hint') : t('chat.usage.viewHint')}
-                  className="flex items-center gap-1 font-mono text-[10px] px-2 py-0.5 rounded-full bg-nova-hover border border-nova-border text-nova-text-muted hover:border-nova-accent/40 hover:text-nova-text-primary transition-colors cursor-pointer"
-                >
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M12 7v5l3 3" />
-                  </svg>
-                  {formatTokens(agentBadge.tokens)} {t('statusBar.tokens')}
-                </button>
-                {usageOpen && run && <TokenUsagePopover run={run} model={session?.model} />}
+            {isWaitingPlan && (
+              <span className="flex items-center gap-1 text-warning">
+                <span className="w-1.5 h-1.5 rounded-full bg-warning inline-block" />
+                {t('agent.runStatus.waitingPlan')}
+              </span>
+            )}
+            {run?.status === 'error' && (
+              <span className="flex items-center gap-1 text-error">
+                <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden>error</span>
+                {t('agent.runStatus.error')}
               </span>
             )}
           </div>

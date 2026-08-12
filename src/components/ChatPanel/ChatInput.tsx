@@ -815,8 +815,7 @@ export default function ChatInput() {
               {isThisSessionLoading && !input.trim() ? (
                 <button
                   onClick={() => activeSessionId && stopGeneration(activeSessionId)}
-                  className="px-3.5 py-1.5 text-xs text-white font-medium rounded-lg transition-colors"
-                  style={{ background: 'rgba(244,135,113,0.85)' }}
+                  className="px-3.5 py-1.5 text-xs text-white font-medium rounded-md transition-colors bg-error hover:opacity-90"
                 >
                   {t('chat.stop')}
                 </button>
@@ -824,8 +823,7 @@ export default function ChatInput() {
                 <button
                   onClick={handleSubmit}
                   disabled={(!input.trim() && contextFiles.length === 0) || !activeConfigGroupId}
-                  className="text-white text-xs font-medium px-4 py-1.5 rounded-full transition-all hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
-                  style={{ background: 'var(--grad-brand)' }}
+                  className="text-white text-xs font-medium px-4 py-1.5 rounded-md transition-all hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed bg-nova-accent"
                 >
                   {t('chat.send')}
                 </button>

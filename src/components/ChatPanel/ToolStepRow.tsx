@@ -111,7 +111,7 @@ export default function ToolStepRow({ toolCall, result, rejected, suspended = fa
           {labelKey ? t(labelKey) : toolCall.name}
         </span>
         {key && (
-          <span className="font-mono text-[11px] text-amber-600/90 bg-amber-500/10 px-1.5 py-0.5 rounded truncate max-w-[150px]">
+          <span className="font-mono text-[11px] text-nova-text-secondary bg-nova-hover px-1.5 py-0.5 rounded truncate max-w-[150px]">
             “{key}”
           </span>
         )}

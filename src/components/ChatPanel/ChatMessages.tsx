@@ -358,7 +358,7 @@ export default function ChatMessages() {
         <div className="flex-1 flex flex-col">
           {/* Welcome card (design: centered icon + title + description) */}
           <div className="flex-1 flex flex-col items-center justify-center text-center px-4 min-h-0">
-            <div className="w-14 h-14 rounded-2xl overflow-hidden mb-4 avatar-glow">
+            <div className="w-14 h-14 rounded-2xl overflow-hidden mb-4 border border-nova-border bg-nova-surface">
               <img src={projectLogo} alt="OurCode AI" className="w-full h-full object-cover" />
             </div>
             <div className="text-base font-semibold text-nova-text-primary">OurCode AI</div>
@@ -445,8 +445,8 @@ export default function ChatMessages() {
           message's ToolStepRow shows the live spinner → ✓/✗ via appendToolResult. */}
       {isThisSessionLoading && !isToolsExecuting && (
         <div className="flex gap-2.5 animate-fade-in">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 avatar-glow" style={{ background: 'var(--grad-brand)' }}>
-            <WaveLogo size={16} />
+          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 text-nova-accent bg-nova-surface border border-nova-border">
+            <WaveLogo size={16} color="currentColor" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
@@ -461,7 +461,7 @@ export default function ChatMessages() {
                   stream's 10-min idle timeout aborts if nothing arrives) */}
               {idleSeconds >= 60 && (
                 <span
-                  className="flex items-center gap-1 text-amber-400 font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30"
+                  className="flex items-center gap-1 text-nova-text-muted font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border"
                   title="模型已长时间没有输出数据，仍在等待响应"
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">

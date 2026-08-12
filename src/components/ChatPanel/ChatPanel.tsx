@@ -184,18 +184,17 @@ export default function ChatPanel() {
             {/* Brand */}
             <div className="flex items-center gap-2 min-w-0">
               <div
-                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                style={{ background: 'var(--grad-brand)', boxShadow: '0 2px 8px rgba(99,102,241,0.4)' }}
+                className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-nova-accent bg-nova-surface border border-nova-border"
               >
-                <WaveLogo />
+                <WaveLogo color="currentColor" />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <strong className="text-sm block truncate leading-tight bg-gradient-to-r from-[#0ea5e9] via-[#6366f1] to-[#a855f7] bg-clip-text text-transparent">
+                  <strong className="text-sm block truncate leading-tight text-nova-text-primary">
                     OurCode AI
                   </strong>
                   {activeConfigGroup ? (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] text-green-500 bg-green-500/10 border border-green-500/20 shrink-0">
+                    <span className="inline-flex items-center gap-1 text-[10px] text-green-500 shrink-0">
                       <span className="w-1 h-1 rounded-full bg-green-500 animate-pulse-dot" />
                       {t('chat.connected')}
                     </span>
@@ -284,21 +283,21 @@ export default function ChatPanel() {
                           onClick={() => { setShowArena(true); setShowMoreMenu(false) }}
                           className="w-full text-left px-3 py-1.5 text-xs text-nova-text-secondary hover:bg-nova-accent/15 hover:text-white flex items-center gap-2 transition-colors"
                         >
-                          <span className="text-sm leading-none">⚖️</span>
+                          <span className="material-symbols-outlined text-[15px] leading-none text-nova-text-muted" aria-hidden>compare_arrows</span>
                           {t('chat.arenaCompare')}
                         </button>
                         <button
                           onClick={() => { setShowWorkflows(true); setShowMoreMenu(false) }}
                           className="w-full text-left px-3 py-1.5 text-xs text-nova-text-secondary hover:bg-nova-accent/15 hover:text-white flex items-center gap-2 transition-colors"
                         >
-                          <span className="text-sm leading-none">🔁</span>
+                          <span className="material-symbols-outlined text-[15px] leading-none text-nova-text-muted" aria-hidden>sync</span>
                           {t('chat.workflows')}
                         </button>
                         <button
                           onClick={() => { openMemoryManager(); setShowMoreMenu(false) }}
                           className="w-full text-left px-3 py-1.5 text-xs text-nova-text-secondary hover:bg-nova-accent/15 hover:text-white flex items-center gap-2 transition-colors"
                         >
-                          <span className="text-sm leading-none">🧠</span>
+                          <span className="material-symbols-outlined text-[15px] leading-none text-nova-text-muted" aria-hidden>memory</span>
                           {t('chat.memory')}
                         </button>
                         <div className="h-px bg-nova-border my-1" />
@@ -334,8 +333,7 @@ export default function ChatPanel() {
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => setAgentMode(activeSession.id, 'chat')}
-                      className={`px-3 py-1 text-xs rounded-full transition-all ${effectiveAgentMode === 'chat' ? 'text-white shadow-sm' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
-                      style={effectiveAgentMode === 'chat' ? { background: 'var(--grad-brand)' } : undefined}
+                      className={`px-3 py-1 text-xs rounded-full transition-all ${effectiveAgentMode === 'chat' ? 'bg-nova-accent/10 text-nova-accent font-medium' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
                       title={t('chat.chatModeHint')}
                     >
                       {t('chat.modeChat')}
@@ -343,8 +341,7 @@ export default function ChatPanel() {
                     <button
                       onClick={handleSwitchToAgent}
                       disabled={!hasProject}
-                      className={`px-3 py-1 text-xs rounded-full transition-all ${effectiveAgentMode === 'agent' ? 'text-white shadow-sm' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'} ${!hasProject ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      style={effectiveAgentMode === 'agent' ? { background: 'var(--grad-brand)' } : undefined}
+                      className={`px-3 py-1 text-xs rounded-full transition-all ${effectiveAgentMode === 'agent' ? 'bg-nova-accent/10 text-nova-accent font-medium' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'} ${!hasProject ? 'opacity-50 cursor-not-allowed' : ''}`}
                       title={hasProject ? t('chat.modeAgentHint') : t('chat.agentNeedsProject')}
                     >
                       {t('chat.modeAgent')}
@@ -372,7 +369,7 @@ export default function ChatPanel() {
                     }}
                     className={`px-3 py-1 text-xs rounded-full border transition-all select-none whitespace-nowrap ${
                       targetMode
-                        ? 'text-green-400 border-green-500/40 bg-green-500/15 animate-target-pulse'
+                        ? 'text-green-500 border-green-500/40 bg-green-500/10'
                         : 'text-nova-text-muted border-nova-border hover:text-nova-text-primary hover:border-nova-accent/50'
                     }`}
                     title={t('chat.targetModeHint')}
@@ -386,7 +383,7 @@ export default function ChatPanel() {
                     <select
                       value={projectEditMode}
                       onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}
-                      className="text-xs rounded-full px-3 py-1 border border-nova-border bg-nova-input-bg text-nova-text-primary outline-none cursor-pointer hover:border-nova-accent focus:border-nova-accent transition-colors"
+                      className="text-xs rounded-md px-2 py-1 border border-nova-border bg-nova-input-bg text-nova-text-primary outline-none cursor-pointer hover:border-nova-accent focus:border-nova-accent transition-colors"
                       title={t('chat.projectEditModeLabel')}
                       style={{ backgroundImage: 'none' }}
                     >
@@ -413,10 +410,9 @@ export default function ChatPanel() {
             <div className="flex-1 flex items-center justify-center p-4">
               <div className="text-center max-w-[320px]">
                 <div
-                  className="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center"
-                  style={{ background: 'var(--grad-avatar)', boxShadow: '0 8px 24px rgba(59,130,246,0.35)' }}
+                  className="w-14 h-14 mx-auto mb-4 rounded-2xl flex items-center justify-center text-nova-accent bg-nova-surface border border-nova-border"
                 >
-                  <WaveLogo size={24} />
+                  <WaveLogo size={24} color="currentColor" />
                 </div>
                 <div className="text-xl font-semibold text-nova-text-primary mb-1">
                   OurCode AI
@@ -429,8 +425,7 @@ export default function ChatPanel() {
                 </div>
                 <button
                   onClick={handleNewSession}
-                  className="px-5 py-2 text-white rounded-lg text-sm hover:opacity-90 transition-opacity shadow-lg"
-                  style={{ background: 'var(--grad-brand)', boxShadow: '0 4px 14px rgba(37,99,235,0.35)' }}
+                  className="px-5 py-2 text-white rounded-lg text-sm hover:opacity-90 transition-opacity shadow-sm bg-nova-accent"
                 >
                   {t('chat.startNewChat')}
                 </button>
