@@ -28,6 +28,12 @@ const MAX_KEYWORDS = 3
 
 const KNOWLEDGE_CACHE = new Map<string, { mtime: number; text: string }>()
 
+// 检索结果对同一组 (项目根, 关键词, 显式附件) 是确定性的，做短 TTL 缓存——
+// 会话内追问/改述常复用相同关键词，命中缓存就省掉一次全项目遍历。
+// 60s 内仍能拾取真实文件变化，同时避免每条消息都付全量搜索成本。
+const RETRIEVAL_CACHE_TTL_MS = 60_000
+const retrievalCache = new Map<string, { t: number; text: string }>()
+
 // ───────────────────────── Keyword extraction ─────────────────────────
 
 /** Extract search keywords from free text (identifiers, words, CJK bigrams) */
@@ -81,12 +87,17 @@ export function scoreAgainstKeywords(text: string, keywords: string[]): number {
 /**
  * Retrieve relevant code context for the user's latest message.
  * Returns a bounded block to append to the system prompt, or ''.
+ *
+ * `opts.skipSearch` skips the project-wide file/content search (pure chat mode
+ * has no tool loop — auto-retrieval costs most but benefits least there);
+ * explicitly attached contextFiles are still always read.
  */
 export async function retrieveRelevantContext(
   userContent: string,
   contextFiles: string[],
   rootPath: string,
   _activeFilePath?: string,
+  opts?: { skipSearch?: boolean },
 ): Promise<string> {
   if (!rootPath) return ''
 
@@ -97,28 +108,36 @@ export async function retrieveRelevantContext(
   const keywords = extractKeywords(userContent).slice(0, MAX_KEYWORDS)
   if (keywords.length === 0 && contextFiles.length === 0) return ''
 
+  // Short-TTL cache — the expensive part is the search, not the block assembly,
+  // so cache the final block (empty hits included, so a hitless query doesn't
+  // re-walk the project on the next message either).
+  const cacheKey = `${rootPath}\u0000${keywords.join(' ')}\u0000${contextFiles.join('\u0001')}`
+  const cached = retrievalCache.get(cacheKey)
+  if (cached && Date.now() - cached.t < RETRIEVAL_CACHE_TTL_MS) return cached.text
+
   const matches: Array<{ path: string; line?: number; content?: string; score: number }> = []
 
   // 1) File-name matches (highest signal) — only when we have a keyword to
   //    search by (explicit attachments alone must not call search with undefined)
-  if (keywords.length > 0) {
+  if (keywords.length > 0 && !opts?.skipSearch) {
     try {
       const nameHits = await window.electronAPI.searchFiles(rootPath, keywords[0])
       for (const p of nameHits.slice(0, 10)) matches.push({ path: p, score: 10 })
     } catch { /* ignore */ }
   }
 
-  // 2) Content keyword search
-  const seen = new Set<string>()
-  for (const kw of keywords) {
+  // 2) Content keyword search — FIRST keyword only. Each searchInFiles is a
+  //    full project walk (read every matching file + regex every line); the
+  //    recall gained from the 2nd/3rd keywords doesn't justify tripling that
+  //    cost on every message. (The cache above makes repeated queries free.)
+  if (keywords.length > 0 && !opts?.skipSearch) {
+    const kw = keywords[0]
     try {
       const hits = await window.electronAPI.searchInFiles(rootPath, kw, {
         filePattern: SOURCE_EXTENSIONS,
         caseSensitive: false,
       })
       for (const hit of hits.slice(0, 20)) {
-        if (seen.has(hit.filePath)) continue
-        seen.add(hit.filePath)
         matches.push({
           path: hit.filePath,
           line: hit.lineNumber,
@@ -171,8 +190,19 @@ export async function retrieveRelevantContext(
     }
   }
 
-  if (lines.length === 0) return ''
-  return `\n\n<retrieved_context>\n以下是工作区中与本次请求相关的文件（自动检索）：\n${lines.join('\n')}\n</retrieved_context>`
+  const text = lines.length === 0
+    ? ''
+    : `\n\n<retrieved_context>\n以下是工作区中与本次请求相关的文件（自动检索）：\n${lines.join('\n')}\n</retrieved_context>`
+  // 空结果也缓存——命中为空的查询同样省掉下一次的全项目遍历。
+  // 写前淘汰过期项，防止长会话里不同关键词集撑爆 Map（缓存只对 60s 内有效）。
+  if (retrievalCache.size >= 500) {
+    const now = Date.now()
+    for (const [k, v] of retrievalCache) {
+      if (now - v.t >= RETRIEVAL_CACHE_TTL_MS) retrievalCache.delete(k)
+    }
+  }
+  retrievalCache.set(cacheKey, { t: Date.now(), text })
+  return text
 }
 
 /** Read the first ~40 lines of a file as a snippet */

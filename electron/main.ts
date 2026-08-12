@@ -2,12 +2,13 @@ import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, session, No
 import { join, resolve, dirname, sep, relative, isAbsolute } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { is } from '@electron-toolkit/utils'
-import { exec, execFile } from 'child_process'
+import { exec, execFile, spawn } from 'child_process'
 import type { ExecFileOptions } from 'child_process'
 import * as pty from 'node-pty'
 import picomatch from 'picomatch'
 import { autoUpdater, UpdateInfo } from 'electron-updater'
 import { FileSystemService } from './services/file-system'
+import { FileIndexService } from './services/file-index'
 import { SQLiteStore } from './services/sqlite-store'
 import { BackupService } from './services/backup'
 import { LspServer } from './services/lsp'
@@ -111,6 +112,7 @@ function runGit(cwd: string, args: string[], input: string | undefined, trim: bo
 let mainWindow: BrowserWindow | null = null
 const allWindows: Set<BrowserWindow> = new Set()
 let fileSystem: FileSystemService
+let fileIndex: FileIndexService
 let store: SQLiteStore
 let backup: BackupService
 let mcp: MCPManager
@@ -303,6 +305,249 @@ function createNewWindow(): void {
   })
 }
 
+// ── Search backends ─────────────────────────────────────────────────────────
+// search:inFiles / search:files 的三级后端：内存索引（毫秒级）→ ripgrep
+// （10-100x 快）→ Node 遍历（兜底）。调用链见 registerIpcHandlers。
+
+type SearchInFilesResult = Array<{ filePath: string; fileName: string; lineNumber: number; lineContent: string; matchStart: number; matchEnd: number }>
+
+/** 优先用随应用分发的 ripgrep；开发 / 未打包环境用 PATH 上的 rg。 */
+function resolveRgBinary(): string | null {
+  if (app.isPackaged) {
+    const bundled = join(process.resourcesPath, 'tools', 'ripgrep', process.platform === 'win32' ? 'rg.exe' : 'rg')
+    if (existsSync(bundled)) return bundled
+  }
+  return 'rg'
+}
+
+/** ripgrep 内容搜索。返回 null 表示 rg 不可用（调用方回退 Node 遍历）。 */
+function rgSearchInFiles(
+  dirPath: string,
+  query: string,
+  options?: { caseSensitive?: boolean; wholeWord?: boolean; regex?: boolean; filePattern?: string; excludeFolders?: string },
+): Promise<SearchInFilesResult | null> {
+  return new Promise((resolve) => {
+    const rgBin = resolveRgBinary()
+    if (!rgBin) return resolve(null)
+    const args = ['--json', '--line-number', '--max-count', '50', '--no-ignore']
+    if (!options?.caseSensitive) args.push('-i')
+    // 非 regex / 非整词 → 固定字符串，query 里的特殊字符不解释
+    if (!options?.regex && !options?.wholeWord) args.push('-F')
+    for (const d of DEFAULT_EXCLUDE_FOLDERS) args.push('-g', `!${d}`)
+    if (options?.excludeFolders) {
+      for (const d of options.excludeFolders.split(',').map((s) => s.trim()).filter(Boolean)) args.push('-g', `!${d}`)
+    }
+    if (options?.filePattern) {
+      for (const p of options.filePattern.split(',').map((s) => s.trim()).filter(Boolean)) args.push('-g', p)
+    }
+    const finalQuery = options?.wholeWord
+      ? `\\b${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`
+      : query
+    args.push('--', finalQuery, dirPath)
+
+    const results: SearchInFilesResult = []
+    const maxResults = 500
+    let done = false
+    let buf = ''
+    const child = spawn(rgBin, args, { windowsHide: true })
+    child.stdout.on('data', (d: Buffer) => {
+      if (done) return
+      buf += d.toString()
+      let nl: number
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const line = buf.slice(0, nl)
+        buf = buf.slice(nl + 1)
+        if (!line.trim()) continue
+        try {
+          const obj = JSON.parse(line)
+          if (obj.type !== 'match') continue
+          const data = obj.data
+          const full = String(data.lines?.text ?? '')
+          const filePath = String(data.path?.text ?? '')
+          const sm = data.submatches?.[0]
+          if (!sm) continue
+          const matchText = String(sm.match?.text ?? '')
+          const start = full.indexOf(matchText)
+          results.push({
+            filePath,
+            fileName: filePath.split(/[\\/]/).pop() || '',
+            lineNumber: data.line_number ?? 0,
+            lineContent: full.trim(),
+            matchStart: start === -1 ? 0 : start,
+            matchEnd: start === -1 ? matchText.length : start + matchText.length,
+          })
+          if (results.length >= maxResults) {
+            done = true
+            child.kill()
+            return resolve(results)
+          }
+        } catch { /* 非 JSON 行忽略 */ }
+      }
+    })
+    child.on('error', () => { if (!done) { done = true; resolve(null) } })
+    child.on('close', () => { if (!done) { done = true; resolve(results) } })
+    child.stderr.on('data', () => { /* 忽略 */ })
+  })
+}
+
+/** ripgrep 文件名搜索（@ 引用）。返回 null 表示 rg 不可用。 */
+function rgSearchFiles(dirPath: string, query: string, maxResults = 50): Promise<string[] | null> {
+  return new Promise((resolve) => {
+    const rgBin = resolveRgBinary()
+    if (!rgBin) return resolve(null)
+    if (!query) return resolve([])
+    const args = ['--files', '--no-ignore']
+    for (const d of DEFAULT_EXCLUDE_FOLDERS) args.push('-g', `!${d}`)
+    // 大小写不敏感 glob（--iglob），glob 特殊字符转义
+    const escaped = query.replace(/[\\*?[\]{}()!]/g, '\\$&')
+    args.push('--iglob', `*${escaped}*`, '--', dirPath)
+    const results: string[] = []
+    let done = false
+    let buf = ''
+    const child = spawn(rgBin, args, { windowsHide: true })
+    child.stdout.on('data', (d: Buffer) => {
+      if (done) return
+      buf += d.toString()
+      let nl: number
+      while ((nl = buf.indexOf('\n')) !== -1) {
+        const p = buf.slice(0, nl).trim()
+        buf = buf.slice(nl + 1)
+        if (p) {
+          results.push(p)
+          if (results.length >= maxResults) {
+            done = true
+            child.kill()
+            return resolve(results)
+          }
+        }
+      }
+    })
+    child.on('error', () => { if (!done) { done = true; resolve(null) } })
+    child.on('close', () => { if (!done) { done = true; resolve(results) } })
+    child.stderr.on('data', () => { /* 忽略 */ })
+  })
+}
+
+/** Node 遍历兜底 — 原 search:inFiles 实现（rg 不存在 / 失败时保持可用）。 */
+async function nodeWalkSearchInFiles(
+  dirPath: string,
+  query: string,
+  options?: { caseSensitive?: boolean; wholeWord?: boolean; regex?: boolean; filePattern?: string; excludeFolders?: string },
+): Promise<SearchInFilesResult> {
+  const results: SearchInFilesResult = []
+  const maxResults = 500
+
+  const userExcludes = options?.excludeFolders
+    ? options.excludeFolders.split(',').map((s) => s.trim()).filter(Boolean)
+    : []
+  const excludeSet = new Set([...DEFAULT_EXCLUDE_FOLDERS, ...userExcludes])
+
+  const filePatterns = options?.filePattern
+    ? options.filePattern.split(',').map((s) => s.trim()).filter(Boolean)
+    : null
+  const fileMatcher = filePatterns ? picomatch(filePatterns) : null
+
+  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+  const searchInFile = async (filePath: string) => {
+    try {
+      const { content } = await fileSystem.readFile(filePath)
+      const lines = content.split('\n')
+      const fileName = filePath.split(/[\\/]/).pop() || ''
+
+      for (let i = 0; i < lines.length && results.length < maxResults; i++) {
+        const line = lines[i]
+        let match: RegExpExecArray | null = null
+
+        if (options?.regex) {
+          try {
+            const flags = options?.caseSensitive ? 'g' : 'gi'
+            const re = new RegExp(query, flags)
+            match = re.exec(line)
+          } catch { /* invalid regex */ }
+        } else {
+          const escaped = escapeRegExp(query)
+          const pattern = options?.wholeWord ? `\\b${escaped}\\b` : escaped
+          const flags = options?.caseSensitive ? 'g' : 'gi'
+          const re = new RegExp(pattern, flags)
+          match = re.exec(line)
+        }
+
+        if (match) {
+          results.push({
+            filePath,
+            fileName,
+            lineNumber: i + 1,
+            lineContent: line.trim(),
+            matchStart: match.index,
+            matchEnd: match.index + match[0].length,
+          })
+        }
+      }
+    } catch { /* skip unreadable files */ }
+  }
+
+  const walkDir = async (dir: string) => {
+    if (results.length >= maxResults) return
+    try {
+      const entries = await fileSystem.listDir(dir)
+      for (const entry of entries) {
+        if (results.length >= maxResults) return
+        if (entry.isHidden) continue
+        if (entry.isDirectory) {
+          // Skip excluded folder names
+          const dirName = entry.name || entry.path.split(/[\\/]/).pop() || ''
+          if (excludeSet.has(dirName)) continue
+          await walkDir(entry.path)
+        } else {
+          // Apply file pattern filter
+          if (fileMatcher && !fileMatcher(entry.name || '')) continue
+          // Skip huge files — reading + splitting them to search would freeze
+          // the main process
+          if ((entry.size ?? 0) > SEARCH_MAX_FILE_BYTES) continue
+          await searchInFile(entry.path)
+        }
+      }
+    } catch { /* skip inaccessible dirs */ }
+  }
+
+  await walkDir(dirPath)
+  return results
+}
+
+/** Node 遍历兜底 — 原 search:files 实现（rg 不存在 / 失败时保持可用）。 */
+async function nodeWalkSearchFiles(dirPath: string, query: string): Promise<string[]> {
+  const results: string[] = []
+  const maxResults = 50
+  const lowerQuery = (query || '').toLowerCase()
+
+  if (!lowerQuery) return results
+
+  const walkDir = async (dir: string) => {
+    if (results.length >= maxResults) return
+    try {
+      const entries = await fileSystem.listDir(dir)
+      for (const entry of entries) {
+        if (results.length >= maxResults) return
+        if (entry.isHidden) continue
+        if (entry.isDirectory) {
+          const dirName = entry.name || entry.path.split(/[\\/]/).pop() || ''
+          if (DEFAULT_EXCLUDE_FOLDERS.includes(dirName)) continue
+          await walkDir(entry.path)
+        } else {
+          const fileName = entry.name || ''
+          if (fileName.toLowerCase().includes(lowerQuery)) {
+            results.push(entry.path)
+          }
+        }
+      }
+    } catch { /* skip inaccessible dirs */ }
+  }
+
+  await walkDir(dirPath)
+  return results
+}
+
 // Register IPC handlers
 function registerIpcHandlers(): void {
   // File System handlers
@@ -394,7 +639,13 @@ function registerIpcHandlers(): void {
     fileSystem.watch(path, (changedPath) => {
       // Notify all windows watching this project
       broadcast('fs:fileChanged', changedPath)
+      // Keep the in-memory codebase index fresh (single-file edits update in
+      // place; event bursts debounce into a full rebuild)
+      fileIndex.onFileChanged(changedPath)
     })
+    // Warm the search index in the background so the first search is already
+    // served from memory; MCP servers load in parallel below.
+    fileIndex.markWatched(path)
     // Loading a workspace also (re)loads its MCP servers
     try {
       await mcp.loadConfig(path)
@@ -731,124 +982,32 @@ function registerIpcHandlers(): void {
     }
   })
 
-  // Search in files handler
+  // Search in files handler — 三级链路：内存索引（毫秒级）→ ripgrep（10-100x 快）
+  // → Node 遍历（兜底）。后两级保持原有语义：跳过 hidden / 排除目录、按行匹配。
   ipcMain.handle('search:inFiles', async (_event, dirPath: string, query: string, options?: { caseSensitive?: boolean; wholeWord?: boolean; regex?: boolean; filePattern?: string; excludeFolders?: string }) => {
     assertPathAllowed(dirPath)
-    const results: Array<{ filePath: string; fileName: string; lineNumber: number; lineContent: string; matchStart: number; matchEnd: number }> = []
-    const maxResults = 500
-
-    // Build exclude folder list
-    const userExcludes = options?.excludeFolders
-      ? options.excludeFolders.split(',').map(s => s.trim()).filter(Boolean)
-      : []
-    const excludeSet = new Set([...DEFAULT_EXCLUDE_FOLDERS, ...userExcludes])
-
-    // Build file pattern matcher
-    const filePatterns = options?.filePattern
-      ? options.filePattern.split(',').map(s => s.trim()).filter(Boolean)
-      : null
-    const fileMatcher = filePatterns ? picomatch(filePatterns) : null
-
-    const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-    const searchInFile = async (filePath: string) => {
-      try {
-        const { content } = await fileSystem.readFile(filePath)
-        const lines = content.split('\n')
-        const fileName = filePath.split(/[\\/]/).pop() || ''
-
-        for (let i = 0; i < lines.length && results.length < maxResults; i++) {
-          const line = lines[i]
-          let match: RegExpExecArray | null = null
-
-          if (options?.regex) {
-            try {
-              const flags = options?.caseSensitive ? 'g' : 'gi'
-              const re = new RegExp(query, flags)
-              match = re.exec(line)
-            } catch { /* invalid regex */ }
-          } else {
-            const escaped = escapeRegExp(query)
-            const pattern = options?.wholeWord ? `\\b${escaped}\\b` : escaped
-            const flags = options?.caseSensitive ? 'g' : 'gi'
-            const re = new RegExp(pattern, flags)
-            match = re.exec(line)
-          }
-
-          if (match) {
-            results.push({
-              filePath,
-              fileName,
-              lineNumber: i + 1,
-              lineContent: line.trim(),
-              matchStart: match.index,
-              matchEnd: match.index + match[0].length,
-            })
-          }
-        }
-      } catch { /* skip unreadable files */ }
-    }
-
-    const walkDir = async (dir: string) => {
-      if (results.length >= maxResults) return
-      try {
-        const entries = await fileSystem.listDir(dir)
-        for (const entry of entries) {
-          if (results.length >= maxResults) return
-          if (entry.isHidden) continue
-          if (entry.isDirectory) {
-            // Skip excluded folder names
-            const dirName = entry.name || entry.path.split(/[\\/]/).pop() || ''
-            if (excludeSet.has(dirName)) continue
-            await walkDir(entry.path)
-          } else {
-            // Apply file pattern filter
-            if (fileMatcher && !fileMatcher(entry.name || '')) continue
-            // Skip huge files — reading + splitting them to search would freeze
-            // the main process
-            if ((entry.size ?? 0) > SEARCH_MAX_FILE_BYTES) continue
-            await searchInFile(entry.path)
-          }
-        }
-      } catch { /* skip inaccessible dirs */ }
-    }
-
-    await walkDir(dirPath)
-    return results
+    // 1) 内存代码库索引：watched 根 + 内容就绪 + 简单子串查询 → 毫秒级
+    try {
+      const fromIndex = await fileIndex.searchContent(dirPath, query, options ?? {})
+      if (fromIndex) return fromIndex
+    } catch { /* 索引异常直接走 rg/遍历 */ }
+    // 2) ripgrep：更快，覆盖索引未就绪 / 超预算 / regex / wholeWord 的场景
+    const fromRg = await rgSearchInFiles(dirPath, query, options)
+    if (fromRg) return fromRg
+    // 3) 纯 Node 遍历兜底（rg 不存在或失败时保持可用）
+    return nodeWalkSearchInFiles(dirPath, query, options)
   })
 
   // Search files by name (used by @-references in the chat input)
   ipcMain.handle('search:files', async (_event, dirPath: string, query: string) => {
     assertPathAllowed(dirPath)
-    const results: string[] = []
-    const maxResults = 50
-    const lowerQuery = (query || '').toLowerCase()
-
-    if (!lowerQuery) return results
-
-    const walkDir = async (dir: string) => {
-      if (results.length >= maxResults) return
-      try {
-        const entries = await fileSystem.listDir(dir)
-        for (const entry of entries) {
-          if (results.length >= maxResults) return
-          if (entry.isHidden) continue
-          if (entry.isDirectory) {
-            const dirName = entry.name || entry.path.split(/[\\/]/).pop() || ''
-            if (DEFAULT_EXCLUDE_FOLDERS.includes(dirName)) continue
-            await walkDir(entry.path)
-          } else {
-            const fileName = entry.name || ''
-            if (fileName.toLowerCase().includes(lowerQuery)) {
-              results.push(entry.path)
-            }
-          }
-        }
-      } catch { /* skip inaccessible dirs */ }
-    }
-
-    await walkDir(dirPath)
-    return results
+    try {
+      const fromIndex = await fileIndex.searchFiles(dirPath, query, 50)
+      if (fromIndex) return fromIndex
+    } catch { /* 索引异常走 rg/遍历 */ }
+    const fromRg = await rgSearchFiles(dirPath, query, 50)
+    if (fromRg) return fromRg
+    return nodeWalkSearchFiles(dirPath, query)
   })
 
   // Environment variable resolver
@@ -1447,6 +1606,7 @@ app.whenReady().then(() => {
   registerRoot(join(userDataPath, 'skills'))
   registerRoot(join(userDataPath, 'agents'))
   fileSystem = new FileSystemService()
+  fileIndex = new FileIndexService(fileSystem)
   store = new SQLiteStore(userDataPath)
   backup = new BackupService(join(userDataPath, 'backups'))
   // Bundled MCP servers (e.g. the git-server) ship inside the package via

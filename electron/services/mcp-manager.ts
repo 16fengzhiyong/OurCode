@@ -105,6 +105,10 @@ interface McpTransport {
 
 const PROTOCOL_VERSION = '2025-03-26'
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+/** Cap for the tools/list enumeration — it's a pure read that runs on every
+ *  message send; a hung server should never hold up the whole list for the
+ *  full 30s default (parallel query + this cap keeps TTFT bounded). */
+const LIST_TOOLS_TIMEOUT_MS = 10_000
 const DEFAULT_RESTART = { maxRetries: 5, baseDelayMs: 1_000 }
 const MAX_MESSAGE_BYTES = 10 * 1024 * 1024
 
@@ -577,13 +581,14 @@ export class MCPManager extends EventEmitter {
     // Notifications (no id) are ignored — e.g. logging from the server
   }
 
-  private request(conn: ServerConnection, method: string, params: any): Promise<any> {
+  private request(conn: ServerConnection, method: string, params: any, timeoutMs?: number): Promise<any> {
     const id = conn.idCounter++
+    const ms = timeoutMs ?? this.requestTimeoutMs
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         conn.pending.delete(id)
         reject(new Error(`MCP 请求超时 (${method})`))
-      }, this.requestTimeoutMs)
+      }, ms)
       conn.pending.set(id, {
         resolve: (v) => { clearTimeout(timer); resolve(v) },
         reject: (e) => { clearTimeout(timer); reject(e) },
@@ -603,30 +608,34 @@ export class MCPManager extends EventEmitter {
     conn.pending.clear()
   }
 
-  /** List every tool across all connected servers (applies disabledTools). */
+  /** List every tool across all connected servers (applies disabledTools).
+   *  Queries all servers IN PARALLEL — the old sequential for-await made every
+   *  message send pay the sum of all servers' latencies, and one slow/hung
+   *  server stalled the rest for the full 30s default timeout. tools/list is a
+   *  pure read, so a dedicated 10s cap bounds a misbehaving server while
+   *  healthy ones finish in parallel. */
   async listTools(): Promise<McpToolInfo[]> {
-    const tools: McpToolInfo[] = []
-    for (const [name, conn] of this.connections) {
-      if (!conn.initialized) continue
+    const servers = [...this.connections].filter(([, conn]) => conn.initialized)
+    const perServer = await Promise.all(servers.map(async ([name, conn]) => {
       const serverConfig = this.config[name]
       try {
-        const result = await this.request(conn, 'tools/list', {})
+        const result = await this.request(conn, 'tools/list', {}, Math.min(this.requestTimeoutMs, LIST_TOOLS_TIMEOUT_MS))
         const items: any[] = result?.tools || []
         const disabled = new Set(serverConfig?.disabledTools || [])
-        for (const tool of items) {
-          if (disabled.has(tool.name)) continue
-          tools.push({
+        return items
+          .filter((tool) => !disabled.has(tool.name))
+          .map((tool) => ({
             server: name,
             name: tool.name,
             description: tool.description,
             inputSchema: tool.inputSchema,
-          })
-        }
+          }))
       } catch {
         // Skip servers that fail to enumerate tools
+        return []
       }
-    }
-    return tools
+    }))
+    return perServer.flat()
   }
 
   /** Call a tool on a specific server */

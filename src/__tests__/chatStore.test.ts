@@ -286,34 +286,33 @@ describe('chatStore trimHistoryForContext', () => {
 })
 
 describe('chatStore compactToolResults', () => {
-  const bigTool = (id: string) => ({ role: 'tool' as const, content: 'x'.repeat(9000), toolCallId: id })
+  const bigTool = (id: string) => ({ role: 'tool' as const, content: 'x'.repeat(20000), toolCallId: id })
 
   it('keeps the most recent tool results untouched and compresses older long ones', () => {
-    // 8 tool results (> MAX_UNCOMPACTED_TOOL_RESULTS = 5) with long content
+    // 12 tool results (> MAX_UNCOMPACTED_TOOL_RESULTS = 10) with long content
     const messages = [
       { role: 'system' as const, content: 'sys' },
       { role: 'user' as const, content: 'question' },
-      ...Array.from({ length: 8 }, (_, i) => bigTool(`t${i}`)),
+      ...Array.from({ length: 12 }, (_, i) => bigTool(`t${i}`)),
     ]
     const result = compactToolResults(messages)
     // 消息数与 role/toolCallId 全部保留（tool 配对完整性）
-    expect(result).toHaveLength(10)
+    expect(result).toHaveLength(14)
     result.forEach((m, i) => {
       if (i >= 2) expect(m.role).toBe('tool')
       if (i >= 2 && m.role === 'tool') expect(m.toolCallId).toBe(`t${i - 2}`)
     })
-    // 最早的 3 条被压缩，最新的 5 条保留原文
+    // 最早的 2 条被压缩，最新的 10 条保留原文
     expect(result[2].content).toContain('已压缩')
     expect(result[3].content).toContain('已压缩')
-    expect(result[4].content).toContain('已压缩')
-    expect(result[5].content).toBe('x'.repeat(9000))
-    expect(result[result.length - 1].content).toBe('x'.repeat(9000))
+    expect(result[4].content).toBe('x'.repeat(20000))
+    expect(result[result.length - 1].content).toBe('x'.repeat(20000))
   })
 
   it('does not compress short tool results or recent ones', () => {
     const messages = [
       { role: 'tool' as const, content: 'short', toolCallId: 'a' },
-      { role: 'tool' as const, content: 'x'.repeat(5000), toolCallId: 'b' }, // long but within the newest 5
+      { role: 'tool' as const, content: 'x'.repeat(5000), toolCallId: 'b' }, // long but below the 12KB threshold
     ]
     const result = compactToolResults(messages)
     expect(result[0].content).toBe('short')
@@ -331,8 +330,8 @@ describe('chatStore compactToolResults', () => {
 
 describe('chatStore estimateSessionHistoryTokens', () => {
   it('compacts old oversized tool results the same way the live request does', () => {
-    // 20 huge tool results — the 5 newest stay verbatim (≈30k tokens each),
-    // the 15 oldest collapse to a short note (~40 tokens) like compactToolResults.
+    // 20 huge tool results — the 10 newest stay verbatim (≈30k tokens each),
+    // the 10 oldest collapse to a short note (~40 tokens) like compactToolResults.
     const tools = Array.from({ length: 20 }, (_, i) => ({
       role: 'tool' as const,
       content: 'x'.repeat(100000),
@@ -344,8 +343,8 @@ describe('chatStore estimateSessionHistoryTokens', () => {
       ...tools,
     ]
     const total = estimateSessionHistoryTokens(messages)
-    expect(total).toBeGreaterThan(5 * 30000) // newest 5 counted verbatim
-    expect(total).toBeLessThan(6 * 30000) // oldest 15 compacted, not full
+    expect(total).toBeGreaterThan(10 * 30000) // newest 10 counted verbatim
+    expect(total).toBeLessThan(11 * 30000) // oldest 10 compacted, not full
   })
 
   it('calibrated estimate is far below the old double-counted one', () => {

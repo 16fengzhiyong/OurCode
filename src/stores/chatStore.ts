@@ -288,6 +288,7 @@ async function buildSystemPrompt(
   userContent: string,
   contextFiles: string[],
   projectPath?: string,
+  skipAutoRetrieval = false,
 ): Promise<{ stable: string; dynamic: string }> {
   // The prompt's workspace context is always the SESSION's own project — never
   // the folder being browsed in the sidebar file tree (background sessions run
@@ -310,9 +311,11 @@ async function buildSystemPrompt(
   dynamic += getEditorSelectionContext()
   // Persistent memories (keyword-matched)
   dynamic += await buildMemoriesBlock(userContent)
-  // Auto-retrieved relevant files
+  // Auto-retrieved relevant files (pure chat mode skips the project-wide
+  // search — no tool loop means the retrieval pays most and benefits least;
+  // explicitly @-attached files are still read via retrieveRelevantContext)
   const activeFile = useEditorStore.getState().openFiles.find((f) => f.path === useEditorStore.getState().activeFilePath)
-  dynamic += await retrieveRelevantContext(userContent, contextFiles, projectPath || getWorkspaceRoot(), activeFile?.path)
+  dynamic += await retrieveRelevantContext(userContent, contextFiles, projectPath || getWorkspaceRoot(), activeFile?.path, { skipSearch: skipAutoRetrieval })
 
   return { stable, dynamic }
 }
@@ -627,11 +630,16 @@ type RequestMessage = {
  * 只把「较早的、体积大的」tool 消息内容替换成简短提示；模型需要细节时
  * 自然会重新 read_file。UI 里持久化的会话消息不受影响（只改请求数组）。
  */
-// 参照 Claude Code microCompact（keepRecent≈5）与 opencode 源头截断：
-// 只保留最近 5 条完整工具结果、超过 1500 字符即压缩，避免上下文随轮数
-// 平方级膨胀（11m47s 那类会话末段每轮输入涨到 ~95K，推理随之变慢）。
-const MAX_UNCOMPACTED_TOOL_RESULTS = 5
-const COMPACT_TOOL_RESULT_THRESHOLD = 1500 // 字符
+// 工具结果压缩——兜底安全网，不是主动参与者。实验证明阈值设太低
+// （1500 字符）会把模型的工作集压掉：单文件 git diff（0.5-9KB）和普通
+// read_file 结果一掉出最近 N 条就被替换成占位符，模型看不到内容只能
+// 重读，重读又产生新结果把旧的挤出窗口——轮次不减反增（实测 git_diff
+// 被重复调用 5 次）。因此：只保留最近 10 条完整结果、只压缩 >12KB 的
+// 真正大输出（整库 diff、超大文件读取、海量命令输出）；常规 diff 和
+// 文件读取保持可见。上下文增长的根因是轮数（已靠「直接动手 + 按功能
+// 提交」压到 ~20 轮），不是结果体积。
+const MAX_UNCOMPACTED_TOOL_RESULTS = 10
+const COMPACT_TOOL_RESULT_THRESHOLD = 12000 // 字符
 
 /**
  * Estimate a stored conversation's FULL history size the way the live request
@@ -647,7 +655,7 @@ export function estimateSessionHistoryTokens(messages: Array<{ role: string; con
   for (const m of messages) {
     if (m.role === 'tool') {
       seen++
-      // Mirror compactToolResults: only compact OLD oversized results (16 most
+      // Mirror compactToolResults: only compact OLD oversized results (10 most
       // recent kept verbatim); the compacted placeholder ≈ 40 tokens.
       const fromBack = totalTools - seen + 1
       const len = m.content?.length || 0
@@ -2170,6 +2178,9 @@ async function runAgentLoop(
   const { stable, dynamic } = await buildSystemPrompt(
     baseSystemPrompt, userContent, lastUserMessage?.contextFiles || [],
     session.projectPath,
+    // Pure chat mode has no tool loop — auto-retrieval is its most expensive
+    // and least useful step there; explicit @-attached files still get read.
+    agentMode !== 'agent',
   )
   let stableSystemPrompt = stable
   let dynamicContext = dynamic

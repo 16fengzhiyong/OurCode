@@ -159,7 +159,10 @@ export function createToolRegistry(): Tool[] {
     },
     {
       name: 'run_command',
-      description: 'Execute a shell command in the given directory. Returns stdout/stderr.',
+      description:
+        'Execute a shell command in the given directory. Returns stdout/stderr. ' +
+        '注意：① 有专用工具时不要用它——文件/搜索用 read_file/search_in_files，git 用 git_status/git_diff/git_log/git_add/git_commit/git_split_commit（本工具需要审批，会打断流程）；' +
+        '② Windows 环境没有 grep/&& 等 Unix 命令，需要搜索用 search_in_files，需要连续执行分多次调用。',
       parameters: {
         type: 'object',
         properties: {
