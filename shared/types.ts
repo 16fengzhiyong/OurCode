@@ -319,6 +319,9 @@ export interface UserPreferences {
    *  'hold' = deliver into history but don't auto-process,
    *  'refuse' = reject delivery (senders get an error). */
   crossSessionInbound?: 'accept' | 'hold' | 'refuse'
+  /** Agent 工具调用循环的轮数上限；0 或缺失 = 无限。只作为防死循环安全阀，
+   *  默认不限制。 */
+  agentMaxIterations?: number
 }
 
 // Model Info

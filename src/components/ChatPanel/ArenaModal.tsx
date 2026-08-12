@@ -3,6 +3,7 @@ import { useConfigStore } from '@/stores/configStore'
 import { useChatStore } from '@/stores/chatStore'
 import { runArenaPrompt, ArenaResult } from '@/services/arena'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
+import ModalPortal from '../Common/ModalPortal'
 import { lookupModelMetadata } from '@/types'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -100,7 +101,8 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
   const maxDuration = Math.max(...results.map((r) => r.durationMs), 1)
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+    <ModalPortal>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
       <div className="w-[900px] max-w-[95vw] max-h-[90vh] flex flex-col rounded-2xl glass-modal" style={{ boxShadow: 'var(--shadow-xl)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-nova-border shrink-0">
@@ -333,5 +335,6 @@ export default function ArenaModal({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </div>
+    </ModalPortal>
   )
 }

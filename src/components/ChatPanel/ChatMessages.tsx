@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useChatStore, estimateContextTokens } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
 import ChatMessage from './ChatMessage'
-import ThinkingBlock from './ThinkingBlock'
+import ThinkingSection from './ThinkingSection'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
 import BranchTreeModal from './BranchTreeModal'
 import { TodoPanel } from './AgentPanel'
@@ -456,7 +456,7 @@ export default function ChatMessages() {
               )}
             </div>
             {/* Thinking streams auto-expanded, then collapses once committed */}
-            {stream?.thinking && <ThinkingBlock content={stream.thinking} defaultExpanded />}
+            {stream?.thinking && <ThinkingSection thinking={stream.thinking} toolCalls={[]} defaultExpanded />}
             {stream?.content ? (
               <div className="text-sm text-nova-text-primary">
                 <MarkdownRenderer content={stream.content} />

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMemoryStore } from '@/stores/memoryStore'
 import { useI18n } from '@/i18n/useI18n'
+import ModalPortal from '../Common/ModalPortal'
 
 /**
  * Preview dialog shown after the AI condenses a conversation for the "记住"
@@ -47,7 +48,8 @@ export default function MemoryPreviewModal({
   const projectName = projectPath ? projectPath.split(/[/\\]/).pop() || projectPath : null
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
+    <ModalPortal>
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-fade-in">
       <div className="w-[600px] max-w-[94vw] flex flex-col rounded-2xl glass-modal" style={{ boxShadow: 'var(--shadow-xl)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-nova-border shrink-0">
@@ -142,5 +144,6 @@ export default function MemoryPreviewModal({
         </div>
       </div>
     </div>
+    </ModalPortal>
   )
 }

@@ -802,6 +802,16 @@ export default function SettingsModal() {
                     <option value="refuse">🚫 拒绝接收</option>
                   </select>
                 } />
+                <SettingRow label="Agent 工具调用轮数上限" desc="Agent 循环中 LLM 一轮接一轮调用工具的轮数上限；「无限」（默认）不设限，仅在偶发死循环时需要主动设限" right={
+                  <select value={preferences.agentMaxIterations ?? 0} onChange={(e) => savePreferences({ agentMaxIterations: Number(e.target.value) })}
+                    className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none w-[160px]">
+                    <option value={0}>♾️ 无限（默认）</option>
+                    <option value={50}>50 轮</option>
+                    <option value={100}>100 轮</option>
+                    <option value={200}>200 轮</option>
+                    <option value={500}>500 轮</option>
+                  </select>
+                } />
               </div>
 
               <div className="flex flex-col gap-3">

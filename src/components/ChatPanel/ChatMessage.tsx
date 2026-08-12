@@ -6,8 +6,7 @@ import { useMemoryStore } from '@/stores/memoryStore'
 import { useUIStore } from '@/stores/uiStore'
 import { EXHAUSTED_MARKER } from '@shared/constants'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
-import ThinkingBlock from './ThinkingBlock'
-import ToolStepRow from './ToolStepRow'
+import ThinkingSection from './ThinkingSection'
 import { PlanCard } from './AgentPanel'
 import WaveLogo from './WaveLogo'
 import ErrorCard from './ErrorCard'
@@ -525,14 +524,22 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
               </div>
             ) : (
               /* Assistant — linear transcript (极简纯净版): content floats on
-                  the canvas as individual rows — thinking block (collapsible) →
-                  markdown → tool step rows → plan card, no aggregated card. */
+                  the canvas as individual rows — 可折叠「思考与执行过程」区块 →
+                  markdown 正文/结论 → plan card, no aggregated card. */
               <div className="flex flex-col gap-2">
-                {/* Linear transcript (极简纯净版): thinking block first — collapsed
-                    to a one-liner once the round is done, then tool step rows in
-                    time order. Each tool call is its own row; results flip
-                    status in place via appendToolResult. */}
-                {message.thinking && <ThinkingBlock content={message.thinking} />}
+                {/* 思考 + 工具调用合并为可折叠「思考与执行过程」区块（Stitch 可折叠
+                    思考版）：思考文本与全部工具行收纳在同一容器里；正文/结论在下方
+                    独立呈现。运行中挂载时自动展开（让工具执行进度可见），
+                    会话结束后可手动收起。 */}
+                {(message.thinking || (message.toolCalls || []).length > 0) && (
+                  <ThinkingSection
+                    thinking={message.thinking}
+                    toolCalls={message.toolCalls || []}
+                    toolResults={message.toolResults}
+                    isSessionRunning={isSessionRunning}
+                    defaultExpanded={isSessionRunning}
+                  />
+                )}
 
                 {/* Edited indicator */}
                 {message.editedAt && (
@@ -568,21 +575,6 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                     <MarkdownRenderer content={message.content} />
                   </div>
                 )}
-
-                {/* Tool step rows — one per tool call, chronological */}
-                {(message.toolCalls || []).map((tc) => {
-                  const result = message.toolResults?.find((r) => r.toolCallId === tc.id)
-                  const rejected = !!result?.isError && /用户拒绝/.test(result.result)
-                  return (
-                    <ToolStepRow
-                      key={tc.id}
-                      toolCall={tc}
-                      result={result}
-                      rejected={rejected}
-                      suspended={!result && !rejected && !isSessionRunning}
-                    />
-                  )
-                })}
 
                 {/* Submitted plan — rendered inline after the submit_plan tool
                     row (approve/cancel, or the kept record) */}

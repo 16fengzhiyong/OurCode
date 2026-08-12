@@ -1,6 +1,7 @@
 import { useChatStore } from '@/stores/chatStore'
 import type { ChatBranch } from '@shared/types'
 import { useI18n } from '@/i18n/useI18n'
+import ModalPortal from '../Common/ModalPortal'
 
 interface BranchTreeModalProps {
   sessionId: string
@@ -35,13 +36,14 @@ export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalP
   const roleLabel: Record<string, string> = { user: t('chat.roleUser'), assistant: t('chat.roleAssistant'), tool: t('chat.roleTool') }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('chat.branchTreeDialog')}
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60"
-      onClick={onClose}
-    >
+    <ModalPortal>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('chat.branchTreeDialog')}
+        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60"
+        onClick={onClose}
+      >
       <div
         className="glass-modal rounded-2xl w-[560px] max-h-[70vh] flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
         onClick={(e) => e.stopPropagation()}
@@ -119,6 +121,7 @@ export default function BranchTreeModal({ sessionId, onClose }: BranchTreeModalP
         </div>
       </div>
     </div>
+    </ModalPortal>
   )
 }
 

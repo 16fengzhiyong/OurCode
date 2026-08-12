@@ -136,6 +136,9 @@ export const DEFAULT_PREFERENCES = {
   llmResponseCache: true,
   anthropicPromptCache: true,
   crossSessionInbound: 'accept' as const,
+  /** Agent 工具调用轮数上限；0 = 无限（默认）。主流工具不设常态上限，
+   *  只在用户主动配置时才加一个防死循环的安全阀。 */
+  agentMaxIterations: 0,
 }
 
 // Free model keywords

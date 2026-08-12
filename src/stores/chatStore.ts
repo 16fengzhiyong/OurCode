@@ -394,12 +394,6 @@ const PLAN_TOOLS = new Set([
 // Write tools get a checkpoint snapshot before they run
 const CHECKPOINT_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory'])
 
-// Agent 工具调用轮数上限。主流工具（Cursor/Windsurf/Claude Code）不设这么
-// 低的上限——20 轮对多文件任务（读文件→改文件→跑测试）经常不够，触发后还得
-// 手动点「继续」，既打断流程又让模型带着已压缩的历史重跑。这里只保留一个
-// 防止死循环的安全阀（100 轮 ≈ 实际用不完），不再作为常态限制。
-const MAX_AGENT_ITERATIONS = 100
-
 // 计划模式防空转 — 计划模式只暴露只读工具；当用户请求明显需要写操作/命令
 // （提交/推送/安装/执行…）而 agent 连续多轮纯只读探索（读文件/搜索）且不提交
 // 计划时，强制弹一次提问让用户决定，而不是把轮次和 token 烧在空转上
@@ -2262,7 +2256,12 @@ async function runAgentLoop(
   }
 
   const model = session.model || configGroup.defaultModel
-  let iterationsLeft = MAX_AGENT_ITERATIONS
+  // Agent 工具调用轮数上限（设置里可配，默认 0 = 无限）。主流工具
+  // （Cursor/Windsurf/Claude Code）不设常态上限——20 轮对多文件任务
+  // （读文件→改文件→跑测试）经常不够，触发后还得手动点「继续」，既打断流程
+  // 又让模型带着已压缩的历史重跑。只在用户主动配置时启用这个防死循环安全阀。
+  const maxIterations = useEditorStore.getState().preferences.agentMaxIterations ?? 0
+  let iterationsLeft = maxIterations > 0 ? maxIterations : Infinity
   // Set when the loop exits via a natural finish (the model stopped calling
   // tools) — distinguishes "completed" from "ran out of iterations".
   let finishedNaturally = false
@@ -2841,11 +2840,12 @@ async function runAgentLoop(
     // Notify instead of silently stopping — the UI shows a Continue button.
     // `finishedNaturally` guards the edge where the agent completed on its last
     // allowed iteration: iterationsLeft is 0 there too, but a "[已达最大轮数]"
-    // message would be misleading.
-    if (iterationsLeft <= 0 && !finishedNaturally && !abortController.signal.aborted && !planWasSubmitted(sessionId)) {
+    // message would be misleading. 无限（默认）时 iterationsLeft 恒为 Infinity，
+    // 此分支不会触发。
+    if (iterationsLeft <= 0 && maxIterations > 0 && !finishedNaturally && !abortController.signal.aborted && !planWasSubmitted(sessionId)) {
       chatStore.addMessage(sessionId, {
         role: 'assistant',
-        content: `[已达到最大工具调用轮数 (${MAX_AGENT_ITERATIONS})。点击下方"继续"按钮可继续执行。]`,
+        content: `[已达到最大工具调用轮数 (${maxIterations})。点击下方"继续"按钮可继续执行。]`,
         runId,
       })
       // Target mode keeps the agent going after rounds are exhausted — it only

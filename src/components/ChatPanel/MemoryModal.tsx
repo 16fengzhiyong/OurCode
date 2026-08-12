@@ -1,62 +1,67 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMemoryStore } from '@/stores/memoryStore'
 import { useI18n } from '@/i18n/useI18n'
+import MemoryAddModal from './MemoryAddModal'
 
 /**
  * Memory manager — project-aware. Memories are injected into the
  * agent's system prompt when they match the current message. Project-scoped
  * memories are only used when the current project matches.
+ *
+ * 顶栏：当前项目（可下拉切换查看其他项目的记忆）+ 条数 + 「添加记忆」按钮。
+ * 添加记忆弹出独立对话框，选择保存到哪个项目或全局（原底部输入框已移除）。
  */
 export default function MemoryModal({ onClose, currentProjectPath }: { onClose: () => void; currentProjectPath: string | null }) {
-  const { memories, addMemory, deleteMemory, getMemoriesByProject, getGlobalMemories, getProjectPaths } = useMemoryStore()
-  const [content, setContent] = useState('')
-  const [scope, setScope] = useState<'global' | 'project'>('global')
-  const [justAdded, setJustAdded] = useState<string | null>(null)
+  const { memories, deleteMemory, getMemoriesByProject, getGlobalMemories, getProjectPaths } = useMemoryStore()
   const [filterTab, setFilterTab] = useState<'all' | 'global' | 'project'>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showOtherProjects, setShowOtherProjects] = useState(false)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [justAdded, setJustAdded] = useState<string | null>(null)
+  // 当前查看的项目 — 默认跟随当前项目，可在顶栏下拉切换到别的项目查看其记忆
+  const [viewProjectPath, setViewProjectPath] = useState<string | null>(currentProjectPath)
   const t = useI18n()
 
-  const projectName = currentProjectPath ? currentProjectPath.split(/[/\\]/).pop() || currentProjectPath : null
+  // 当前项目切换（例如换了个工作区）时，查看目标跟随当前项目
+  useEffect(() => {
+    setViewProjectPath(currentProjectPath)
+  }, [currentProjectPath])
+
+  const projectName = (p: string) => p.split(/[/\\]/).pop() || p
   const hasProject = !!currentProjectPath
 
+  // 所有可选项目 = 当前项目 + 记忆库里出现过的项目（去重）
+  const allProjectPaths = useMemo(() => {
+    const paths = new Set<string>(getProjectPaths())
+    if (currentProjectPath) paths.add(currentProjectPath)
+    return Array.from(paths)
+  }, [getProjectPaths, currentProjectPath])
+
+  // 下拉当前选中的项目（null = 没有任何项目可看）。未打开项目但记忆库里
+  // 有其他项目时，默认查看第一个，保证「下拉选择别的项目查看」始终可用。
+  const activeViewPath = viewProjectPath ?? currentProjectPath ?? allProjectPaths[0] ?? null
+  const viewedProjectMemories = activeViewPath ? getMemoriesByProject(activeViewPath) : []
+  const globalMemories = getGlobalMemories()
+  const otherProjectPaths = allProjectPaths.filter((p) => p !== activeViewPath)
+
   // Filtered & grouped memories
-  const { filteredMemories, currentProjectMemories, globalMemories, otherProjectPaths } = useMemo(() => {
+  const { filteredMemories } = useMemo(() => {
     let filtered = [...memories]
     if (filterTab === 'global') filtered = getGlobalMemories()
-    else if (filterTab === 'project') filtered = memories.filter((m) => m.scope === 'project')
+    else if (filterTab === 'project') filtered = activeViewPath ? getMemoriesByProject(activeViewPath) : []
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       filtered = filtered.filter((m) => m.content.toLowerCase().includes(q))
     }
     // Sort: newest first
     filtered.sort((a, b) => b.createdAt - a.createdAt)
+    return { filteredMemories: filtered }
+  }, [memories, filterTab, searchQuery, activeViewPath, getMemoriesByProject, getGlobalMemories])
 
-    const currentProj = currentProjectPath ? getMemoriesByProject(currentProjectPath) : []
-    const global = getGlobalMemories()
-    const allPaths = getProjectPaths()
-    const other = allPaths.filter((p) => p !== currentProjectPath)
-
-    return {
-      filteredMemories: filtered,
-      currentProjectMemories: currentProj,
-      globalMemories: global,
-      otherProjectPaths: other,
-    }
-  }, [memories, filterTab, searchQuery, currentProjectPath, getMemoriesByProject, getGlobalMemories, getProjectPaths])
-
-  const handleAdd = async () => {
-    if (!content.trim()) return
-    if (scope === 'project' && !hasProject) return
-    try {
-      await addMemory(content.trim(), scope, scope === 'project' ? currentProjectPath || undefined : undefined)
-      setContent('')
-      setJustAdded(t('chat.memorySaved'))
-      setTimeout(() => setJustAdded(null), 2000)
-    } catch (error) {
-      setJustAdded(`${t('chat.rememberError')}: ${error instanceof Error ? error.message : String(error)}`)
-      setTimeout(() => setJustAdded(null), 4000)
-    }
+  const handleAddSaved = () => {
+    setShowAddModal(false)
+    setJustAdded(t('chat.memorySaved'))
+    setTimeout(() => setJustAdded(null), 2000)
   }
 
   const formatDate = (ts: number) => {
@@ -73,7 +78,7 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
   const tabCounts = {
     all: memories.length,
     global: globalMemories.length,
-    project: memories.filter((m) => m.scope === 'project').length,
+    project: viewedProjectMemories.length,
   }
 
   return (
@@ -97,23 +102,39 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
           </button>
         </div>
 
-        {/* Project context bar */}
-        <div className={`px-5 py-2 border-b shrink-0 flex items-center gap-2 text-[11px] ${
-          hasProject ? 'bg-green-500/5 border-green-500/20' : 'bg-yellow-500/5 border-yellow-500/20'
-        }`}>
+        {/* Project context bar — 当前项目可下拉切换查看别的项目；右侧添加记忆 */}
+        <div className="px-5 py-2.5 border-b border-nova-border shrink-0 flex items-center gap-2 text-[11px]">
           {hasProject ? (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-              <span className="text-nova-text-secondary">当前项目:</span>
-              <span className="font-medium text-nova-text-primary truncate">{projectName}</span>
-              <span className="text-nova-text-muted ml-auto shrink-0">{currentProjectMemories.length} 条项目记忆</span>
-            </>
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0" />
           ) : (
-            <>
-              <span className="text-yellow-400">⚠️</span>
-              <span className="text-yellow-400/80">未打开项目 — 项目范围记忆不可用</span>
-            </>
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-500 shrink-0" />
           )}
+          <span className="text-nova-text-secondary shrink-0">当前项目:</span>
+          <select
+            value={activeViewPath ?? ''}
+            onChange={(e) => setViewProjectPath(e.target.value || null)}
+            title={t('chat.memoryViewProjectHint')}
+            className="max-w-[180px] text-[11px] bg-nova-input-bg text-nova-text-primary border border-nova-border rounded px-1.5 py-0.5 outline-none cursor-pointer hover:border-nova-accent/50"
+          >
+            {allProjectPaths.length === 0 && <option value="">未打开项目</option>}
+            {allProjectPaths.map((p) => (
+              <option key={p} value={p}>{p === currentProjectPath ? `${projectName(p)}（当前）` : projectName(p)}</option>
+            ))}
+          </select>
+          {!hasProject && allProjectPaths.length === 0 && (
+            <span className="text-yellow-400/80 truncate">未打开项目 — 项目范围记忆不可用</span>
+          )}
+          <span className="text-nova-text-muted ml-auto shrink-0">{viewedProjectMemories.length} 条项目记忆</span>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-1 px-3 py-1.5 text-xs text-white rounded-full hover:opacity-90 transition-all shadow-sm shrink-0"
+            style={{ background: 'var(--grad-brand)' }}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+            </svg>
+            {t('chat.addMemory')}
+          </button>
         </div>
 
         {/* Filter tabs + search */}
@@ -159,23 +180,23 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
             <div className="text-center py-10">
               <div className="text-3xl mb-2">🧠</div>
               <div className="text-sm text-nova-text-muted mb-1">
-                {searchQuery ? '没有匹配的记忆' : filterTab === 'project' && !hasProject ? '未打开项目' : t('chat.memoryEmpty')}
+                {searchQuery ? '没有匹配的记忆' : filterTab === 'project' && !activeViewPath ? '未打开项目' : filterTab === 'project' ? t('chat.memoryProjectEmpty') : t('chat.memoryEmpty')}
               </div>
               <div className="text-[11px] text-nova-text-muted">
-                {searchQuery ? '尝试其他关键词' : '添加你的第一条记忆，AI 助手将记住你的偏好'}
+                {searchQuery ? '尝试其他关键词' : '点击右上角「添加记忆」，AI 助手将记住你的偏好'}
               </div>
             </div>
           ) : (
             <>
-              {/* Current project memories section */}
-              {filterTab === 'all' && currentProjectPath && currentProjectMemories.length > 0 && (
+              {/* Viewed project memories section */}
+              {filterTab === 'all' && activeViewPath && viewedProjectMemories.length > 0 && (
                 <div className="mb-1">
                   <div className="flex items-center gap-1.5 mb-1.5 px-1">
                     <span className="text-[10px]">📁</span>
-                    <span className="text-[10px] font-semibold text-nova-text-muted uppercase tracking-wider">当前项目 · {projectName}</span>
+                    <span className="text-[10px] font-semibold text-nova-text-muted uppercase tracking-wider">{projectName(activeViewPath)}</span>
                   </div>
-                  {currentProjectMemories.filter((m) => !searchQuery || m.content.toLowerCase().includes(searchQuery.toLowerCase())).map((m) => (
-                    <MemoryCard key={m.id} memory={m} onDelete={deleteMemory} formatDate={formatDate} isProject />
+                  {viewedProjectMemories.filter((m) => !searchQuery || m.content.toLowerCase().includes(searchQuery.toLowerCase())).map((m) => (
+                    <MemoryCard key={m.id} memory={m} onDelete={deleteMemory} formatDate={formatDate} isProject projectPath={activeViewPath} shortenPath={shortenPath} />
                   ))}
                 </div>
               )}
@@ -211,7 +232,7 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
                       <div key={projPath} className="ml-4 mb-1">
                         <div className="text-[10px] text-nova-text-muted px-1 py-0.5 truncate">{shortenPath(projPath)}</div>
                         {projMemories.map((m) => (
-                          <MemoryCard key={m.id} memory={m} onDelete={deleteMemory} formatDate={formatDate} isProject />
+                          <MemoryCard key={m.id} memory={m} onDelete={deleteMemory} formatDate={formatDate} isProject projectPath={projPath} shortenPath={shortenPath} />
                         ))}
                       </div>
                     )
@@ -227,47 +248,23 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
           )}
         </div>
 
-        {/* Add memory form */}
-        <div className="px-5 py-4 border-t border-nova-border shrink-0 space-y-2">
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') handleAdd() }}
-            placeholder={hasProject ? t('chat.memoryPlaceholder') : '请先打开项目后再添加项目范围记忆'}
-            rows={2}
-            className="w-full px-3 py-2 text-sm bg-nova-bg border border-nova-border rounded-lg outline-none focus:border-nova-accent/60 text-nova-text-primary placeholder:text-nova-text-muted resize-none"
+        {/* 保存提示 */}
+        {justAdded && (
+          <div className="px-5 py-1.5 border-t border-nova-border shrink-0">
+            <span className="text-xs text-green-400 animate-fade-in">{justAdded}</span>
+          </div>
+        )}
+
+        {/* 添加记忆对话框 */}
+        {showAddModal && (
+          <MemoryAddModal
+            initialScope={hasProject ? 'project' : 'global'}
+            initialProjectPath={currentProjectPath}
+            projectPaths={allProjectPaths}
+            onClose={() => setShowAddModal(false)}
+            onSaved={handleAddSaved}
           />
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <select
-                value={scope}
-                onChange={(e) => setScope(e.target.value as 'global' | 'project')}
-                className="text-xs bg-nova-input-bg text-nova-text-primary border border-nova-border rounded px-2 py-1.5 outline-none"
-              >
-                <option value="global">{t('chat.scopeGlobalAll')}</option>
-                <option value="project" disabled={!hasProject}>
-                  {t('chat.scopeProjectOnly')}{!hasProject ? ' (需要打开项目)' : ''}
-                </option>
-              </select>
-              {!hasProject && scope === 'project' && (
-                <span className="text-[10px] text-yellow-400">请先打开项目</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {justAdded && <span className="text-xs text-green-400 animate-fade-in">{justAdded}</span>}
-              <button
-                onClick={handleAdd}
-                disabled={!content.trim() || (scope === 'project' && !hasProject)}
-                className="px-4 py-1.5 text-xs text-white rounded-full disabled:opacity-30 hover:opacity-90 transition-all shadow-sm" style={{ background: 'var(--grad-brand)' }}
-              >
-                {t('chat.saveMemory')}
-              </button>
-            </div>
-          </div>
-          <div className="text-[10px] text-nova-text-muted">
-            Ctrl+Enter 快速保存 · 全局记忆在所有项目中生效 · 项目记忆仅在当前项目中生效
-          </div>
-        </div>
+        )}
       </div>
     </div>
   )
