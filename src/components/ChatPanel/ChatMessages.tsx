@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { useChatStore } from '@/stores/chatStore'
+import { useChatStore, estimateSessionHistoryTokens } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
 import ChatMessage from './ChatMessage'
 import ThinkingBlock from './ThinkingBlock'
@@ -70,10 +70,12 @@ export default function ChatMessages() {
   // reading an earlier message must never get yanked down by new output.
   const isNearBottomRef = useRef(true)
 
-  // Context truncation warning
+  // Context truncation warning — uses the same compacted history estimate as
+  // the live request (old oversized tool results count as short notes), so the
+  // percentage reflects what the model actually receives, not the raw storage.
   const tokenWarning = useMemo(() => {
     if (!activeSession) return null
-    const totalTokens = activeSession.messages.reduce((sum, m) => sum + (m.tokenCount || 0), 0)
+    const totalTokens = estimateSessionHistoryTokens(activeSession.messages)
     const modelId = activeSession.model || ''
     // 精确 → 去掉 provider 前缀（a/b 形式）→ 前缀两段（deepseek-v4-flash → deepseek-v4）
     const ctxId = modelId.split('/').pop() || ''

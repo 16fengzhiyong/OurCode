@@ -573,12 +573,17 @@ interface ChatState {
   resetStore: () => void
 }
 
-// Token estimation
+// Token estimation — calibrated toward real provider tokenizers (DeepSeek /
+// Claude / GPT). The old formula was ~2–4× over: it counted CJK at 2 tokens/char
+// AND double-counted English (englishWords × 1.3 PLUS every char × 0.5), so a
+// single agent conversation with a few file reads could show 70–80% of a 200K
+// window that the real request never reached.
 function estimateTokens(text: string): number {
   const chineseChars = (text.match(/[一-鿿]/g) || []).length
-  const englishWords = (text.match(/[a-zA-Z]+/g) || []).length
+  // CJK ≈ 1.2 tokens/char; everything else (English, code, JSON, punctuation,
+  // whitespace) ≈ 3.3 chars/token.
   const otherChars = text.length - chineseChars
-  return Math.ceil(chineseChars * 2 + englishWords * 1.3 + otherChars * 0.5)
+  return Math.ceil(chineseChars * 1.2 + otherChars * 0.3)
 }
 
 type RequestMessage = {
@@ -600,6 +605,34 @@ type RequestMessage = {
  */
 const MAX_UNCOMPACTED_TOOL_RESULTS = 16
 const COMPACT_TOOL_RESULT_THRESHOLD = 4000 // 字符
+
+/**
+ * Estimate a stored conversation's FULL history size the way the live request
+ * would see it — old oversized tool results are compacted to a short note just
+ * like `compactToolResults` does on the request path. Used by the context
+ * warning banner + status bar so the displayed "已使用 X%" reflects what the
+ * model actually receives, not the raw (pre-compaction) history.
+ */
+export function estimateSessionHistoryTokens(messages: Array<{ role: string; content: string }>): number {
+  const totalTools = messages.filter((m) => m.role === 'tool').length
+  let seen = 0
+  let sum = 0
+  for (const m of messages) {
+    if (m.role === 'tool') {
+      seen++
+      // Mirror compactToolResults: only compact OLD oversized results (16 most
+      // recent kept verbatim); the compacted placeholder ≈ 40 tokens.
+      const fromBack = totalTools - seen + 1
+      const len = m.content?.length || 0
+      sum += fromBack > MAX_UNCOMPACTED_TOOL_RESULTS && len > COMPACT_TOOL_RESULT_THRESHOLD
+        ? 40
+        : estimateTokens(m.content || '')
+    } else {
+      sum += estimateTokens(m.content || '')
+    }
+  }
+  return sum
+}
 
 /** Exported for unit tests. */
 export function compactToolResults(messages: RequestMessage[]): RequestMessage[] {

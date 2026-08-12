@@ -21,7 +21,7 @@ const mockApi = {
 }
 vi.stubGlobal('window', { electronAPI: mockApi })
 
-import { useChatStore, stopGitBranchPolling, trimHistoryForContext, compactToolResults, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
+import { useChatStore, stopGitBranchPolling, trimHistoryForContext, compactToolResults, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, estimateSessionHistoryTokens, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { createToolRegistry } from '@/services/tools/ToolRegistry'
@@ -250,7 +250,7 @@ describe('chatStore trimHistoryForContext', () => {
   })
 
   it('drops the oldest messages over budget and inserts a notice', () => {
-    const longText = 'x'.repeat(250000) // ≈ 125k tokens (over the 102k gpt-4o budget)
+    const longText = 'x'.repeat(380000) // ≈ 114k tokens (over the 102k gpt-4o budget)
     const messages = [
       { role: 'system' as const, content: 'sys' },
       { role: 'user' as const, content: longText },
@@ -325,6 +325,34 @@ describe('chatStore compactToolResults', () => {
       { role: 'user' as const, content: 'hello' },
     ]
     expect(compactToolResults(messages)).toEqual(messages)
+  })
+})
+
+describe('chatStore estimateSessionHistoryTokens', () => {
+  it('compacts old oversized tool results the same way the live request does', () => {
+    // 20 huge tool results — the 16 newest stay verbatim (≈30k tokens each),
+    // the 4 oldest collapse to a short note (~40 tokens) like compactToolResults.
+    const tools = Array.from({ length: 20 }, (_, i) => ({
+      role: 'tool' as const,
+      content: 'x'.repeat(100000),
+      toolCallId: `t${i}`,
+    }))
+    const messages = [
+      { role: 'user' as const, content: '帮我看看' },
+      { role: 'assistant' as const, content: '好的' },
+      ...tools,
+    ]
+    const total = estimateSessionHistoryTokens(messages)
+    expect(total).toBeGreaterThan(16 * 30000) // newest 16 counted verbatim
+    expect(total).toBeLessThan(20 * 30000) // oldest 4 compacted, not full
+  })
+
+  it('calibrated estimate is far below the old double-counted one', () => {
+    const mixed = '帮我看看为什么构建失败 fix the build error now please'
+    const messages = [{ role: 'user' as const, content: mixed }]
+    const total = estimateSessionHistoryTokens(messages)
+    // Old formula ≈ 18×2 + 6×1.3 + ~17×0.5 ≈ 53; new ≈ 18×1.2 + 23×0.3 ≈ 28
+    expect(total).toBeLessThan(35)
   })
 })
 

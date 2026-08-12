@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useEditorStore } from '@/stores/editorStore'
-import { useChatStore } from '@/stores/chatStore'
+import { useChatStore, estimateSessionHistoryTokens } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useProblemsStore } from '@/stores/problemsStore'
@@ -163,8 +163,10 @@ export default function StatusBar() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // Calculate total tokens for active session
-  const totalTokens = activeSession?.messages.reduce((sum, m) => sum + (m.tokenCount || 0), 0) || 0
+  // Total tokens for active session — same compacted estimate as the request
+  // path (old oversized tool results count as short notes), matching what the
+  // model actually receives rather than the raw stored history.
+  const totalTokens = activeSession ? estimateSessionHistoryTokens(activeSession.messages) : 0
   // The chat loop resolves the runtime model from the session's OWN config
   // group (session.model || sessionGroup.defaultModel) — the global active
   // group can diverge from it (startup restore, manual group switch), which
