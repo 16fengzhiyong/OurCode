@@ -397,8 +397,12 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   const isAssistant = message.role === 'assistant'
   const isTool = message.role === 'tool'
   const isExhausted = isAssistant && message.content.startsWith(EXHAUSTED_MARKER)
-  // submit_plan renders its PlanCard inline after the tool rows (see below)
+  // submit_plan renders its PlanCard inline after the tool rows (see below)。
+  // 聚合模式下 turn 内任意一轮提交过计划都会渲染计划卡——计划批准是用户操作，
+  // 不放进「思考与执行过程」折叠块内。
   const hasSubmittedPlan = isAssistant && (message.toolCalls || []).some((tc) => tc.name === 'submit_plan')
+  const turnHasSubmittedPlan =
+    !!turnMessages && turnMessages.some((m) => (m.toolCalls || []).some((tc) => tc.name === 'submit_plan'))
 
   // Checkpoints tied to this assistant message → "回滚修改".
   // The store's checkpoint list is per active session — scope defensively by
@@ -554,6 +558,10 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                     />
                     {editedIndicator}
                     {contentBlock}
+                    {/* Submitted plan — rendered OUTSIDE the 思考与执行过程
+                        block: plan approval is a user decision, not part of
+                        the model's thinking/tool-execution process. */}
+                    {turnHasSubmittedPlan && <PlanCard sessionId={sessionId} />}
                   </>
                 ) : (
                   /* 逐条模式（单消息）：思考 → 正文 → 工具行 → 计划卡 */
@@ -590,8 +598,10 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                 )}
 
                 {/* Actions — hover-reveal ghost toolbar (only on the last
-                    message of a grouped assistant turn) */}
-                {!isEditing && !hideActions && (
+                    message of a grouped assistant turn)。流式生成期间整条工具栏
+                    隐藏（重新生成/记住/分支/复制/Token 都不出现）；会话无论以
+                    何种方式结束（完成/停止/出错/轮数耗尽/等待批准）都会恢复显示。 */}
+                {!isEditing && !hideActions && !isSessionRunning && (
                   <div className={`flex flex-wrap items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'justify-end' : 'justify-start'}`}>
                     {isExhausted && (
                       <GhostButton onClick={() => continueGeneration(sessionId)} title={t('chat.continueRun')} accent>
@@ -646,7 +656,10 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                     <GhostButton onClick={handleCopy} title={t('common.copy')}>
                       {t('common.copy')}
                     </GhostButton>
-                    {isAssistant && runTokens > 0 && (
+                    {/* Token badge — 会话运行期间不显示；结束后（无论完成/停止/
+                        出错）只要有 run 记录就展示，token 为 0 也保留（早退错误
+                        场景仍能看到用量信息）。 */}
+                    {isAssistant && run && !isSessionRunning && (
                       <span className="relative inline-flex" ref={usageRef}>
                         <button
                           onClick={() => setUsageOpen((v) => !v)}

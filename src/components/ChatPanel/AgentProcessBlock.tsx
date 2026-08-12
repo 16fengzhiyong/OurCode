@@ -4,7 +4,6 @@ import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
 import type { TranslationKey } from '@/i18n'
 import ToolStepRow from './ToolStepRow'
-import { PlanCard } from './AgentPanel'
 
 /** 工具调用统计（收起头部摘要 chip 用）—— 按类别聚合，避免「已读 N 个文件」
  *  这种过程信息以几十行原文形式铺满对话流 */
@@ -89,7 +88,6 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
       midContent: i < messages.length - 1 ? m.content : '',
       toolCalls: m.toolCalls || [],
       toolResults: m.toolResults || [],
-      hasSubmittedPlan: (m.toolCalls || []).some((tc) => tc.name === 'submit_plan'),
     }))
     .filter((r) => r.thinking || r.midContent || r.toolCalls.length > 0)
 
@@ -154,7 +152,6 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
                     />
                   )
                 })}
-                {round.hasSubmittedPlan && <PlanCard sessionId={sessionId} />}
               </div>
             </Fragment>
           ))}
