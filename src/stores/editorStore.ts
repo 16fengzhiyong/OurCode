@@ -129,6 +129,9 @@ export interface ActiveDiff {
     untracked?: boolean
     /** Raw `git diff [--cached]` text for this file (parsed for hunk patches). */
     diffText: string
+    /** Set for history diffs (kind === 'git'): the commit whose version of the
+     *  file is shown (read-only, no gutter actions). */
+    commitHash?: string
   }
 }
 

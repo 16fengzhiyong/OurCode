@@ -66,13 +66,29 @@ export interface GitDiffSides {
  * - unstaged (index vs worktree): original = index blob, modified = file on disk
  * - staged (HEAD vs index): original = HEAD blob, modified = index blob
  * - untracked: original = '', modified = file on disk
+ * - commit (<hash>): original = <hash>^ blob, modified = <hash> blob (read-only history)
  * Missing sides (e.g. a file added in the index, or deleted on disk) fall back
  * to '' — the diff then shows a pure addition / deletion.
  */
-export async function fetchGitDiffSides(repoFile: string, staged: boolean, untracked = false): Promise<GitDiffSides> {
+export async function fetchGitDiffSides(
+  repoFile: string,
+  staged: boolean,
+  untracked = false,
+  commitHash?: string,
+): Promise<GitDiffSides> {
   if (untracked) {
     const modified = await readWorktree(repoFile)
     return { original: '', modified, diffText: '', hasChanges: true }
+  }
+
+  if (commitHash) {
+    // History mode: left = parent of the commit, right = the commit itself.
+    // The root commit has no parent — the left side falls back to ''.
+    const diffRes = await runGitCommand(['show', '--format=', '--no-renames', commitHash, '--', repoFile])
+    const diffText = diffRes.success ? diffRes.output : ''
+    const original = await readBlobOrEmpty(repoFile, `${commitHash}^:`)
+    const modified = await readBlobOrEmpty(repoFile, `${commitHash}:`)
+    return { original, modified, diffText, hasChanges: diffText.length > 0 }
   }
 
   const diffRes = await runGitCommand(staged ? ['diff', '--cached', '--', repoFile] : ['diff', '--', repoFile])
