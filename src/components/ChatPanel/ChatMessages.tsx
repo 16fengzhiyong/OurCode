@@ -9,6 +9,7 @@ import { TodoPanel } from './AgentPanel'
 import WaveLogo from './WaveLogo'
 import projectLogo from '@/assets/ourcode-logo.png'
 import { useI18n } from '@/i18n/useI18n'
+import type { ChatMessage as ChatMessageType } from '@/types'
 
 // Common model context windows (in tokens)
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
@@ -175,14 +176,29 @@ export default function ChatMessages() {
     }
   }, [undoStack.length])
 
-  // ── Linear transcript ──
-  // No merging: every message renders as its own entry in time order (zcode /
-  // GPT style) — thinking → text → tool rows flow downward, nothing collapses
-  // into an aggregated card. Tool pairing messages (role='tool') are skipped:
-  // their results already render inline inside the assistant message's
-  // ToolStepRow, and these rows exist only to keep the API history valid.
+  // ── Linear transcript with turn grouping ──
+  // HARD REQUIREMENT: one user message → ONE assistant bubble. Consecutive
+  // assistant messages (multi-round agent runs) group into a single display
+  // turn sharing one avatar/header; the events INSIDE still render linearly
+  // (thinking → text → tool rows per message, nothing aggregated into a card).
+  // Tool pairing messages (role='tool') are skipped — their results already
+  // render inline inside the assistant message's ToolStepRow.
   const messages = useMemo(() => activeSession?.messages || [], [activeSession?.messages])
   const visibleMessages = useMemo(() => messages.filter((m) => m.role !== 'tool'), [messages])
+  const turns = useMemo(() => {
+    const result: Array<{ kind: 'user'; message: ChatMessageType } | { kind: 'assistant'; messages: ChatMessageType[] }> = []
+    for (const m of messages) {
+      if (m.role === 'tool') continue
+      if (m.role === 'assistant') {
+        const last = result[result.length - 1]
+        if (last && last.kind === 'assistant') last.messages.push(m)
+        else result.push({ kind: 'assistant', messages: [m] })
+      } else {
+        result.push({ kind: 'user', message: m })
+      }
+    }
+    return result
+  }, [messages])
   // True while the last committed assistant message still has tool calls awaiting
   // results — their ToolStepRows render above (spinner → ✓/✗ in place), so the
   // live turn below must stay hidden during that execution phase. NOTE: pairing
@@ -334,36 +350,74 @@ export default function ChatMessages() {
         </div>
       )}
 
-      {visibleMessages
-        .map((msg, _displayIndex) => {
+      {turns.map((turn) => {
+        if (turn.kind === 'user') {
           // Find the real index in the unfiltered messages array for drag-drop
-          const originalIndex = messages.findIndex((m) => m.id === msg.id)
+          const originalIndex = messages.findIndex((m) => m.id === turn.message.id)
           return (
-        <div
-          key={msg.id}
-          draggable={editEnabled}
-          onDragStart={editEnabled ? (e) => handleDragStart(originalIndex, e) : undefined}
-          onDragOver={editEnabled ? (e) => handleDragOver(originalIndex, e) : undefined}
-          onDrop={editEnabled ? (e) => handleDrop(originalIndex, e) : undefined}
-          onDragEnd={editEnabled ? handleDragEnd : undefined}
-          className={`chat-msg-row transition-all ${
-            dragIndex === originalIndex ? 'opacity-40' : ''
-          } ${
-            overIndex === originalIndex && dragIndex !== null && dragIndex !== originalIndex
-              ? 'border-t-2 border-nova-accent'
-              : ''
-          }`}
-        >
-          <ChatMessage
-            message={msg}
-            sessionId={activeSession.id}
-            isSelectMode={isSelectMode}
-            isSelected={selectedIds.has(msg.id)}
-            onToggleSelect={toggleSelect}
-          />
-        </div>
-            )
-          })}
+            <div
+              key={turn.message.id}
+              draggable={editEnabled}
+              onDragStart={editEnabled ? (e) => handleDragStart(originalIndex, e) : undefined}
+              onDragOver={editEnabled ? (e) => handleDragOver(originalIndex, e) : undefined}
+              onDrop={editEnabled ? (e) => handleDrop(originalIndex, e) : undefined}
+              onDragEnd={editEnabled ? handleDragEnd : undefined}
+              className={`chat-msg-row transition-all ${
+                dragIndex === originalIndex ? 'opacity-40' : ''
+              } ${
+                overIndex === originalIndex && dragIndex !== null && dragIndex !== originalIndex
+                  ? 'border-t-2 border-nova-accent'
+                  : ''
+              }`}
+            >
+              <ChatMessage
+                message={turn.message}
+                sessionId={activeSession.id}
+                isSelectMode={isSelectMode}
+                isSelected={selectedIds.has(turn.message.id)}
+                onToggleSelect={toggleSelect}
+              />
+            </div>
+          )
+        }
+
+        // Assistant turn — ONE bubble: one avatar/header, all rounds' events
+        // flowing linearly beneath it (thinking → text → tool rows per message).
+        const firstId = turn.messages[0].id
+        const originalIndex = messages.findIndex((m) => m.id === firstId)
+        return (
+          <div
+            key={`turn-${firstId}`}
+            draggable={editEnabled}
+            onDragStart={editEnabled ? (e) => handleDragStart(originalIndex, e) : undefined}
+            onDragOver={editEnabled ? (e) => handleDragOver(originalIndex, e) : undefined}
+            onDrop={editEnabled ? (e) => handleDrop(originalIndex, e) : undefined}
+            onDragEnd={editEnabled ? handleDragEnd : undefined}
+            className={`chat-msg-row transition-all ${
+              dragIndex === originalIndex ? 'opacity-40' : ''
+            } ${
+              overIndex === originalIndex && dragIndex !== null && dragIndex !== originalIndex
+                ? 'border-t-2 border-nova-accent'
+                : ''
+            }`}
+          >
+            <div className="flex flex-col gap-1.5">
+              {turn.messages.map((msg, idx) => (
+                <ChatMessage
+                  key={msg.id}
+                  message={msg}
+                  sessionId={activeSession.id}
+                  isSelectMode={isSelectMode}
+                  isSelected={selectedIds.has(msg.id)}
+                  onToggleSelect={toggleSelect}
+                  hideMeta={idx > 0}
+                  hideActions={idx < turn.messages.length - 1}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      })}
 
       {/* Live turn — only while the CURRENT LLM round is still streaming. Once
           the round commits (addMessage + clearStream in the agent loop) its

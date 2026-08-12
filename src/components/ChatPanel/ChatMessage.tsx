@@ -22,6 +22,11 @@ interface ChatMessageProps {
   isSelectMode?: boolean
   isSelected?: boolean
   onToggleSelect?: (id: string) => void
+  /** Continuation of a grouped assistant turn — hide the avatar + meta header so
+   *  the whole turn reads as ONE assistant bubble (hard requirement). */
+  hideMeta?: boolean
+  /** Hide the hover actions toolbar — only the last message of a turn shows it. */
+  hideActions?: boolean
 }
 
 /**
@@ -250,7 +255,7 @@ function TokenUsagePopover({ run, model }: { run: AgentRun; model?: string }) {
   )
 }
 
-function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onToggleSelect }: ChatMessageProps) {
+function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onToggleSelect, hideMeta, hideActions }: ChatMessageProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
   const [remembered, setRemembered] = useState(false)
@@ -434,7 +439,7 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   if (isTool) return null
 
   return (
-    <div className={`group animate-fade-in ${isUser ? 'flex justify-end' : 'flex gap-2.5'}`}>
+    <div className={`group animate-fade-in ${isUser ? 'flex justify-end' : 'flex gap-2.5'} ${hideMeta && !isUser ? 'pl-[46px]' : ''}`}>
       {/* Memory review/edit preview — shown after the AI condenses the chat */}
       {previewMemory && (
         <MemoryPreviewModal
@@ -457,8 +462,9 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
         </label>
       )}
 
-      {/* Assistant avatar — brand gradient + soft violet glow */}
-      {!isUser && (
+      {/* Assistant avatar — brand gradient + soft violet glow (hidden on turn
+          continuation messages so the grouped turn reads as one bubble) */}
+      {!isUser && !hideMeta && (
         <div
           className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 avatar-glow"
           style={{ background: 'var(--grad-brand)' }}
@@ -470,8 +476,8 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
       {/* Content column */}
       <div className={`min-w-0 ${isUser ? 'max-w-[80%]' : 'flex-1'}`}>
         {/* Assistant meta header — Stitch: name + pulsing dot + elapsed +
-            mono token badge (glass chip) */}
-        {!isUser && (
+            mono token badge (glass chip). Hidden on turn continuation messages. */}
+        {!isUser && !hideMeta && (
           <div className="flex items-center gap-2 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
             <span className="font-bold text-nova-text-primary">OurCode AI</span>
             {agentBadge && (
@@ -582,8 +588,9 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                     row (approve/cancel, or the kept record) */}
                 {hasSubmittedPlan && <PlanCard sessionId={sessionId} />}
 
-                {/* Actions — hover-reveal ghost toolbar */}
-                {!isEditing && (
+                {/* Actions — hover-reveal ghost toolbar (only on the last
+                    message of a grouped assistant turn) */}
+                {!isEditing && !hideActions && (
                   <div className={`flex flex-wrap items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'justify-end' : 'justify-start'}`}>
                     {isExhausted && (
                       <GhostButton onClick={() => continueGeneration(sessionId)} title={t('chat.continueRun')} accent>
