@@ -559,12 +559,10 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                   /* 逐条模式（单消息）：思考 → 正文 → 工具行 → 计划卡 */
                   <>
                     {/* 单轮思考块 —— 最小化可折叠行，按真实调用顺序交错在正文流中
-                        （思考 → 文字 → 工具），一眼看出每轮思考与工具的关系 */}
+                        （思考 → 文字 → 工具），一眼看出每轮思考与工具的关系。
+                        默认折叠：思考独白不自动展开刷屏，点击才查看。 */}
                     {message.thinking && (
-                      <ThinkingSection
-                        thinking={message.thinking}
-                        defaultExpanded={isSessionRunning}
-                      />
+                      <ThinkingSection thinking={message.thinking} />
                     )}
 
                     {editedIndicator}

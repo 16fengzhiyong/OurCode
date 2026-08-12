@@ -6,6 +6,9 @@ interface ThinkingSectionProps {
   thinking?: string
   /** 运行/流式期间自动展开（defaultExpanded 变 true 时也会展开）；默认收起 */
   defaultExpanded?: boolean
+  /** 流式进行中：收起状态下显示「思考中…」脉冲提示而不是首行预览，
+   *  避免把内心独白刷屏给用户看；点击仍可展开查看。 */
+  streaming?: boolean
 }
 
 /**
@@ -13,7 +16,7 @@ interface ThinkingSectionProps {
  * （思考 → 文字 → 工具 → 思考 → 文字 → 工具）。
  * 收起时只留「💭 思考 + 首行预览」，展开后显示完整思考文本。
  */
-export default function ThinkingSection({ thinking, defaultExpanded = false }: ThinkingSectionProps) {
+export default function ThinkingSection({ thinking, defaultExpanded = false, streaming = false }: ThinkingSectionProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
   const t = useI18n()
 
@@ -34,21 +37,23 @@ export default function ThinkingSection({ thinking, defaultExpanded = false }: T
         onClick={() => setIsExpanded(!isExpanded)}
         className="w-full flex items-center gap-2 px-1 py-1 text-left cursor-pointer select-none group"
       >
-        {/* 紫色左线 —— 思考块的唯一点缀（极简纯净版风格） */}
-        <span className="w-[2px] self-stretch rounded-full bg-accent-purple/70 shrink-0" aria-hidden />
-        <span className="flex items-center gap-1 text-accent-purple shrink-0">
-          <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden>
-            psychology
-          </span>
-          <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">
-            {t('chat.thinkingTitle')}
-          </span>
+        <span className="flex items-center gap-1 text-nova-text-muted shrink-0">
+          <span className="text-[11px] font-medium">{t('chat.thinkingTitle')}</span>
         </span>
-        {!isExpanded && collapsedPreview && (
+        {!isExpanded && (streaming ? (
+          <span className="min-w-0 flex-1 flex items-center gap-1.5 text-[12px] text-nova-text-muted leading-5">
+            {t('chat.thinking')}…
+            <span className="inline-flex gap-0.5" aria-hidden>
+              <span className="w-1 h-1 rounded-full animate-think-bounce" style={{ background: '#838485' }} />
+              <span className="w-1 h-1 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.2s' }} />
+              <span className="w-1 h-1 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.4s' }} />
+            </span>
+          </span>
+        ) : collapsedPreview && (
           <span className="min-w-0 flex-1 truncate text-[12px] text-nova-text-muted leading-5">
             {collapsedPreview}
           </span>
-        )}
+        ))}
         {isExpanded && <span className="flex-1" />}
         <span
           className={`material-symbols-outlined text-[14px] leading-none text-nova-text-muted shrink-0 transition-transform duration-200 group-hover:text-nova-text-secondary ${isExpanded ? 'rotate-180' : ''}`}

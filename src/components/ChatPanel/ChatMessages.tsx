@@ -223,6 +223,12 @@ export default function ChatMessages() {
     return false
   }, [messages])
 
+  // True when the conversation already ends with a committed assistant turn
+  // (earlier rounds of the current agent run). The live streaming round then
+  // continues that bubble instead of opening a second avatar/header, so the
+  // whole run reads as ONE conversation bubble.
+  const lastTurnIsAssistant = turns.length > 0 && turns[turns.length - 1].kind === 'assistant'
+
   // Defined BEFORE the early return — React hooks must run unconditionally
   // (useCallback would otherwise be called conditionally when no session is open).
   const handleBatchDelete = () => {
@@ -442,40 +448,51 @@ export default function ChatMessages() {
           the round commits (addMessage + clearStream in the agent loop) its
           thinking/text/tool rows render above from the committed message, so
           this block must NOT also appear. During tool execution the committed
-          message's ToolStepRow shows the live spinner → ✓/✗ via appendToolResult. */}
+          message's ToolStepRow shows the live spinner → ✓/✗ via appendToolResult.
+          When an assistant turn is already committed (earlier rounds of the same
+          run), this round continues THAT bubble — avatar/header hidden and the
+          streaming answer rendered in the same card, so a multi-round agent run
+          reads as ONE bubble instead of two. */}
       {isThisSessionLoading && !isToolsExecuting && (
-        <div className="flex gap-2.5 animate-fade-in">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 text-nova-accent bg-nova-surface border border-nova-border">
-            <WaveLogo size={16} color="currentColor" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
-              <span className="font-bold text-nova-text-primary">OurCode AI</span>
-              <span className="flex items-center gap-1 text-nova-accent">
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
-                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border">
-                  {t('chat.thinking')}…
-                </span>
-              </span>
-              {/* Idle warning — no data for > 1 min, keep counting up (the
-                  stream's 10-min idle timeout aborts if nothing arrives) */}
-              {idleSeconds >= 60 && (
-                <span
-                  className="flex items-center gap-1 text-nova-text-muted font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border"
-                  title="模型已长时间没有输出数据，仍在等待响应"
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                    <circle cx="12" cy="12" r="10" />
-                    <polyline points="12 6 12 12 16 14" />
-                  </svg>
-                  已 {Math.floor(idleSeconds / 60)} 分 {idleSeconds % 60} 秒无响应
-                </span>
-              )}
+        <div className={`flex gap-2.5 animate-fade-in ${lastTurnIsAssistant ? 'pl-[46px]' : ''}`}>
+          {!lastTurnIsAssistant && (
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 text-nova-accent bg-nova-surface border border-nova-border">
+              <WaveLogo size={16} color="currentColor" />
             </div>
-            {/* Thinking streams auto-expanded, then collapses once committed */}
-            {stream?.thinking && <ThinkingSection thinking={stream.thinking} defaultExpanded />}
+          )}
+          <div className="flex-1 min-w-0">
+            {!lastTurnIsAssistant && (
+              <div className="flex items-center gap-2 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
+                <span className="font-bold text-nova-text-primary">OurCode AI</span>
+                <span className="flex items-center gap-1 text-nova-accent">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border">
+                    {t('chat.thinking')}…
+                  </span>
+                </span>
+              </div>
+            )}
+            {/* Idle warning — no data for > 1 min, keep counting up (the
+                stream's 10-min idle timeout aborts if nothing arrives) */}
+            {idleSeconds >= 60 && (
+              <div
+                className="flex items-center gap-1 text-nova-text-muted font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border mb-1.5 w-fit"
+                title="模型已长时间没有输出数据，仍在等待响应"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                已 {Math.floor(idleSeconds / 60)} 分 {idleSeconds % 60} 秒无响应
+              </div>
+            )}
+            {/* Thinking streams collapsed — the "思考中…" pulse line shows the
+                model is working without flooding the transcript with its raw
+                monologue; click to peek. Committed turns collapse into the
+                AgentProcessBlock below. */}
+            {stream?.thinking && <ThinkingSection thinking={stream.thinking} streaming />}
             {stream?.content ? (
-              <div className="text-sm text-nova-text-primary">
+              <div className={`text-sm text-nova-text-primary ${lastTurnIsAssistant ? 'rounded-xl bg-nova-surface border border-nova-border px-4 py-3' : ''}`}>
                 <MarkdownRenderer content={stream.content} />
                 <span className="animate-pulse-dot text-nova-accent">▋</span>
               </div>
