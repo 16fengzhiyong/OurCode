@@ -2,13 +2,15 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
-import { listAllSkills, getGlobalRoot, getWorkspaceRoot, type SkillInfo } from '@/services/skills/skillManager'
+import { listAllSkills, listImportableSkills, getGlobalRoot, getWorkspaceRoot, SKILL_ORIGIN_LABELS, type SkillInfo, type ImportableSkill, type SkillOrigin } from '@/services/skills/skillManager'
 import {
   isSkillEnabled,
   setSkillEnabled,
+  setRegistryUrl,
   readSkillConfig,
   fetchRegistryIndex,
   installSkill,
+  importSkill,
   uninstallSkill,
   compareRegistryEntry,
   type RegistrySkillInfo,
@@ -17,11 +19,25 @@ import {
 interface LocalSkillRow extends SkillInfo {
   enabled: boolean
   version?: string
+  /** Platform this skill was imported from (provenance display only). */
+  importedFrom?: SkillOrigin
+  /** Root whose skills.json governs this skill's enabled flag (computed at
+   *  reload — also marks the registry install dir for uninstall gating). */
+  configRoot: string
 }
 
 /** Config root whose skills.json governs a skill's enabled flag. */
 async function configRootFor(s: SkillInfo): Promise<string> {
   return s.source === 'global' ? await getGlobalRoot() : s.projectPath || ''
+}
+
+/** Registry-managed skills are the ones we installed/imported ourselves into
+ *  <configRoot>/skills/<name> (parent dir literally "skills"). Manually
+ *  dropped .ourcode/skills entries are never deleted — uninstall there would
+ *  only remove the config record. */
+const isRegistryManaged = (s: LocalSkillRow): boolean => {
+  const parts = s.path.split(/[/\\]/)
+  return parts.at(-2) === 'skills' && parts.at(-3) !== '.ourcode'
 }
 
 /**
@@ -33,7 +49,7 @@ async function configRootFor(s: SkillInfo): Promise<string> {
  * tool list and "/" slash menu.
  */
 export default function SkillRegistryModal() {
-  const { isSkillRegistryOpen, closeSkillRegistry } = useUIStore()
+  const { isSkillRegistryOpen, closeSkillRegistry, bumpSkillsRevision } = useUIStore()
   const t = useI18n()
 
   // The local tab lists ALL skills (global + every recent project's). The
@@ -41,11 +57,19 @@ export default function SkillRegistryModal() {
   // current project (active session's bound project, browsed folder fallback).
   const [installTarget, setInstallTarget] = useState<'global' | 'project'>('global')
   const [projectRoot, setProjectRoot] = useState('')
-  const [tab, setTab] = useState<'local' | 'registry'>('local')
+  const [tab, setTab] = useState<'local' | 'registry' | 'import'>('local')
   const [search, setSearch] = useState('')
   const [localSkills, setLocalSkills] = useState<LocalSkillRow[]>([])
   const [registrySkills, setRegistrySkills] = useState<RegistrySkillInfo[]>([])
-  const [registryUrl, setRegistryUrl] = useState('')
+  // Import tab: candidates from other platforms' dirs + the user's selection
+  // (keyed `${origin}:${name}` — the same name may come from two platforms).
+  const [importSkills, setImportSkills] = useState<ImportableSkill[]>([])
+  const [selectedImports, setSelectedImports] = useState<Set<string>>(new Set())
+  const [registryUrl, setRegistryUrlState] = useState('')
+  // Registry-source editing: draft holds the input while editing, so the
+  // displayed URL only updates after a successful save.
+  const [editingUrl, setEditingUrl] = useState(false)
+  const [draftUrl, setDraftUrl] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmUninstall, setConfirmUninstall] = useState<LocalSkillRow | null>(null)
@@ -65,6 +89,8 @@ export default function SkillRegistryModal() {
         ...s,
         enabled: await isSkillEnabled(s.name, configRoot),
         version: config.skills[s.name]?.version,
+        importedFrom: config.skills[s.name]?.importedFrom,
+        configRoot,
       })
     }
     setLocalSkills(rows)
@@ -73,14 +99,21 @@ export default function SkillRegistryModal() {
   const reloadRegistry = useCallback(async (root: string) => {
     if (!root) {
       setRegistrySkills([])
-      setRegistryUrl('')
+      setRegistryUrlState('')
       return
     }
     const list = await fetchRegistryIndex(undefined, root)
     const config = await readSkillConfig(root)
     setRegistrySkills(list)
-    setRegistryUrl(config.registryUrl || '')
+    setRegistryUrlState(config.registryUrl || '')
   }, [])
+
+  /** Reload the import candidates for a scope (global → home dirs, project →
+   *  the current project's external dirs). */
+  const reloadImport = useCallback(async (scope: 'global' | 'project') => {
+    const root = scope === 'project' ? projectRoot : ''
+    setImportSkills(await listImportableSkills(scope, root || undefined))
+  }, [projectRoot])
 
   useEffect(() => {
     if (!isSkillRegistryOpen) return
@@ -93,7 +126,8 @@ export default function SkillRegistryModal() {
     setInstallTarget('global')
     reloadLocal()
     void getGlobalRoot().then((globalRoot) => reloadRegistry(globalRoot))
-  }, [isSkillRegistryOpen, reloadLocal, reloadRegistry])
+    void reloadImport('global')
+  }, [isSkillRegistryOpen, reloadLocal, reloadRegistry, reloadImport])
 
   if (!isSkillRegistryOpen) return null
 
@@ -103,7 +137,32 @@ export default function SkillRegistryModal() {
 
   const switchTarget = async (target: 'global' | 'project') => {
     setInstallTarget(target)
+    setEditingUrl(false)
+    setDraftUrl('')
+    setSelectedImports(new Set())
     await reloadRegistry(target === 'global' ? await getGlobalRoot() : projectRoot)
+    await reloadImport(target)
+  }
+
+  /** Start editing the registry source URL (prefill with the current one). */
+  const startEditUrl = () => {
+    setDraftUrl(registryUrl)
+    setEditingUrl(true)
+  }
+
+  /** Save the URL to the current target's skills.json — empty clears it. */
+  const saveRegistryUrl = () => {
+    const url = draftUrl.trim()
+    if (url && !/^https?:\/\//i.test(url)) {
+      setError(t('skillRegistry.registryUrlInvalid'))
+      return
+    }
+    run('registry-url', async () => {
+      const root = await targetRoot()
+      if (!root) throw new Error(t('skillRegistry.workspaceRequired'))
+      if (!(await setRegistryUrl(root, url))) throw new Error(t('skillRegistry.registryUrlSaveFailed'))
+      setEditingUrl(false)
+    })
   }
 
   const run = async (name: string, fn: () => Promise<unknown>) => {
@@ -120,6 +179,10 @@ export default function SkillRegistryModal() {
       setBusy(null)
       reloadLocal()
       reloadRegistry(await targetRoot())
+      reloadImport(installTarget)
+      // Any skills change must reach the sidebar panel too — it stays mounted
+      // behind this modal and would otherwise show stale data.
+      bumpSkillsRevision()
     }
   }
 
@@ -137,8 +200,81 @@ export default function SkillRegistryModal() {
     return s.name.toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q)
   })
 
+  const filteredImport = importSkills.filter((s) => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)
+  })
+
   const statusOf = (remote: RegistrySkillInfo) =>
     compareRegistryEntry(localByName.get(remote.name), remote)
+
+  /** Whether an import candidate already exists in the current target dir
+   *  (sync — local rows carry their configRoot). */
+  const existsInTarget = (s: ImportableSkill): boolean =>
+    installTarget === 'project'
+      ? localSkills.some((l) => l.configRoot === projectRoot && l.name === s.name)
+      : localSkills.some((l) => l.source === 'global' && l.name === s.name)
+
+  const toggleImport = (key: string) => {
+    setSelectedImports((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  /** Copy every selected candidate into the target's own `skills/` dir. */
+  const importSelected = () => {
+    if (selectedImports.size === 0) return
+    void run('import', async () => {
+      const root = await targetRoot()
+      if (!root) throw new Error(t('skillRegistry.workspaceRequired'))
+      for (const key of selectedImports) {
+        const sep = key.indexOf(':')
+        const origin = key.slice(0, sep) as SkillOrigin
+        const name = key.slice(sep + 1)
+        const src = importSkills.find((s) => `${s.origin}:${s.name}` === key)
+        if (!src) continue
+        const ok = await importSkill(name, root, src.path, origin)
+        if (!ok) throw new Error(t('skillRegistry.importFailed', { name }))
+      }
+      setSelectedImports(new Set())
+    })
+  }
+
+  /** Install target switcher — shared by the registry and import tabs. */
+  const targetSelector = (
+    <div className="flex items-center gap-2 mb-3">
+      <span className="text-xs text-nova-text-muted shrink-0">{t('skillRegistry.installTarget')}</span>
+      <div className="flex rounded-full border border-nova-border overflow-hidden text-xs">
+        <button
+          onClick={() => switchTarget('global')}
+          className={`px-3 py-1 transition-colors ${
+            installTarget === 'global' ? 'bg-[var(--accent)] text-white' : 'text-nova-text-muted hover:bg-nova-hover'
+          }`}
+        >
+          {t('skillRegistry.installGlobal')}
+        </button>
+        <button
+          onClick={() => switchTarget('project')}
+          disabled={!projectRoot}
+          title={projectRoot ? undefined : t('skillRegistry.installProjectDisabled')}
+          className={`px-3 py-1 transition-colors disabled:opacity-40 ${
+            installTarget === 'project' ? 'bg-[var(--accent)] text-white' : 'text-nova-text-muted hover:bg-nova-hover'
+          }`}
+        >
+          {t('skillRegistry.installProject')}
+        </button>
+      </div>
+      {installTarget === 'project' && projectRoot && (
+        <span className="text-[11px] text-nova-text-muted truncate min-w-0" title={projectRoot}>
+          {projectRoot.split(/[/\\]/).pop()}
+        </span>
+      )}
+    </div>
+  )
 
   return (
     <div role="dialog" aria-modal="true" aria-label={t('skillRegistry.dialog')} className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={closeSkillRegistry}>
@@ -191,6 +327,16 @@ export default function SkillRegistryModal() {
               onClick={() => setTab('registry')}
             >
               {t('skillRegistry.registryTab')}
+            </button>
+            <button
+              className={`px-4 py-1.5 rounded-full text-sm font-bold transition-all ${
+                tab === 'import'
+                  ? 'text-[var(--accent)] bg-white border border-[var(--accent)]/20 shadow-sm'
+                  : 'text-nova-text-muted hover:bg-nova-hover'
+              }`}
+              onClick={() => setTab('import')}
+            >
+              {t('skillRegistry.importTab')}
             </button>
           </div>
           <div className="relative w-full">
@@ -249,6 +395,14 @@ export default function SkillRegistryModal() {
                         >
                           {s.source === 'global' ? t('skillRegistry.globalTag') : s.projectPath?.split(/[/\\]/).pop() || t('skillRegistry.projectTag')}
                         </span>
+                        {s.importedFrom && (
+                          <span
+                            className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-nova-bg border border-nova-border text-nova-text-muted"
+                            title={t('skillRegistry.importedFrom', { origin: SKILL_ORIGIN_LABELS[s.importedFrom] })}
+                          >
+                            {SKILL_ORIGIN_LABELS[s.importedFrom]}
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-nova-text-muted mt-0.5 truncate">
                         {s.description || s.path}
@@ -257,9 +411,8 @@ export default function SkillRegistryModal() {
                     {/* Toggle switch (设计稿) */}
                     <button
                       onClick={() => run(s.name, async () => {
-                        const configRoot = await configRootFor(s)
-                        if (!configRoot) throw new Error('无法确定该技能的配置位置')
-                        await setSkillEnabled(s.name, !s.enabled, configRoot)
+                        if (!s.configRoot) throw new Error('无法确定该技能的配置位置')
+                        await setSkillEnabled(s.name, !s.enabled, s.configRoot)
                       })}
                       disabled={busy === s.name}
                       aria-label={`${s.enabled ? t('skillRegistry.disable') : t('skillRegistry.enable')} ${s.name}`}
@@ -273,57 +426,151 @@ export default function SkillRegistryModal() {
                         }`}
                       />
                     </button>
-                    {/* Uninstall (icon button, appears on hover to keep the row compact) */}
-                    <button
-                      onClick={() => setConfirmUninstall(s)}
-                      disabled={busy === s.name}
-                      title={t('skillRegistry.uninstall')}
-                      className="shrink-0 p-1.5 text-nova-text-muted opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all disabled:opacity-0"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                    {/* Uninstall (icon button, appears on hover to keep the row
+                        compact). Only registry-managed skills (ours, in a
+                        `<configRoot>/skills/` dir) can be deleted — skills from
+                        other platforms' directories are never removed. */}
+                    {isRegistryManaged(s) && (
+                      <button
+                        onClick={() => setConfirmUninstall(s)}
+                        disabled={busy === s.name}
+                        title={t('skillRegistry.uninstall')}
+                        className="shrink-0 p-1.5 text-nova-text-muted opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-all disabled:opacity-0"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             )
+          ) : tab === 'import' ? (
+            <div>
+              {targetSelector}
+              <p className="text-xs text-nova-text-muted mb-3">{t('skillRegistry.importHint')}</p>
+              {importSkills.length === 0 ? (
+                <div className="text-center py-16 text-nova-text-muted text-sm">
+                  {search ? t('skillRegistry.noMatch') : t('skillRegistry.noImportSources')}
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    {filteredImport.map((s) => {
+                      const key = `${s.origin}:${s.name}`
+                      const checked = selectedImports.has(key)
+                      const exists = existsInTarget(s)
+                      return (
+                        <div key={key} className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/50 dark:hover:bg-white/5 transition-colors">
+                          {/* Checkbox (multi-select) */}
+                          <button
+                            onClick={() => toggleImport(key)}
+                            disabled={busy === 'import'}
+                            aria-label={t('skillRegistry.selectImport', { name: s.name })}
+                            className={`shrink-0 w-5 h-5 rounded-md border flex items-center justify-center transition-all disabled:opacity-40 ${
+                              checked ? 'bg-[var(--accent)] border-[var(--accent)] text-white' : 'border-nova-border hover:border-[var(--accent)]'
+                            }`}
+                          >
+                            {checked && (
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </button>
+                          {/* Status dot: green once the skill exists in the target */}
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${exists ? 'bg-[#22c55e]' : 'bg-slate-400'}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2">
+                              <span className="font-mono text-[13px] font-bold truncate" style={{ color: 'var(--accent)' }}>{s.name}</span>
+                              <span
+                                className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-nova-bg border border-nova-border text-nova-text-muted"
+                                title={s.path}
+                              >
+                                {SKILL_ORIGIN_LABELS[s.origin]}
+                              </span>
+                              {exists && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full border font-medium bg-[#22c55e]/15 text-[#22c55e] border-[#22c55e]/30 shrink-0">
+                                  {t('skillRegistry.existsTag')}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-nova-text-muted mt-0.5 truncate">
+                              {s.description || s.path}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="pt-3">
+                    <button
+                      onClick={importSelected}
+                      disabled={selectedImports.size === 0 || busy === 'import'}
+                      className="w-full py-2.5 text-sm font-bold rounded-full bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-all"
+                    >
+                      {busy === 'import'
+                        ? t('skillRegistry.busy')
+                        : t('skillRegistry.importSelected', { count: selectedImports.size })}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           ) : (
             <div>
-              {/* Install target: 全局 (follows the IDE) vs 当前项目 */}
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-xs text-nova-text-muted shrink-0">{t('skillRegistry.installTarget')}</span>
-                <div className="flex rounded-full border border-nova-border overflow-hidden text-xs">
-                  <button
-                    onClick={() => switchTarget('global')}
-                    className={`px-3 py-1 transition-colors ${
-                      installTarget === 'global' ? 'bg-[var(--accent)] text-white' : 'text-nova-text-muted hover:bg-nova-hover'
-                    }`}
-                  >
-                    {t('skillRegistry.installGlobal')}
-                  </button>
-                  <button
-                    onClick={() => switchTarget('project')}
-                    disabled={!projectRoot}
-                    title={projectRoot ? undefined : t('skillRegistry.installProjectDisabled')}
-                    className={`px-3 py-1 transition-colors disabled:opacity-40 ${
-                      installTarget === 'project' ? 'bg-[var(--accent)] text-white' : 'text-nova-text-muted hover:bg-nova-hover'
-                    }`}
-                  >
-                    {t('skillRegistry.installProject')}
-                  </button>
-                </div>
-                {installTarget === 'project' && projectRoot && (
-                  <span className="text-[11px] text-nova-text-muted truncate min-w-0" title={projectRoot}>
-                    {projectRoot.split(/[/\\]/).pop()}
-                  </span>
+              {targetSelector}
+              {/* Registry source: configure the index URL right in the UI —
+                  no hand-editing skills.json (大众用户友好). */}
+              <div className="mb-3">
+                {editingUrl || !registryUrl ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={draftUrl}
+                      onChange={(e) => setDraftUrl(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveRegistryUrl() }}
+                      placeholder={t('skillRegistry.registryUrlPlaceholder')}
+                      aria-label={t('skillRegistry.registryUrlLabel')}
+                      className="flex-1 min-w-0 px-3.5 py-1.5 bg-nova-bg border border-nova-border rounded-full text-xs font-mono text-nova-text-primary placeholder-nova-text-muted placeholder:font-sans focus:outline-none focus:border-[var(--accent)] transition-all"
+                    />
+                    <button
+                      onClick={saveRegistryUrl}
+                      disabled={busy === 'registry-url'}
+                      className="shrink-0 px-3.5 py-1.5 text-xs font-bold rounded-full bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-all"
+                    >
+                      {t('skillRegistry.registryUrlSave')}
+                    </button>
+                    {editingUrl && (
+                      <button
+                        onClick={() => { setEditingUrl(false); setDraftUrl('') }}
+                        className="shrink-0 px-3 py-1.5 text-xs text-nova-text-muted hover:text-nova-text-primary transition-colors"
+                      >
+                        {t('common.cancel')}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg className="w-3.5 h-3.5 shrink-0 text-nova-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m9.656-1.172l-1.5 1.5m1.172-9.656a4 4 0 015.656 5.656l-3 3a4 4 0 01-5.656 0" />
+                    </svg>
+                    <span className="text-xs text-nova-text-muted shrink-0">{t('skillRegistry.registryUrlLabel')}</span>
+                    <span className="font-mono text-xs text-nova-text-primary truncate min-w-0" title={registryUrl}>{registryUrl}</span>
+                    <button
+                      onClick={startEditUrl}
+                      className="shrink-0 px-2.5 py-1 text-[11px] font-medium text-nova-text-muted hover:text-[var(--accent)] border border-nova-border rounded-full hover:border-[var(--accent)]/40 transition-all"
+                    >
+                      {t('skillRegistry.registryUrlEdit')}
+                    </button>
+                  </div>
                 )}
+                <p className="text-xs text-nova-text-muted mt-1.5">
+                  {registryUrl
+                    ? t('skillRegistry.installFromRegistry')
+                    : t('skillRegistry.noRegistryConfigured')}
+                </p>
               </div>
-              <p className="text-xs text-nova-text-muted mb-3">
-                {registryUrl
-                  ? t('skillRegistry.installFromRegistry')
-                  : t('skillRegistry.noRegistryConfigured')}
-              </p>
               {registrySkills.length === 0 ? (
                 <div className="text-center py-16 text-nova-text-muted text-sm">
                   {search ? t('skillRegistry.noMatch') : t('skillRegistry.noRegistrySkills')}

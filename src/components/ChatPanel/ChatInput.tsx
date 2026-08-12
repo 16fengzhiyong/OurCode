@@ -289,7 +289,7 @@ export default function ChatInput() {
       window.electronAPI
         .stat(p)
         .then((s) => {
-          if (!s.isDirectory) return
+          if (!s?.isDirectory) return
           setDirMap((m) => (m[p] ? m : { ...m, [p]: true }))
         })
         .catch(() => { /* unreadable — stays a file chip */ })

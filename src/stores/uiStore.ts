@@ -62,6 +62,10 @@ interface UIState {
 
   // Skill Registry
   isSkillRegistryOpen: boolean,
+  /** Bumped by the skill manager whenever skills change (install/import/
+   *  uninstall/toggle) — lets other surfaces (e.g. the sidebar skill panel)
+   *  refresh even while they stay mounted behind the modal. */
+  skillsRevision: number,
 
   // Memory manager
   isMemoryManagerOpen: boolean,
@@ -124,6 +128,7 @@ interface UIState {
 
   openSkillRegistry: () => void
   closeSkillRegistry: () => void
+  bumpSkillsRevision: () => void
 
   openMemoryManager: () => void
   closeMemoryManager: () => void
@@ -213,6 +218,7 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   // Skill Registry
   isSkillRegistryOpen: false,
+  skillsRevision: 0,
 
   // Memory manager
   isMemoryManagerOpen: false,
@@ -328,6 +334,7 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   openSkillRegistry: () => set({ isSkillRegistryOpen: true }),
   closeSkillRegistry: () => set({ isSkillRegistryOpen: false }),
+  bumpSkillsRevision: () => set((s) => ({ skillsRevision: s.skillsRevision + 1 })),
 
   openMemoryManager: () => set({ isMemoryManagerOpen: true }),
   closeMemoryManager: () => set({ isMemoryManagerOpen: false }),

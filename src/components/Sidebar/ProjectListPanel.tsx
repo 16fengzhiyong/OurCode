@@ -451,7 +451,8 @@ export default function ProjectListPanel() {
                       ? 'bg-accent-5 border-accent-40'
                       : 'border-transparent hover:bg-white/50 dark:hover:bg-white/10 hover:border-glass-border'
                 }`}
-                onClick={() => handleEnterProject(project.path)}
+                onDoubleClick={() => handleEnterProject(project.path)}
+                title="双击打开项目"
               >
                 <div
                   className="w-10 h-10 rounded-[16px] flex items-center justify-center text-white shrink-0 shadow-sm"
@@ -486,6 +487,9 @@ export default function ProjectListPanel() {
                     e.stopPropagation()
                     handleNewSessionForProject(project.path)
                   }}
+                  // A double-click on the button would otherwise bubble a
+                  // dblclick up to the card and open the project accidentally.
+                  onDoubleClick={(e) => e.stopPropagation()}
                   className="p-1 rounded-full text-nova-text-muted hover:text-nova-accent hover:bg-accent-10 transition-colors opacity-0 group-hover:opacity-100 shrink-0 self-center"
                   title={t('chat.newChat')}
                 >

@@ -31,7 +31,7 @@ function FileChip({ path, rootPath, removable, onRemove, onOpen, removeLabel }: 
     window.electronAPI
       .stat(path)
       .then((s) => {
-        if (!cancelled && s.isDirectory) setIsDir(true)
+        if (!cancelled && s?.isDirectory) setIsDir(true)
       })
       .catch(() => { /* out-of-workspace / unreadable — keep file icon */ })
     return () => {

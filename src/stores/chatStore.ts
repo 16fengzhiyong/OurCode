@@ -418,6 +418,9 @@ interface ChatState {
   runningSessionIds: string[]
   /** Per-session live streaming text (sessionId → { content, thinking }) */
   streamingBySession: Record<string, { content: string; thinking: string }>
+  /** Per-session timestamp of the last agent activity (stream chunk / tool
+   *  step / approval dialog). The idle "已 X 分钟无响应" indicator reads it. */
+  streamLastActivityBySession: Record<string, number>
   /** Per-session AbortController — stopping one conversation must never touch
    *  another (previously a single global controller: switching sessions made
    *  the stop button abort the *other* conversation). */
@@ -721,6 +724,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeSessionId: null,
   runningSessionIds: [],
   streamingBySession: {},
+  streamLastActivityBySession: {},
   abortControllers: {},
   undoStack: [],
   pendingApproval: null,
@@ -1127,6 +1131,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })
     window.electronAPI.deleteSession(sessionId)
     window.electronAPI.checkpointDelete(sessionId)
+    // Drop the executor's per-session read-tracking (read-before-write guard)
+    toolExecutor.forgetSession(sessionId)
   },
 
   renameSession: (sessionId, title) => {
@@ -1850,6 +1856,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeSessionId: null,
       runningSessionIds: [],
       streamingBySession: {},
+      streamLastActivityBySession: {},
       abortControllers: {},
       pendingApproval: null,
       pendingQuestion: null,
@@ -1966,6 +1973,17 @@ async function runAgentLoop(
       : [...s.runningSessionIds, sessionId],
     streamingBySession: { ...s.streamingBySession, [sessionId]: { content: '', thinking: '' } },
   }))
+
+  // Idle-clock refresh: every visible piece of progress (stream chunk, tool
+  // step, approval dialog) resets the "已 X 分钟无响应" timer. It only runs
+  // when the agent loop is genuinely silent — e.g. the model thinking before
+  // its first chunk.
+  const touchActivity = () => {
+    set((s) => ({
+      streamLastActivityBySession: { ...s.streamLastActivityBySession, [sessionId]: Date.now() },
+    }))
+  }
+  touchActivity()
 
   const abortController = new AbortController()
   set((s) => ({ abortControllers: { ...s.abortControllers, [sessionId]: abortController } }))
@@ -2137,6 +2155,7 @@ async function runAgentLoop(
 
   while (iterationsLeft-- > 0) {
       if (abortController.signal.aborted) break
+      touchActivity() // a new request round resets the idle clock
       const req = {
         model,
         messages: messages.map((m) => ({
@@ -2169,6 +2188,7 @@ async function runAgentLoop(
       try {
         for await (const chunk of sendLLMRequest(req, configGroup)) {
           if (abortController.signal.aborted) break
+          touchActivity() // any data keeps the idle clock reset
 
           if (chunk.thinking) {
             fullThinking += chunk.thinking
@@ -2295,6 +2315,7 @@ async function runAgentLoop(
       if (agentMode === 'agent' && !useChatStore.getState().batchApprovedBySession[sessionId]) {
         const batchTools = parsedToolCalls.filter((tc) => needsApproval(tc.name))
         if (batchTools.length > 0) {
+          touchActivity() // waiting on the user ≠ model silence
           const decision = await new Promise<'confirm' | 'all' | 'reject'>((resolve) => {
             if (_batchResolves.has(sessionId)) { _batchResolves.get(sessionId)!('reject'); _batchResolves.delete(sessionId) }
             _batchResolves.set(sessionId, resolve)
@@ -2348,6 +2369,7 @@ async function runAgentLoop(
 
       const finalizeToolResult = (tc: ToolCall, result: ToolResult): void => {
         useChatStore.getState().setTraceStatus(sessionId, tc.id, result.isError ? 'error' : 'success')
+        touchActivity() // tool finished — the agent is working, not idle
         // Append the result inline to the assistant message for display
         chatStore.appendToolResult(sessionId, assistantMsgId, result)
         recordToolMessage(tc.id, result.result)
@@ -2359,6 +2381,7 @@ async function runAgentLoop(
 
       for (const tc of parsedToolCalls) {
         if (abortController.signal.aborted) break
+        touchActivity() // tool phase counts as activity, not model silence
 
         // Live execution trace entry (AgentRunPanel)
         useChatStore.getState().appendTrace(sessionId, {
@@ -2420,6 +2443,7 @@ async function runAgentLoop(
             // show immediately ('auto'); otherwise wait until they switch to it
             // and confirm via the QuestionConfirmBar ('confirm').
             const onSession = useChatStore.getState().activeSessionId === sessionId
+            touchActivity() // waiting on the user ≠ model silence
             useChatStore.setState({
               pendingQuestion: {
                 sessionId,
@@ -2463,6 +2487,7 @@ async function runAgentLoop(
         // are all folded into the needsApproval() helper defined above.
         if (needsApproval(tc.name)) {
           const preview = toolExecutor.getPreview(tc)
+          touchActivity() // waiting on the user ≠ model silence
           useChatStore.setState({ pendingApproval: { sessionId, toolCall: tc, preview } })
 
           // Reject any previous pending approval for this session to prevent
@@ -2629,6 +2654,8 @@ async function runAgentLoop(
       const runningSessionIds = s.runningSessionIds.filter((id) => id !== sessionId)
       const streamingBySession = { ...s.streamingBySession }
       delete streamingBySession[sessionId]
+      const streamLastActivityBySession = { ...s.streamLastActivityBySession }
+      delete streamLastActivityBySession[sessionId]
       const abortControllers = { ...s.abortControllers }
       delete abortControllers[sessionId]
       const batchApprovedBySession = { ...s.batchApprovedBySession }
@@ -2638,6 +2665,7 @@ async function runAgentLoop(
       return {
         runningSessionIds,
         streamingBySession,
+        streamLastActivityBySession,
         abortControllers,
         batchApprovedBySession,
         questionGate,

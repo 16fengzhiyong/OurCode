@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
-import { listAllSkills, getGlobalRoot, type SkillInfo } from '@/services/skills/skillManager'
+import { listAllSkills, getGlobalRoot, SKILL_ORIGIN_LABELS, type SkillInfo, type SkillOrigin } from '@/services/skills/skillManager'
 import { isSkillEnabled, setSkillEnabled, readSkillConfig } from '@/services/skills/skillRegistry'
 
 interface LocalSkillRow extends SkillInfo {
   enabled: boolean
   version?: string
+  /** Platform this skill was imported from (provenance display only). */
+  importedFrom?: SkillOrigin
 }
 
 /** Config root whose skills.json governs a skill's enabled flag. */
@@ -27,7 +29,11 @@ export default function SkillPanel() {
   const openSkillRegistry = useUIStore((s) => s.openSkillRegistry)
   // Refresh whenever the recent-project list changes (opening a project brings
   // its skills into the list) — the list is independent of the active session.
+  // The revision bumps when the skill manager modal mutates skills (import/
+  // install/uninstall/toggle), so this panel refreshes even while it stays
+  // mounted behind the modal.
   const recentProjects = useUIStore((s) => s.recentProjects)
+  const skillsRevision = useUIStore((s) => s.skillsRevision)
 
   const [search, setSearch] = useState('')
   const [skills, setSkills] = useState<LocalSkillRow[]>([])
@@ -48,6 +54,7 @@ export default function SkillPanel() {
         ...s,
         enabled: await isSkillEnabled(s.name, configRoot),
         version: config.skills[s.name]?.version,
+        importedFrom: config.skills[s.name]?.importedFrom,
       })
     }
     setSkills(rows)
@@ -55,7 +62,7 @@ export default function SkillPanel() {
 
   useEffect(() => {
     reload().catch(() => setSkills([]))
-  }, [reload, recentProjects])
+  }, [reload, recentProjects, skillsRevision])
 
   const toggleSkill = async (skill: LocalSkillRow, enabled: boolean) => {
     if (busyRef.current) return
@@ -194,6 +201,14 @@ export default function SkillPanel() {
                     >
                       {s.source === 'global' ? t('skillRegistry.globalTag') : s.projectPath?.split(/[/\\]/).pop() || t('skillRegistry.projectTag')}
                     </span>
+                    {s.importedFrom && (
+                      <span
+                        className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-nova-bg border border-nova-border text-nova-text-muted"
+                        title={t('skillRegistry.importedFrom', { origin: SKILL_ORIGIN_LABELS[s.importedFrom] })}
+                      >
+                        {SKILL_ORIGIN_LABELS[s.importedFrom]}
+                      </span>
+                    )}
                   </div>
                   <p className="text-[11px] text-nova-text-muted mt-0.5 truncate">
                     {s.description || s.path}

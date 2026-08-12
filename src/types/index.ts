@@ -20,7 +20,7 @@ export interface ElectronAPI {
   createDir: (path: string) => Promise<void>
   rename: (oldPath: string, newPath: string) => Promise<void>
   delete: (path: string) => Promise<void>
-  stat: (path: string) => Promise<import('@shared/types').FileStat>
+  stat: (path: string) => Promise<import('@shared/types').FileStat | null>
   authorize: (path: string) => Promise<void>
   watch: (path: string) => Promise<void>
   unwatch: (path: string) => Promise<void>
