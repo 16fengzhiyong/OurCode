@@ -45,11 +45,23 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
-    name: 'git_commit',
-    description: '提交当前暂存区的变更（危险操作：会写入 git 历史）',
+    name: 'git_add',
+    description: '暂存变更到暂存区（git add）：传入 path 只暂存该路径，不传则暂存全部变更（含新增/删除）',
     inputSchema: {
       type: 'object',
-      properties: { message: { type: 'string', description: '提交信息' } },
+      properties: { path: { type: 'string', description: '可选：限定暂存的仓库相对路径（文件或目录）' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'git_commit',
+    description: '提交当前暂存区的变更（危险操作：会写入 git 历史）。传 all=true 时先暂存全部变更再提交',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', description: '提交信息' },
+        all: { type: 'boolean', description: '可选：提交前先 git add -A 暂存所有变更' },
+      },
       required: ['message'],
     },
   },
@@ -156,9 +168,24 @@ async function callTool(params) {
     const r = await runGit(['branch'])
     return r.error ? errorResult(r.error) : { content: [{ type: 'text', text: r.output || '(无分支)' }] }
   }
+  if (name === 'git_add') {
+    // path 缺失 → 暂存全部（含新增/删除/重命名）；否则只暂存指定路径。
+    // 指定路径用 `git add -- <path>` 防止以 - 开头的路径被当作选项解析。
+    // 注意 `git add --`（无路径）什么都不会暂存，所以全量场景必须用 -A。
+    const argv = typeof args.path === 'string' && args.path.trim()
+      ? ['add', '--', args.path.trim()]
+      : ['add', '-A']
+    const r = await runGit(argv)
+    return r.error ? errorResult(r.error) : { content: [{ type: 'text', text: r.output || '已暂存' }] }
+  }
   if (name === 'git_commit') {
     if (typeof args.message !== 'string' || !args.message.trim()) {
       return errorResult('git_commit 需要 message 参数')
+    }
+    // all=true：先暂存所有变更再提交，让「提交全部改动」一次完成
+    if (args.all) {
+      const add = await runGit(['add', '-A'])
+      if (add.error) return errorResult(add.error)
     }
     const r = await runGit(['commit', '-m', args.message.trim()])
     return r.error ? errorResult(r.error) : { content: [{ type: 'text', text: r.output || '已提交' }] }
