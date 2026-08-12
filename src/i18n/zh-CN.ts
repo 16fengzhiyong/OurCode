@@ -491,6 +491,12 @@ export const zhCN = {
   'chat.agentExecutionFlow': 'Agent 执行流',
   'chat.totalSteps': '共 {count} 步',
   'chat.subAgentRunning': '子 Agent 执行中...',
+  // 子智能体实时进度面板（run_subagent 内嵌视图）
+  'chat.subagentTitle': '子智能体',
+  'chat.subagentThinking': '思考',
+  'chat.subagentToolCalls': '{n} 次调用',
+  'chat.subagentTokens': '{n} tokens',
+  'chat.subagentWorking': '子智能体执行中…',
   'chat.thinkingOutput': '思考/输出',
   // 上下文锚点 / 动作期反馈 / 工具统计（输入框与执行过程块）
   'chat.contextLabel': '上下文',

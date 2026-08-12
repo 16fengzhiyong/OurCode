@@ -25,10 +25,23 @@ import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { getFileContent } from '@/editor/modelRegistry'
-import type { LLMToolCall, UsageEvent } from '@/types'
+import type { LLMToolCall, SubAgentProgress, SubAgentProgressStep, UsageEvent } from '@/types'
 
 const MAX_SUBAGENT_ITERATIONS = 10
 const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory'])
+
+/** Compact a tool call's arguments for the transient progress record — write
+ *  payloads (file contents) can be huge, and the panel only needs the shape
+ *  plus key fields to render. */
+function compactArgs(args: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {}
+  for (const [k, v] of Object.entries(args || {})) {
+    if (typeof v === 'string' && v.length > 2000) out[k] = v.slice(0, 2000) + '…'
+    else if (Array.isArray(v) && v.length > 50) out[k] = v.slice(0, 50)
+    else out[k] = v
+  }
+  return out
+}
 
 export interface SubAgentOptions {
   sessionId: string
@@ -39,6 +52,12 @@ export interface SubAgentOptions {
   task: string
   /** Why the main agent spawned it (short, for the summary header) */
   description?: string
+  /** Parent run_subagent tool call id — live progress is routed to the UI
+   *  (SubAgentProgressBlock) keyed by it. Absent ⇒ no progress UI. */
+  toolCallId?: string
+  /** Abort signal of the parent run — the user's Stop button cancels the
+   *  subagent (checked between stream chunks and tool executions). */
+  abortSignal?: AbortSignal
 }
 
 /** Build the subagent's system prompt: definition role + environment + current file + skills */
@@ -79,6 +98,19 @@ async function buildSubSystemPrompt(opts: SubAgentOptions, defSystemPrompt: stri
  */
 export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
   const startedAt = Date.now()
+
+  // ── Live progress → chatStore (SubAgentProgressBlock in the transcript) ──
+  // The sub-agent runs autonomously inside the parent's run_subagent tool call;
+  // without these pushes the UI would show only a spinning pill until the whole
+  // task finishes. Every event is routed by the parent tool call id.
+  const toolCallId = opts.toolCallId
+  const pushProgress = (patch: Partial<SubAgentProgress>) => {
+    if (!toolCallId) return
+    useChatStore.getState().updateSubagentProgress(toolCallId, patch)
+  }
+  const currentSteps = (): SubAgentProgressStep[] =>
+    useChatStore.getState().subagentProgress[toolCallId || '']?.steps || []
+
   const session = useChatStore.getState().sessions.find((s) => s.id === opts.sessionId)
   const configGroup = useConfigStore.getState().configGroups.find((g) => g.id === session?.configGroupId)
   const model = session?.model || configGroup?.defaultModel || ''
@@ -113,35 +145,40 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
     return `Error: 无法运行子智能体「${opts.name}」— 会话未绑定有效的 API 配置或模型。`
   }
 
-  // Resolve the agent definition (workspace .md → global → builtin) and its
-  // permission guard. The definition drives role, tool allowlist, path scope,
-  // iteration budget and token budget.
-  const def = await loadAgentDefinition(opts.name, opts.projectPath)
-  const guard = new SubagentGuard(def, opts.projectPath)
-
-  const systemPrompt = await buildSubSystemPrompt(opts, def.systemPrompt)
-  const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; toolCalls?: LLMToolCall[]; toolCallId?: string }> = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: opts.task },
-  ]
-
-  let iterationsLeft = def.maxIterations ?? MAX_SUBAGENT_ITERATIONS
-  let finalText = ''
-  let toolCallCount = 0
-  let tokensUsed = 0
-  const changedPaths = new Set<string>()
-  let lastError = ''
-  let hitTokenBudget = false
-
-  // Only the subagent's allowlisted tools reach its LLM (monotonic decay);
-  // the auto-memory tool additionally respects the user's settings toggle.
-  let toolDefinitions = executor.getToolDefinitions((name) => guard.toolAllowed(name))
-  if (!useEditorStore.getState().preferences.aiAutoMemory) {
-    toolDefinitions = toolDefinitions.filter((d) => d.function.name !== 'remember')
-  }
+  // Progress record goes live BEFORE the fallible setup below — a failure
+  // while resolving the definition lands in the panel as an error instead of
+  // leaving a forever-spinning running record.
+  pushProgress({ status: 'running', sessionId: opts.sessionId, name: opts.name, task: opts.task, description: opts.description, startedAt })
 
   try {
-    while (iterationsLeft-- > 0) {
+    // Resolve the agent definition (workspace .md → global → builtin) and its
+    // permission guard. The definition drives role, tool allowlist, path scope,
+    // iteration budget and token budget.
+    const def = await loadAgentDefinition(opts.name, opts.projectPath)
+    const guard = new SubagentGuard(def, opts.projectPath)
+
+    const systemPrompt = await buildSubSystemPrompt(opts, def.systemPrompt)
+    const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; toolCalls?: LLMToolCall[]; toolCallId?: string }> = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: opts.task },
+    ]
+
+    let iterationsLeft = def.maxIterations ?? MAX_SUBAGENT_ITERATIONS
+    let finalText = ''
+    let toolCallCount = 0
+    let tokensUsed = 0
+    const changedPaths = new Set<string>()
+    let lastError = ''
+    let hitTokenBudget = false
+
+    // Only the subagent's allowlisted tools reach its LLM (monotonic decay);
+    // the auto-memory tool additionally respects the user's settings toggle.
+    let toolDefinitions = executor.getToolDefinitions((name) => guard.toolAllowed(name))
+    if (!useEditorStore.getState().preferences.aiAutoMemory) {
+      toolDefinitions = toolDefinitions.filter((d) => d.function.name !== 'remember')
+    }
+
+    while (iterationsLeft-- > 0 && !opts.abortSignal?.aborted) {
       const req = {
         model,
         messages: messages.map((m) => ({
@@ -163,18 +200,42 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
 
       let fullContent = ''
       let toolCalls: LLMToolCall[] = []
+      let roundThinking = ''
+      let lastThinkingPush = 0
 
       try {
         for await (const chunk of sendLLMRequest(req, configGroup)) {
+          if (opts.abortSignal?.aborted) break
+          if (chunk.thinking) {
+            roundThinking += chunk.thinking
+            // Throttle live thinking pushes (~150ms) so a long reasoning
+            // stream doesn't re-render the progress panel per chunk
+            const now = Date.now()
+            if (now - lastThinkingPush > 150) {
+              lastThinkingPush = now
+              pushProgress({ thinking: roundThinking.slice(-4000) })
+            }
+          }
           if (chunk.content) fullContent += chunk.content
           if (chunk.toolCalls) toolCalls = chunk.toolCalls
-          if (chunk.usage) tokensUsed += (chunk.usage.promptTokens || 0) + (chunk.usage.completionTokens || 0)
+          // Usage is the request's cumulative total (providers repeat it on
+          // the final chunk) — overwrite, don't accumulate, or the count
+          // inflates when usage arrives on every chunk.
+          if (chunk.usage) tokensUsed = (chunk.usage.promptTokens || 0) + (chunk.usage.completionTokens || 0)
           if (chunk.done) break
         }
       } catch (error: any) {
         lastError = error.message
         break
       }
+
+      // Flush this round's thinking + latest usage counters (throttle may have
+      // skipped the tail, and tokens arrive with the final chunk)
+      if (roundThinking) pushProgress({ thinking: roundThinking.slice(-4000) })
+      pushProgress({ tokenCount: tokensUsed })
+
+      // User hit Stop — the parent run was aborted; stop promptly
+      if (opts.abortSignal?.aborted) break
 
       // Token budget exceeded — stop and report what was completed
       if (def.maxTokensBudget && tokensUsed >= def.maxTokensBudget) {
@@ -212,8 +273,15 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
           await captureCheckpoint(opts.sessionId, tc).catch(() => {})
         }
 
+        // Live step — the progress panel shows the subagent's own tool calls
+        // (read_file / edit_file / ...) as they start and complete
+        pushProgress({
+          steps: [...currentSteps(), { id: tc.id, name: tc.name, arguments: compactArgs(tc.arguments), status: 'running' }],
+        })
+
         const result = await executor.execute(tc)
         toolCallCount++
+        pushProgress({ toolCallCount })
         if (result.isError) lastError = result.result
         if (tc.arguments?.path) changedPaths.add(tc.arguments.path)
 
@@ -222,6 +290,15 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
           window.dispatchEvent(new CustomEvent('ourcode:file-changed', { detail: tc.arguments.path }))
         }
 
+        // Mark the step finished (result text attached for the expandable view)
+        pushProgress({
+          steps: currentSteps().map((st) =>
+            st.id === tc.id
+              ? { ...st, status: result.isError ? 'error' : 'success', result: result.result }
+              : st
+          ),
+        })
+
         messages.push({ role: 'tool', content: result.result, toolCallId: tc.id })
       }
 
@@ -229,21 +306,32 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
       if (hitTokenBudget) break
     }
 
+    const aborted = !!opts.abortSignal?.aborted
     if (!finalText) {
-      finalText = hitTokenBudget
-        ? `[子智能体达到 token 预算上限 (${tokensUsed} tokens)，任务可能未完全完成]`
-        : iterationsLeft <= 0 && !lastError
-          ? '[子智能体达到最大工具调用轮数，任务可能未完全完成]'
-          : lastError
+      finalText = aborted
+        ? '[子智能体已停止]'
+        : hitTokenBudget
+          ? `[子智能体达到 token 预算上限 (${tokensUsed} tokens)，任务可能未完全完成]`
+          : iterationsLeft <= 0 && !lastError
+            ? '[子智能体达到最大工具调用轮数，任务可能未完全完成]'
+            : lastError
     }
 
     recordEvent({
       // A run is only "ok" when no error surfaced — finalText falling back to
       // lastError made a hard failure (network/timeout) record as ok=true.
-      ok: !lastError,
+      ok: !lastError && !aborted,
       error: lastError || undefined,
       durationMs: Date.now() - startedAt,
       payload: { toolCallCount, fileChangeCount: changedPaths.size, tokensUsed, summary: finalText.slice(0, 500) },
+    })
+
+    // Final progress state — the panel switches from the spinner to a
+    // terminal status (✓ done / ✗ error / ⏹ stopped) but stays viewable.
+    pushProgress({
+      status: aborted ? 'stopped' : lastError ? 'error' : 'done',
+      error: lastError || undefined,
+      tokenCount: tokensUsed,
     })
 
     return [
@@ -257,6 +345,7 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
     ].filter((l) => l !== '').join('\n')
   } catch (error: any) {
     recordEvent({ ok: false, error: error.message, durationMs: Date.now() - startedAt })
+    pushProgress({ status: 'error', error: error.message })
     return `Error: 子智能体「${opts.name}」执行失败: ${error.message}`
   }
 }

@@ -117,6 +117,34 @@ export interface AgentTraceEntry {
   summary: string
 }
 
+// One tool call made by a sub-agent (transient, shown in SubAgentProgressBlock)
+export interface SubAgentProgressStep {
+  id: string
+  name: string
+  arguments: Record<string, any>
+  status: 'running' | 'success' | 'error'
+  /** Tool result text once the step finished */
+  result?: string
+}
+
+// Live execution progress of one run_subagent call, keyed by the PARENT tool
+// call id. Pushed by subagentRunner while the sub-agent works, so the UI can
+// render its thinking / tool calls in real time instead of a silent spinner.
+export interface SubAgentProgress {
+  status: 'running' | 'done' | 'error' | 'stopped'
+  sessionId: string
+  name: string
+  task: string
+  description?: string
+  startedAt: number
+  /** Accumulated thinking text of the current/final LLM round */
+  thinking: string
+  steps: SubAgentProgressStep[]
+  toolCallCount: number
+  tokenCount: number
+  error?: string
+}
+
 // Lightweight persisted record of an agent run (shown in the Agent tasks panel)
 export interface AgentRun {
   id: string

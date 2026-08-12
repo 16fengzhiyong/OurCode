@@ -15,6 +15,12 @@ export interface Tool {
 export interface ToolExecutionContext {
   sessionId?: string
   projectPath?: string
+  /** The id of the tool call being executed — run_subagent routes its live
+   *  progress to the UI keyed by this id (SubAgentProgressBlock). */
+  toolCallId?: string
+  /** Abort signal of the enclosing agent run — lets the user's Stop button
+   *  cancel long-running tools like run_subagent. */
+  abortSignal?: AbortSignal
 }
 
 /** A tool call from the LLM */

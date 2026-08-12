@@ -12,6 +12,12 @@ import { truncateToolOutput, ToolOutputLimits } from './truncate'
 export interface ToolExecuteContext {
   sessionId?: string
   projectPath?: string
+  /** The id of the tool call being executed — forwarded into the tool's own
+   *  context so run_subagent can route its live progress to the UI. */
+  toolCallId?: string
+  /** Abort signal of the enclosing agent run — forwarded into the tool's own
+   *  context so long-running tools can be cancelled by the user's Stop button. */
+  abortSignal?: AbortSignal
 }
 
 // Tool-output truncation limits (wired from chatStore so every executor
@@ -47,7 +53,7 @@ export class ToolExecutor {
   /** Dynamic skill tools (skill__<name>) from the workspace skill manager */
   private skillTools: ToolDefinition[] = []
   /** Session context for usage attribution (set by the agent loop) */
-  private sessionContext: { sessionId: string; projectPath: string } | null = null
+  private sessionContext: ToolExecuteContext | null = null
   /** Files each session has already seen — read_file successes plus files it
    *  just created. Keyed per session so parallel agent loops stay isolated;
    *  subagents get their own executor instance, so they must read before
@@ -269,6 +275,8 @@ export class ToolExecutor {
       const result = await tool.execute(toolCall.arguments, {
         sessionId: ctx.sessionId,
         projectPath: ctx.projectPath,
+        toolCallId: ctx.toolCallId ?? toolCall.id,
+        abortSignal: ctx.abortSignal,
       })
       // A successful read makes the path known; a successful write to a NEW
       // file does too (the model just authored it, so it may edit it next).

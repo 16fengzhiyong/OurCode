@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, UsageEvent, lookupModelMetadata } from '@/types'
+import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, UsageEvent, SubAgentProgress, lookupModelMetadata } from '@/types'
 import { TOOL_ALLOWLIST_PREFIX } from '@shared/constants'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
@@ -514,6 +514,9 @@ interface ChatState {
   activeRuns: Record<string, { runId: string; sessionId: string }>
   /** Live tool-execution trace per session */
   agentTraces: Record<string, AgentTraceEntry[]>
+  /** Live sub-agent progress per run_subagent tool call (parent toolCallId →
+   *  progress). Pushed by subagentRunner, rendered by SubAgentProgressBlock. */
+  subagentProgress: Record<string, SubAgentProgress>
   /** Per-session batch-approval flag (true = remaining tools auto-approved) */
   batchApprovedBySession: Record<string, boolean>
   /** Per-project "always allow this tool" allowlist (projectPath → tool names) */
@@ -526,6 +529,9 @@ interface ChatState {
   setRunStatus: (runId: string, status: AgentRun['status'], patch?: Partial<AgentRun>) => void
   appendTrace: (sessionId: string, entry: AgentTraceEntry) => void
   setTraceStatus: (sessionId: string, toolCallId: string, status: AgentTraceEntry['status']) => void
+  /** Merge a partial update into a sub-agent's live progress record (keyed by
+   *  the parent run_subagent tool call id). Steps are capped to the newest 100. */
+  updateSubagentProgress: (toolCallId: string, patch: Partial<SubAgentProgress>) => void
   finishAgentRun: (sessionId: string, runId: string, status: AgentRun['status'], extra?: { error?: string; tokensIn?: number; tokensOut?: number; requestCount?: number; cacheHits?: number; cacheTokensSaved?: number; cacheReadTokens?: number; cacheWriteTokens?: number }) => void
   approveBatchRun: (sessionId: string) => void
   decideBatchApproval: (decision: 'confirm' | 'all' | 'reject') => void
@@ -902,6 +908,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   checkpoints: [],
   activeRuns: {},
   agentTraces: {},
+  subagentProgress: {},
   batchApprovedBySession: {},
   toolAllowlist: {},
   batchApproval: null,
@@ -1016,6 +1023,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
         [sessionId]: (s.agentTraces[sessionId] || []).map((t) => (t.toolCallId === toolCallId ? { ...t, status } : t)),
       },
     }))
+  },
+
+  updateSubagentProgress: (toolCallId, patch) => {
+    set((s) => {
+      const prev = s.subagentProgress[toolCallId]
+      const next: SubAgentProgress = prev
+        ? { ...prev, ...patch, steps: patch.steps ?? prev.steps }
+        : {
+            status: 'running',
+            sessionId: '',
+            name: '',
+            task: '',
+            startedAt: Date.now(),
+            thinking: '',
+            steps: [],
+            toolCallCount: 0,
+            tokenCount: 0,
+            ...patch,
+          }
+      // Keep the transient record bounded (newest 100 steps)
+      if (next.steps.length > 100) next.steps = next.steps.slice(-100)
+      return { subagentProgress: { ...s.subagentProgress, [toolCallId]: next } }
+    })
   },
 
   finishAgentRun: (sessionId, runId, status, extra) => {
@@ -1288,12 +1318,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   deleteSession: (sessionId) => {
     set((s) => {
       const newSessions = s.sessions.filter((sess) => sess.id !== sessionId)
+      // Drop transient sub-agent progress belonging to the deleted session
+      const subagentProgress = { ...s.subagentProgress }
+      for (const [id, p] of Object.entries(subagentProgress)) {
+        if (p.sessionId === sessionId) delete subagentProgress[id]
+      }
       return {
         sessions: newSessions,
         activeSessionId: s.activeSessionId === sessionId
           ? newSessions[0]?.id || null
           : s.activeSessionId,
         checkpoints: s.activeSessionId === sessionId ? [] : s.checkpoints,
+        subagentProgress,
       }
     })
     window.electronAPI.deleteSession(sessionId)
@@ -2034,6 +2070,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       undoStack: [],
       activeRuns: {},
       agentTraces: {},
+      subagentProgress: {},
       batchApprovedBySession: {},
       toolAllowlist: {},
       batchApproval: null,
@@ -2941,7 +2978,14 @@ async function runAgentLoop(
         // 模型在同一响应里发出的多个独立工具调用（如 git_status + git_diff +
         // 读多个文件）并行跑，避免逐个串行等待。检查点/审批仍在上方顺序进行，
         // 只有执行阶段并行。
-        const runContext = { sessionId, projectPath }
+        const runContext = {
+          sessionId,
+          projectPath,
+          // Let run_subagent route its live progress to the UI (keyed by the
+          // parent tool call id) and react to the user's Stop button.
+          toolCallId: tc.id,
+          abortSignal: abortController.signal,
+        }
         const runTool = (tc: ToolCall) => () => toolExecutor.execute(tc, runContext).catch((error: any) => ({
           toolCallId: tc.id,
           name: tc.name,

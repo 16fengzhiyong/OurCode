@@ -494,6 +494,12 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.agentExecutionFlow': 'Agent execution flow',
   'chat.totalSteps': '{count} steps total',
   'chat.subAgentRunning': 'Sub-agent running...',
+  // Sub-agent live progress panel (inline view of a run_subagent call)
+  'chat.subagentTitle': 'Sub-agent',
+  'chat.subagentThinking': 'Thinking',
+  'chat.subagentToolCalls': '{n} calls',
+  'chat.subagentTokens': '{n} tokens',
+  'chat.subagentWorking': 'Sub-agent working…',
   'chat.thinkingOutput': 'Thinking',
   // Context anchor / in-action feedback / tool stats (input + process block)
   'chat.contextLabel': 'Context',

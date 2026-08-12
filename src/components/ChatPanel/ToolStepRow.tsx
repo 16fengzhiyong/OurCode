@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useI18n } from '@/i18n/useI18n'
 import type { TranslationKey } from '@/i18n'
+import SubAgentProgressBlock from './SubAgentProgressBlock'
 
 export interface ToolStepRowProps {
   toolCall: { id: string; name: string; arguments: Record<string, any> }
@@ -172,6 +173,12 @@ export default function ToolStepRow({ toolCall, result, rejected, suspended = fa
             </>
           )}
         </div>
+      )}
+
+      {/* 子智能体（run_subagent）：胶囊下方内嵌实时执行进度面板 —— 思考、
+          内部工具调用与结果边执行边显示，不再等到最终报告才可见 */}
+      {toolCall.name === 'run_subagent' && (
+        <SubAgentProgressBlock toolCallId={toolCall.id} />
       )}
     </div>
   )

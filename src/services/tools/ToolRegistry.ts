@@ -302,6 +302,10 @@ export function createToolRegistry(): Tool[] {
           name: String(args.name || 'subagent'),
           task: String(args.prompt || ''),
           description: args.description ? String(args.description) : undefined,
+          // Route the sub-agent's live progress to the UI (SubAgentProgressBlock)
+          // and let the user's Stop button cancel the run.
+          toolCallId: context?.toolCallId,
+          abortSignal: context?.abortSignal,
         })
       },
       requiresApproval: true,
