@@ -8,8 +8,34 @@ import { OllamaAdapter } from './adapters/OllamaAdapter'
 import { DeepSeekAdapter } from './adapters/DeepSeekAdapter'
 import { GroqAdapter } from './adapters/GroqAdapter'
 import { buildCacheKey, fetchCachedResponse, shouldCache, storeCachedResponse, CachedResponse } from './responseCache'
+import { classifyLLMError } from './classify'
 
 const REQUEST_TIMEOUT_MS = 600_000 // 10 min idle (no-data) timeout for LLM streams
+
+// ── Retry configuration (wired from chatStore, defaults = on, 2 retries). ────
+// Retries happen ONLY before the stream has produced anything — once a chunk
+// has been yielded, retrying would replay partial output. Only transient
+// failures (timeout / network / rate-limit / 5xx) are retried; auth errors,
+// bad requests and context-overflow rejections surface immediately.
+
+interface LLMRetryConfig {
+  enabled?: () => boolean
+  maxRetries?: () => number
+  /** Backoff for attempt N (ms). Injectable for tests; default = exponential. */
+  delay?: (attempt: number) => number
+}
+
+let retryEnabled: () => boolean = () => true
+let retryMaxRetries: () => number = () => 2
+let retryDelay: (attempt: number) => number = (attempt) =>
+  Math.min(10_000, 1_000 * 2 ** attempt) * (1 + (Math.random() - 0.5) * 0.25)
+
+/** Wire retry toggles (lazily evaluated per request). */
+export function configureLLMRetry(config: LLMRetryConfig): void {
+  if (config.enabled) retryEnabled = config.enabled
+  if (config.maxRetries) retryMaxRetries = config.maxRetries
+  if (config.delay) retryDelay = config.delay
+}
 
 const openaiAdapter = new OpenAIAdapter()
 
@@ -106,53 +132,73 @@ export async function* sendLLMRequest(
       }
     : req
 
-  const controller = new AbortController()
-  // IDLE timeout, not a wall-clock deadline: long reasoning streams (DeepSeek
-  // reasoner etc.) legitimately run past 120s as long as chunks keep arriving.
-  // The timer is re-armed on every chunk, so only a connection that goes silent
-  // for `timeoutMs` gets aborted.
-  let timer = setTimeout(() => controller.abort(), timeoutMs)
-  const armTimeout = () => {
-    clearTimeout(timer)
-    timer = setTimeout(() => controller.abort(), timeoutMs)
-  }
-
   const chunks: LLMStreamChunk[] = []
   let completed = false
   let tokensIn = 0
   let tokensOut = 0
 
-  try {
-    for await (const chunk of adapter.sendRequest(reqWithCache, safeConfig, controller.signal)) {
-      armTimeout() // any data (or the final [DONE] chunk) extends the deadline
-      if (chunk.usage) {
-        tokensIn = chunk.usage.promptTokens || 0
-        tokensOut = chunk.usage.completionTokens || 0
+  const maxRetries = retryEnabled() ? Math.max(0, retryMaxRetries()) : 0
+
+  for (let attempt = 0; ; attempt++) {
+    // A FRESH controller per attempt — the finally below aborts unconditionally,
+    // and an aborted signal can't be reused for the retry.
+    const controller = new AbortController()
+    // IDLE timeout, not a wall-clock deadline: long reasoning streams (DeepSeek
+    // reasoner etc.) legitimately run past 120s as long as chunks keep arriving.
+    // The timer is re-armed on every chunk, so only a connection that goes
+    // silent for `timeoutMs` gets aborted.
+    let timer = setTimeout(() => controller.abort(), timeoutMs)
+    const armTimeout = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => controller.abort(), timeoutMs)
+    }
+    const clearTimer = () => clearTimeout(timer)
+
+    try {
+      for await (const chunk of adapter.sendRequest(reqWithCache, safeConfig, controller.signal)) {
+        armTimeout() // any data (or the final [DONE] chunk) extends the deadline
+        if (chunk.usage) {
+          tokensIn = chunk.usage.promptTokens || 0
+          tokensOut = chunk.usage.completionTokens || 0
+        }
+        chunks.push(chunk)
+        yield chunk
+        // Reached the natural end of the response — safe to cache below.
+        if (chunk.done) {
+          completed = true
+          break
+        }
       }
-      chunks.push(chunk)
-      yield chunk
-      // Reached the natural end of the response — safe to cache below.
-      if (chunk.done) {
-        completed = true
-        break
+      break // request finished (naturally or via the done chunk)
+    } catch (error: any) {
+      const err = (error.name === 'AbortError' || controller.signal.aborted)
+        ? new Error('请求超时，请稍后重试')
+        : error
+      // Auto-retry transient failures ONLY before the stream produced anything
+      // (chunks.length === 0). Once output has started, retrying would replay
+      // partial content — surface the error instead. Context-overflow is never
+      // retried: the fix is compaction, not a duplicate request.
+      const info = classifyLLMError(err)
+      if (chunks.length === 0 && attempt < maxRetries && info.retryable) {
+        clearTimer()
+        await new Promise((resolve) => setTimeout(resolve, retryDelay(attempt)))
+        continue
       }
+      throw err
+    } finally {
+      clearTimer()
+      // Abort the underlying HTTP request unconditionally. A consumer that
+      // stops early (stop generation / abort) breaks out of the for-await —
+      // without this the main-process fetch keeps downloading the rest of the
+      // body and the renderer keeps buffering chunks until the idle timeout
+      // fires. (Also aborts the in-flight attempt when a retry was skipped.)
+      controller.abort()
     }
-  } catch (error: any) {
-    if (error.name === 'AbortError' || controller.signal.aborted) {
-      throw new Error('请求超时，请稍后重试')
-    }
-    throw error
-  } finally {
-    clearTimeout(timer)
-    // Abort the underlying HTTP request unconditionally. A consumer that stops
-    // early (stop generation / abort) breaks out of the for-await — without
-    // this the main-process fetch keeps downloading the rest of the body and
-    // the renderer keeps buffering chunks until the idle timeout fires.
-    controller.abort()
-    // Persist only on a completed (non-aborted, non-failed) response.
-    if (cacheKey && completed) {
-      void storeCachedResponse(cacheKey, config.provider, req.model, chunks, tokensIn, tokensOut)
-    }
+  }
+
+  // Persist only on a completed (non-aborted, non-failed) response.
+  if (cacheKey && completed) {
+    void storeCachedResponse(cacheKey, config.provider, req.model, chunks, tokensIn, tokensOut)
   }
 }
 

@@ -6,11 +6,19 @@ import { Tool, ToolCall, ToolResult, ToolDefinition } from './types'
 import { createToolRegistry, toToolDefinitions } from './ToolRegistry'
 import { toSkillToolDefinitions, loadSkillContent, getWorkspaceRoot } from '@/services/skills/skillManager'
 import type { UsageEvent, UsageEventCategory } from '@/types'
+import { truncateToolOutput, ToolOutputLimits } from './truncate'
 
 /** Execution context for one tool call (falls back to the shared session context) */
 export interface ToolExecuteContext {
   sessionId?: string
   projectPath?: string
+}
+
+// Tool-output truncation limits (wired from chatStore so every executor
+// instance — main loop + subagents — shares the user's preferences).
+let toolOutputLimits: () => ToolOutputLimits = () => ({})
+export function configureToolOutput(limits: () => ToolOutputLimits): void {
+  toolOutputLimits = limits
 }
 
 /** File-write tools gated by the read-before-write guard below. */
@@ -147,6 +155,14 @@ export class ToolExecutor {
     return tool?.requiresApproval ?? false
   }
 
+  /** Single exit funnel for every tool result: caps pathologically large outputs
+   *  (MCP results / run_command output / skill content — the paths with no
+   *  upper bound of their own) at the configured limits. Built-in tools self-cap
+   *  below the defaults, so existing behavior is untouched. */
+  private capResult(result: string): string {
+    return truncateToolOutput(result, toolOutputLimits())
+  }
+
   /** Persist one usage event (skills / subagents / MCP) into the dashboard */
   private recordUsage(
     category: UsageEventCategory,
@@ -187,13 +203,13 @@ export class ToolExecutor {
         const content = await loadSkillContent(skillName, ctx.projectPath || getWorkspaceRoot())
         if (content == null) {
           this.recordUsage('skill', skillName, startedAt, { ok: false, error: '技能不存在', context: ctx })
-          return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: 技能 "${skillName}" 不存在`, isError: true }
+          return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(`Error: 技能 "${skillName}" 不存在`), isError: true }
         }
         this.recordUsage('skill', skillName, startedAt, { ok: true, context: ctx })
-        return { toolCallId: toolCall.id, name: toolCall.name, result: content }
+        return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(content) }
       } catch (error: any) {
         this.recordUsage('skill', skillName, startedAt, { ok: false, error: error.message, context: ctx })
-        return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: ${error.message}`, isError: true }
+        return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(`Error: ${error.message}`), isError: true }
       }
     }
 
@@ -202,7 +218,7 @@ export class ToolExecutor {
       const rest = toolCall.name.slice('mcp__'.length)
       const sep = rest.indexOf('__')
       if (sep === -1) {
-        return { toolCallId: toolCall.id, name: toolCall.name, result: 'Error: malformed MCP tool name', isError: true }
+        return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult('Error: malformed MCP tool name'), isError: true }
       }
       const server = rest.slice(0, sep)
       const toolName = rest.slice(sep + 2)
@@ -211,13 +227,13 @@ export class ToolExecutor {
         const res = await window.electronAPI.mcpCallTool(server, toolName, toolCall.arguments || {})
         if (res.ok) {
           this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: true, context: ctx })
-          return { toolCallId: toolCall.id, name: toolCall.name, result: res.result || '(空结果)' }
+          return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(res.result || '(空结果)') }
         }
         this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: false, error: res.error, context: ctx })
-        return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: ${res.error}`, isError: true }
+        return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(`Error: ${res.error}`), isError: true }
       } catch (error: any) {
         this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: false, error: error.message, context: ctx })
-        return { toolCallId: toolCall.id, name: toolCall.name, result: `Error: ${error.message}`, isError: true }
+        return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(`Error: ${error.message}`), isError: true }
       }
     }
 
@@ -226,7 +242,7 @@ export class ToolExecutor {
       return {
         toolCallId: toolCall.id,
         name: toolCall.name,
-        result: `Error: Unknown tool "${toolCall.name}"`,
+        result: this.capResult(`Error: Unknown tool "${toolCall.name}"`),
         isError: true,
       }
     }
@@ -243,7 +259,7 @@ export class ToolExecutor {
         return {
           toolCallId: toolCall.id,
           name: toolCall.name,
-          result: `Error: File has not been read yet. Read it first before writing to it.（文件尚未读取，请先调用 read_file 读取后再写入）: ${targetPath}`,
+          result: this.capResult(`Error: File has not been read yet. Read it first before writing to it.（文件尚未读取，请先调用 read_file 读取后再写入）: ${targetPath}`),
           isError: true,
         }
       }
@@ -262,13 +278,13 @@ export class ToolExecutor {
       return {
         toolCallId: toolCall.id,
         name: toolCall.name,
-        result,
+        result: this.capResult(result),
       }
     } catch (error: any) {
       return {
         toolCallId: toolCall.id,
         name: toolCall.name,
-        result: `Error executing ${toolCall.name}: ${error.message}`,
+        result: this.capResult(`Error executing ${toolCall.name}: ${error.message}`),
         isError: true,
       }
     }

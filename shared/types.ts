@@ -87,6 +87,12 @@ export interface ChatSession {
   /** session.messages.length when lastContextTokens was recorded — messages
    *  added after that point are the only part that needs rough estimation. */
   lastContextMessageCount?: number
+  /** 上下文压缩摘要（最早由 contextCompaction 生成）。原始消息永不删除——
+   *  摘要只在请求构建时替换边界前的历史（请求视角），会话历史保持完整。 */
+  summary?: string
+  /** 摘要覆盖的 session.messages 条数：边界前的消息在请求中被摘要替代。
+   *  越界时自动 clamp（用户可能编辑/删除了历史）。 */
+  summaryMessageCount?: number
 }
 
 // Agent todo list item (managed via the manage_todo tool)
@@ -322,6 +328,24 @@ export interface UserPreferences {
   /** Agent 工具调用循环的轮数上限；0 或缺失 = 无限。只作为防死循环安全阀，
    *  默认不限制。 */
   agentMaxIterations?: number
+  /** 自动重试瞬时性 LLM 失败（超时/网络/限流/5xx）。只在流尚未产出任何
+   *  内容时重试；鉴权错误、参数错误、上下文溢出一律不重试。 */
+  llmRetryEnabled?: boolean
+  /** 每次请求失败后的自动重试次数上限（0 = 关闭重试）。 */
+  llmRetryMaxRetries?: number
+  /** 工具输出统一截断：工具结果（MCP / run_command / 技能等）超过该字符数
+   *  时保留头部+尾部并提示分页读取。默认高于内置工具自身的上限，只兜住
+   *  无上限的输出路径。 */
+  toolOutputMaxChars?: number
+  /** 工具输出统一截断：同时按行数上限截断。 */
+  toolOutputMaxLines?: number
+  /** 上下文压缩：当估算上下文超过模型窗口的阈值时，把较早的历史压缩为
+   *  摘要（仅请求视角替换，原始消息永不删除）。 */
+  contextCompaction?: boolean
+  /** 压缩触发阈值（占模型上下文窗口的比例，0.7 = 70%）。 */
+  contextCompactionRatio?: number
+  /** 压缩摘要使用的模型 ID；留空则跟随会话模型。 */
+  contextCompactionModel?: string
 }
 
 // Model Info

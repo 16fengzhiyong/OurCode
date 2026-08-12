@@ -1,0 +1,66 @@
+/**
+ * Unified tool-output truncation — a safety net for tool results that have no
+ * upper bound of their own (MCP results, run_command output, skill content).
+ *
+ * Built-in tools already self-cap BELOW these defaults (read_file 2000 lines /
+ * 50KB, git_diff 120KB, readUrl 8KB), so the defaults change nothing for
+ * existing paths — only the currently unbounded ones get capped. When capped,
+ * the result keeps a head + tail preview and points the model at read_file's
+ * startLine/endLine paging so it can fetch the middle on demand.
+ */
+
+export interface ToolOutputLimits {
+  maxChars?: number
+  maxLines?: number
+}
+
+// Must stay above the highest built-in tool cap (git_diff 120KB) so the
+// default is a pure safety net and never alters existing tool behavior.
+export const DEFAULT_TOOL_OUTPUT_MAX_CHARS = 150_000
+export const DEFAULT_TOOL_OUTPUT_MAX_LINES = 3000
+
+/** Fraction of the budget given to the head preview (the rest goes to the tail). */
+const HEAD_FRACTION = 0.6
+
+export function truncateToolOutput(text: string, limits?: ToolOutputLimits): string {
+  const maxChars = limits?.maxChars ?? DEFAULT_TOOL_OUTPUT_MAX_CHARS
+  const maxLines = limits?.maxLines ?? DEFAULT_TOOL_OUTPUT_MAX_LINES
+
+  if (text.length > maxChars) {
+    const headChars = Math.floor(maxChars * HEAD_FRACTION)
+    const tailChars = maxChars - headChars
+    const head = text.slice(0, headChars)
+    const tail = text.slice(text.length - tailChars)
+    const lines = countLines(text)
+    return `${head}\n${buildNotice(text.length, lines)}\n${tail}`
+  }
+
+  // Line check only when the text is big enough to plausibly exceed it
+  // (N lines need ≥ N chars, so a short text can't be over the line cap).
+  if (maxLines > 0 && text.length >= maxLines) {
+    const lines = countLines(text)
+    if (lines > maxLines) {
+      const headLines = Math.max(1, Math.floor(maxLines * HEAD_FRACTION))
+      const tailLines = maxLines - headLines
+      const split = text.split('\n')
+      const head = split.slice(0, headLines).join('\n')
+      const tail = split.slice(split.length - tailLines).join('\n')
+      return `${head}\n${buildNotice(text.length, lines)}\n${tail}`
+    }
+  }
+
+  return text
+}
+
+function countLines(text: string): number {
+  // '\n' count + 1 — cheap enough at the sizes we care about.
+  let count = 1
+  for (let i = 0; i < text.length; i++) {
+    if (text.charCodeAt(i) === 10 /* \n */) count++
+  }
+  return count
+}
+
+function buildNotice(chars: number, lines: number): string {
+  return `[…输出过长（共 ${chars} 字符 / ${lines} 行），已省略中间部分。需要完整内容可调用 read_file（startLine/endLine 分页读取）或 grep 定向检索。]`
+}

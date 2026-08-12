@@ -383,6 +383,26 @@ describe('chatStore estimateContextTokens', () => {
     }
     expect(estimateContextTokens(session)).toBe(estimateSessionHistoryTokens(session.messages))
   })
+
+  it('counts the compaction-aware request view when a summary exists (no baseline)', () => {
+    const summarizedHistory = [
+      { role: 'user' as const, content: 'x'.repeat(5000) },
+      { role: 'assistant' as const, content: 'y'.repeat(5000) },
+    ]
+    const session = {
+      summary: '## 目标\n完成功能',
+      summaryMessageCount: summarizedHistory.length,
+      messages: [
+        ...summarizedHistory,
+        { role: 'user' as const, content: '继续' },
+      ],
+    }
+    const total = estimateContextTokens(session)
+    // Only the summary (~20 tokens) + the 1 un-summarized message — the
+    // 10k chars of summarized history must NOT be counted.
+    expect(total).toBeLessThan(100)
+    expect(total).toBeGreaterThan(10)
+  })
 })
 
 describe('chatStore sanitizeToolPairing', () => {

@@ -121,6 +121,15 @@ export class SQLiteStore {
     if (!sessColumns.some((c: any) => c.name === 'project_path')) {
       this.db.exec("ALTER TABLE chat_sessions ADD COLUMN project_path TEXT DEFAULT ''")
     }
+    // Add context-compaction columns to chat_sessions if missing (LLM summary
+    // of the pre-boundary history — a request-time view; original messages are
+    // never deleted)
+    if (!sessColumns.some((c: any) => c.name === 'summary')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN summary TEXT DEFAULT ''")
+    }
+    if (!sessColumns.some((c: any) => c.name === 'summary_message_count')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN summary_message_count INTEGER DEFAULT 0")
+    }
     // Add project_path column to memories if missing (project-scoped memories)
     const memColumns = this.db.prepare("PRAGMA table_info(memories)").all() as any[]
     if (!memColumns.some((c: any) => c.name === 'project_path')) {
@@ -410,6 +419,8 @@ export class SQLiteStore {
         agentRuns: parseJsonField<AgentRun[]>(session.agent_runs, []).length
           ? parseJsonField<AgentRun[]>(session.agent_runs, [])
           : undefined,
+        summary: session.summary || undefined,
+        summaryMessageCount: session.summary_message_count || undefined,
       }
     })
   }
@@ -425,7 +436,8 @@ export class SQLiteStore {
         UPDATE chat_sessions
         SET title = ?, config_group_id = ?, model = ?, model_params = ?, updated_at = ?,
             active_branch_id = ?, branches = ?, pinned_at = ?, archived_at = ?,
-            agent_mode = ?, todos = ?, plan_content = ?, plan_status = ?, agent_runs = ?, project_path = ?
+            agent_mode = ?, todos = ?, plan_content = ?, plan_status = ?, agent_runs = ?, project_path = ?,
+            summary = ?, summary_message_count = ?
         WHERE id = ?
       `).run(
         session.title,
@@ -443,13 +455,16 @@ export class SQLiteStore {
         (session as any).planStatus || 'none',
         JSON.stringify((session as any).agentRuns || []),
         (session as any).projectPath || '',
+        (session as any).summary || '',
+        (session as any).summaryMessageCount || 0,
         id
       )
     } else {
       this.db.prepare(`
         INSERT INTO chat_sessions (id, title, config_group_id, model, model_params, created_at, updated_at,
-          active_branch_id, branches, pinned_at, archived_at, agent_mode, todos, plan_content, plan_status, agent_runs, project_path)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          active_branch_id, branches, pinned_at, archived_at, agent_mode, todos, plan_content, plan_status, agent_runs, project_path,
+          summary, summary_message_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         session.title,
@@ -467,7 +482,9 @@ export class SQLiteStore {
         (session as any).planContent || '',
         (session as any).planStatus || 'none',
         JSON.stringify((session as any).agentRuns || []),
-        (session as any).projectPath || ''
+        (session as any).projectPath || '',
+        (session as any).summary || '',
+        (session as any).summaryMessageCount || 0
       )
     }
 

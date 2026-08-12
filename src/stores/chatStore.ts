@@ -10,10 +10,12 @@ import { TARGET_MODE_INSTRUCTION } from './targetModeInstruction'
 import { ensureInitialized, readStatus, readStatusText, parseStatus, TargetModeStatus } from '@/services/targetMode/targetModeService'
 import { t } from '@/i18n'
 import { getFileContent } from '@/editor/modelRegistry'
-import { sendLLMRequest, configureLLMCache } from '@/services/llm/LLMClient'
+import { sendLLMRequest, configureLLMCache, configureLLMRetry } from '@/services/llm/LLMClient'
 import { parseLLMError } from '@/services/llm/errors'
+import { classifyLLMError } from '@/services/llm/classify'
+import { maybeCompact, runSummarizer, buildSummaryBlock, DEFAULT_COMPACTION_RATIO } from '@/services/llm/compaction'
 import { djb2Hash, toolSignature, rememberRequestSignature, getPreviousSignature, analyzeCacheBreak, recordCacheRead, hasSeenCacheRead } from '@/services/llm/cacheDiagnostics'
-import { ToolExecutor } from '@/services/tools'
+import { ToolExecutor, configureToolOutput } from '@/services/tools'
 import { ToolCall, ToolResult } from '@/services/tools/types'
 import { runWithConcurrency } from '@/services/subagents/parallel'
 import {
@@ -34,6 +36,18 @@ configureLLMCache({
   anthropicPromptCacheEnabled: () => useEditorStore.getState().preferences.anthropicPromptCache,
   anthropicPromptCache1hEnabled: () => !!useEditorStore.getState().preferences.anthropicPromptCache1h,
 })
+// Retry transient LLM failures (timeout / network / rate-limit / 5xx) before
+// any stream output — same lazy-per-request wiring as the cache toggles.
+configureLLMRetry({
+  enabled: () => useEditorStore.getState().preferences.llmRetryEnabled !== false,
+  maxRetries: () => useEditorStore.getState().preferences.llmRetryMaxRetries ?? 2,
+})
+// Tool-output truncation limits — every ToolExecutor instance (main agent loop
+// + subagents) shares the user's configured caps.
+configureToolOutput(() => ({
+  maxChars: useEditorStore.getState().preferences.toolOutputMaxChars,
+  maxLines: useEditorStore.getState().preferences.toolOutputMaxLines,
+}))
 
 // Cached git info (refreshed via refreshGitBranch)
 let _cachedGitBranch = ''
@@ -680,12 +694,18 @@ export function estimateSessionHistoryTokens(messages: Array<{ role: string; con
 export function estimateContextTokens(session: {
   lastContextTokens?: number
   lastContextMessageCount?: number
+  summary?: string
+  summaryMessageCount?: number
   messages: Array<{ role: string; content: string }>
 }): number {
   const baseCount = session.lastContextMessageCount ?? 0
   const baseline = session.lastContextTokens
   if (baseline == null || baseline <= 0 || baseCount <= 0) {
-    return estimateSessionHistoryTokens(session.messages)
+    // Compaction-aware fallback: the request view is [summary + messages after
+    // the compaction boundary], not the raw full history — count exactly that.
+    const summarized = Math.min(session.summaryMessageCount ?? 0, session.messages.length)
+    const anchor = session.summary ? estimateTokens(buildSummaryBlock(session.summary)) : 0
+    return anchor + estimateSessionHistoryTokens(session.messages.slice(summarized))
   }
   // History edits (opt-in) may have deleted messages below the baseline count —
   // clamp so the delta can't go negative; the baseline then slightly
@@ -2210,10 +2230,18 @@ async function runAgentLoop(
     stableSystemPrompt += '\n\n' + opts.extraSystemText
   }
 
-  // Build messages from full history (system + all session messages)
+  const model = session.model || configGroup.defaultModel
+
+  // Build messages from full history (system + all session messages). When a
+  // compaction summary exists, the pre-boundary history is replaced by it in
+  // this REQUEST view — the original messages stay in storage untouched.
+  const summarized = session.summary && session.summaryMessageCount
+    ? Math.min(session.summaryMessageCount, session.messages.length)
+    : 0
   let messages: RequestMessage[] = [
     { role: 'system', content: stableSystemPrompt },
-    ...session.messages.map((m) => ({
+    ...(summarized > 0 ? [{ role: 'system' as const, content: buildSummaryBlock(session.summary!) }] : []),
+    ...session.messages.slice(summarized).map((m) => ({
       role: m.role as 'system' | 'user' | 'assistant' | 'tool',
       content: m.content,
       toolCalls: toRawToolCalls(m.toolCalls),
@@ -2237,9 +2265,83 @@ async function runAgentLoop(
     }
   }
 
-  // Context-window management: trim the oldest history when the estimate
-  // exceeds the model's budget (keeps the current user turn + a notice).
-  messages = trimHistoryForContext(messages, session.model || configGroup.defaultModel)
+  // Context compaction — trigger fires ONLY when the estimate confirms the
+  // history exceeds the model's budget (same 80% headroom the trim uses), or
+  // when the provider reported a context-overflow error (force, in the catch
+  // below). Original messages are never deleted — the summary replaces history
+  // only in this request view. Falls back to the lossy trim when compaction is
+  // disabled or the summarizer fails.
+  const projectPath = session.projectPath || getWorkspaceRoot()
+  const compactionPrefs = useEditorStore.getState().preferences
+  const compactionEnabled = compactionPrefs.contextCompaction !== false
+  // The model actually used for summaries (may be a cheaper override) — used
+  // both for the call and for the usage attribution.
+  const summarizeModel = (compactionPrefs.contextCompactionModel || model).trim() || model
+  const summarizeHistory = async ({ anchor, history }: { anchor: string; history: string }) => {
+    const startedAt = Date.now()
+    try {
+      let tokensIn = 0
+      let tokensOut = 0
+      const summary = await runSummarizer({
+        model: summarizeModel,
+        anchor,
+        history,
+        configGroup,
+        signal: abortController.signal,
+        onUsage: (u) => {
+          tokensIn = u.tokensIn
+          tokensOut = u.tokensOut
+        },
+      })
+      // Compaction is a real LLM call — bill it to the session like any other.
+      usageEvents.push(makeLlmUsageEvent({
+        sessionId, projectPath, model: summarizeModel, provider: configGroup.provider,
+        startedAt, durationMs: Date.now() - startedAt, ok: true, tokensIn, tokensOut,
+      }))
+      return summary
+    } catch (error: any) {
+      usageEvents.push(makeLlmUsageEvent({
+        sessionId, projectPath, model: summarizeModel, provider: configGroup.provider,
+        startedAt, ok: false, error: error?.message,
+      }))
+      throw error
+    }
+  }
+  const applyCompaction = async (force: boolean): Promise<boolean> => {
+    const compacted = await maybeCompact({
+      session,
+      messages,
+      force,
+      signal: abortController.signal,
+      contextWindow: lookupModelMetadata(model)?.contextWindow,
+      ratio: compactionPrefs.contextCompactionRatio ?? DEFAULT_COMPACTION_RATIO,
+      compactionEnabled,
+      estimateTokens,
+      summarize: summarizeHistory,
+    })
+    if (!compacted) return false
+    messages = compacted.messages
+    // Keep the LOCAL session reference in sync too — the setState below
+    // REPLACES the store object, so without this a second compaction in the
+    // same run (context-overflow fallback) would read a stale `session` whose
+    // summary is missing, losing the first summary entirely (it is also
+    // filtered out of the history by isSummaryMessage).
+    session.summary = compacted.summary
+    session.summaryMessageCount = compacted.boundaryCount
+    // Persist the summary metadata — the finally's saveSession reads the store
+    // fresh, so a plain setState is enough for durable storage.
+    useChatStore.setState((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === sessionId ? { ...sess, summary: compacted.summary, summaryMessageCount: compacted.boundaryCount } : sess
+      ),
+    }))
+    return true
+  }
+  if (!(await applyCompaction(false))) {
+    // Context-window management: trim the oldest history when the estimate
+    // exceeds the model's budget (keeps the current user turn + a notice).
+    messages = trimHistoryForContext(messages, model)
+  }
 
   // Tool-call pairing: a rebuild (or the trim above) can leave an assistant
   // tool_calls message without its tool responses — strip the unpaired side so
@@ -2249,7 +2351,6 @@ async function runAgentLoop(
 
   // Agent mode: start (or resume) the run record + live trace. Also load the
   // persisted per-project "always allow" list for the approval checks below.
-  const projectPath = session.projectPath || getWorkspaceRoot()
   // Attribute tool usage (MCP / skills / subagents) to this session
   toolExecutor.setSessionContext(sessionId, projectPath)
   if (agentMode === 'agent') {
@@ -2297,7 +2398,6 @@ async function runAgentLoop(
     return needs
   }
 
-  const model = session.model || configGroup.defaultModel
   // Agent 工具调用轮数上限（设置里可配，默认 0 = 无限）。主流工具
   // （Cursor/Windsurf/Claude Code）不设常态上限——20 轮对多文件任务
   // （读文件→改文件→跑测试）经常不够，触发后还得手动点「继续」，既打断流程
@@ -2312,6 +2412,9 @@ async function runAgentLoop(
   // 防空转提问每个 run 只弹一次——用户若坚持「保持计划模式」，不再每 5 轮
   // 重复打扰（避免消息里塞满「用户回答」噪音）
   let flailAsked = false
+  // Context-overflow fallback: the provider rejected a request because the
+  // history outgrew the model — compact and retry once per run (never loop).
+  let overflowCompactionAttempted = false
 
   while (iterationsLeft-- > 0) {
       if (abortController.signal.aborted) break
@@ -2427,6 +2530,15 @@ async function runAgentLoop(
           sessionId, projectPath, model, provider: configGroup.provider,
           startedAt: reqStartedAt, ok: false, error: requestError.message,
         }))
+        // Context overflow: the provider rejected the request because the
+        // history outgrew the model window. Compact and retry once — with the
+        // history shrunk to a summary the next iteration sends a valid request.
+        // Never retried as-is (would fail identically); never loops (once per run).
+        const info = classifyLLMError(requestError)
+        if (info.contextOverflow && compactionEnabled && !overflowCompactionAttempted) {
+          overflowCompactionAttempted = true
+          if (await applyCompaction(true)) continue
+        }
         throw requestError
       }
 

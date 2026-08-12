@@ -1,3 +1,5 @@
-export { ToolExecutor } from './ToolExecutor'
+export { ToolExecutor, configureToolOutput } from './ToolExecutor'
+export { truncateToolOutput, DEFAULT_TOOL_OUTPUT_MAX_CHARS, DEFAULT_TOOL_OUTPUT_MAX_LINES } from './truncate'
+export type { ToolOutputLimits } from './truncate'
 export { createToolRegistry, toToolDefinitions } from './ToolRegistry'
 export type { Tool, ToolCall, ToolResult, ToolDefinition, LLMToolCall } from './types'

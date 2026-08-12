@@ -812,6 +812,46 @@ export default function SettingsModal() {
                     <option value={500}>500 轮</option>
                   </select>
                 } />
+                <SettingRow label="LLM 请求自动重试" desc="流式响应未产出任何内容前，自动重试瞬时性失败（超时 / 网络 / 限流 / 5xx）；鉴权错误、参数错误、上下文溢出一律不重试" right={
+                  <ToggleButton on={preferences.llmRetryEnabled !== false} onClick={() => savePreferences({ llmRetryEnabled: preferences.llmRetryEnabled === false })} />
+                } />
+                <SettingRow label="重试次数上限" desc="每次请求失败后最多自动重试的次数（指数退避，单次最长约 10 秒等待）" right={
+                  <select value={preferences.llmRetryMaxRetries ?? 2} onChange={(e) => savePreferences({ llmRetryMaxRetries: Number(e.target.value) })}
+                    className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none w-[160px]">
+                    <option value={0}>0 次（关闭重试）</option>
+                    <option value={1}>1 次</option>
+                    <option value={2}>2 次（默认）</option>
+                    <option value={3}>3 次</option>
+                  </select>
+                } />
+                <SettingRow label="工具输出截断上限" desc="MCP / 命令输出等无上限的工具结果超过该字符数时保留首尾并提示分页读取；内置工具自身上限更低，默认不影响现有行为" right={
+                  <select value={preferences.toolOutputMaxChars ?? 150000} onChange={(e) => savePreferences({ toolOutputMaxChars: Number(e.target.value) })}
+                    className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none w-[160px]">
+                    <option value={50000}>50K 字符</option>
+                    <option value={100000}>100K 字符</option>
+                    <option value={150000}>150K 字符（默认）</option>
+                    <option value={200000}>200K 字符</option>
+                    <option value={500000}>500K 字符</option>
+                  </select>
+                } />
+                <SettingRow label="上下文压缩" desc="估算上下文超过模型窗口阈值时，把较早的历史压缩为摘要（仅请求视角替换，原始消息永不删除）；关掉则退回旧的有损裁剪" right={
+                  <ToggleButton on={preferences.contextCompaction !== false} onClick={() => savePreferences({ contextCompaction: preferences.contextCompaction === false })} />
+                } />
+                <SettingRow label="压缩触发阈值" desc="估算上下文占模型窗口的比例，超过即压缩（与裁剪预留相同的水位；宁可提前一点，不要等到真溢出）" right={
+                  <select value={preferences.contextCompactionRatio ?? 0.8} onChange={(e) => savePreferences({ contextCompactionRatio: Number(e.target.value) })}
+                    className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none w-[160px]">
+                    <option value={0.7}>70%</option>
+                    <option value={0.8}>80%（默认）</option>
+                    <option value={0.9}>90%</option>
+                  </select>
+                } />
+                <SettingRow label="压缩使用模型" desc="生成压缩摘要的模型；「跟随会话」用当前会话模型，可单独指定更便宜的模型来省 token" right={
+                  <select value={preferences.contextCompactionModel ?? ''} onChange={(e) => savePreferences({ contextCompactionModel: e.target.value || undefined })}
+                    className="px-3 py-1.5 bg-nova-input-bg border border-nova-border rounded-md text-sm text-nova-text-primary outline-none w-[160px]">
+                    <option value="">跟随会话模型（默认）</option>
+                    {models.map((m) => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}
+                  </select>
+                } />
               </div>
 
               <div className="flex flex-col gap-3">
