@@ -395,6 +395,16 @@ const CHECKPOINT_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'cre
 // 防止死循环的安全阀（100 轮 ≈ 实际用不完），不再作为常态限制。
 const MAX_AGENT_ITERATIONS = 100
 
+// 计划模式防空转 — 计划模式只暴露只读工具；当用户请求明显需要写操作/命令
+// （提交/推送/安装/执行…）而 agent 连续多轮纯只读探索（读文件/搜索）且不提交
+// 计划时，强制弹一次提问让用户决定，而不是把轮次和 token 烧在空转上
+// （参见那次「提交一下项目」会话：20 轮 / 38 次只读调用 / 1.1M token 没提交成）。
+const PLAN_MODE_FLAIL_ROUNDS = 5
+const FLAIL_READ_TOOLS = new Set([
+  'read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files', 'web_search', 'read_url',
+])
+const WRITE_INTENT_RE = /(git|commit|push|pull|merge|stash|install|run|build|deploy|create|delete|write|edit|remove|提交|推送|拉取|合并|暂存|执行|运行|安装|删除|新建|创建|写入|修改|改动|发布|部署|打包|构建|启动)/i
+
 // Max concurrent run_subagent executions within one tool-call batch
 const MAX_PARALLEL_SUBAGENTS = 3
 
@@ -2124,20 +2134,6 @@ async function runAgentLoop(
   // tool messages following tool_calls message").
   messages = sanitizeToolPairing(messages)
 
-  // Agent mode with the default 'plan' edit mode exposes only read-only +
-  // agent-control tools until a plan is approved (the planning phase is
-  // read-only by design). Other edit modes expose all tools but vary approval.
-  // Target mode always needs the full tool set (it writes its own workflow docs).
-  const projectEditMode = session.projectEditMode || 'plan'
-  const usePlanTools = agentMode === 'agent' && projectEditMode === 'plan' && !opts?.planApproved && !targetMode
-  let toolDefinitions = usePlanTools
-    ? toolExecutor.getToolDefinitions((name) => PLAN_TOOLS.has(name))
-    : toolExecutor.getToolDefinitions()
-  // The auto-memory tool is opt-in — hide it when the user disabled it in Settings
-  if (!useEditorStore.getState().preferences.aiAutoMemory) {
-    toolDefinitions = toolDefinitions.filter((d) => d.function.name !== 'remember')
-  }
-
   // Agent mode: start (or resume) the run record + live trace. Also load the
   // persisted per-project "always allow" list for the approval checks below.
   const projectPath = session.projectPath || getWorkspaceRoot()
@@ -2177,8 +2173,11 @@ async function runAgentLoop(
   const needsApproval = (name: string): boolean => {
     let needs = toolExecutor.requiresApproval(name)
     if (agentMode === 'agent') {
-      if (projectEditMode === 'full_access') needs = false
-      else if (projectEditMode === 'auto_edit' && FILE_EDIT_TOOLS.has(name)) needs = false
+      // Read the CURRENT edit mode live — the anti-flail question can switch
+      // it mid-run, and approval rules must follow.
+      const mode = useChatStore.getState().sessions.find((s) => s.id === sessionId)?.projectEditMode || 'plan'
+      if (mode === 'full_access') needs = false
+      else if (mode === 'auto_edit' && FILE_EDIT_TOOLS.has(name)) needs = false
     }
     if (needs && useChatStore.getState().batchApprovedBySession[sessionId]) needs = false
     if (needs && (useChatStore.getState().toolAllowlist[projectPath] || []).includes(name)) needs = false
@@ -2190,6 +2189,8 @@ async function runAgentLoop(
   // Set when the loop exits via a natural finish (the model stopped calling
   // tools) — distinguishes "completed" from "ran out of iterations".
   let finishedNaturally = false
+  // 计划模式防空转：连续纯只读探索的轮数（见 PLAN_MODE_FLAIL_ROUNDS）
+  let readOnlyRounds = 0
 
   while (iterationsLeft-- > 0) {
       if (abortController.signal.aborted) break
@@ -2197,6 +2198,21 @@ async function runAgentLoop(
       // 压缩早期的大体积工具结果，避免每轮重发全量历史导致 token 平方级增长
       // （见 compactToolResults 注释）
       messages = compactToolResults(messages)
+
+      // Agent mode with the default 'plan' edit mode exposes only read-only +
+      // agent-control tools until a plan is approved (the planning phase is
+      // read-only by design). Other edit modes expose all tools but vary
+      // approval. Computed PER ITERATION (not once before the loop) so the
+      // plan-mode anti-flail question can switch the edit mode mid-run and it
+      // takes effect on the very next round.
+      const projectEditMode = useChatStore.getState().sessions.find((s) => s.id === sessionId)?.projectEditMode || 'plan'
+      const usePlanTools = agentMode === 'agent' && projectEditMode === 'plan' && !opts?.planApproved && !targetMode
+      // The auto-memory tool is opt-in — hide it when the user disabled it
+      const toolDefinitions = (usePlanTools
+        ? toolExecutor.getToolDefinitions((name) => PLAN_TOOLS.has(name))
+        : toolExecutor.getToolDefinitions())
+        .filter((d) => useEditorStore.getState().preferences.aiAutoMemory || d.function.name !== 'remember')
+
       const req = {
         model,
         messages: messages.map((m) => ({
@@ -2323,6 +2339,50 @@ async function runAgentLoop(
         name: tc.function.name,
         arguments: JSON.parse(tc.function.arguments || '{}'),
       }))
+
+      // ── 计划模式防空转 ──────────────────────────────────────────────────
+      // 计划模式只暴露只读工具。若用户请求明显需要写操作/命令（提交/推送/
+      // 安装/执行…），agent 却连续多轮纯只读探索（读文件/搜索，无计划、无
+      // 提问），与其让它把轮次和 token 烧在空转上，不如强制弹一次提问，让
+      // 用户决定切编辑模式继续、保持只读还是停止。此检查必须在 assistant
+      // tool_calls 消息持久化之前：跳过本轮执行时不会留下残缺的 tool 配对。
+      // `usePlanTools` 在本轮开头已按实时模式算好。
+      if (usePlanTools) {
+        const allReadOnly = parsedToolCalls.every((tc) => FLAIL_READ_TOOLS.has(tc.name))
+        readOnlyRounds = allReadOnly && WRITE_INTENT_RE.test(userContent) ? readOnlyRounds + 1 : 0
+        if (readOnlyRounds >= PLAN_MODE_FLAIL_ROUNDS) {
+          readOnlyRounds = 0
+          const question =
+            '当前是计划模式，只开放了只读工具（读文件/搜索），无法执行写操作或命令。' +
+            `检测到你请求"${userContent.slice(0, 60)}"需要写权限，而我已经连续 ${PLAN_MODE_FLAIL_ROUNDS} 轮只读探索仍无法完成。请选择如何继续：`
+          const options = ['切换到自动编辑模式继续', '保持计划模式（只读）', '停止']
+          touchActivity() // waiting on the user ≠ model silence
+          const answer = await new Promise<string>((resolve) => {
+            if (_questionResolves.has(sessionId)) { _questionResolves.get(sessionId)!('（用户取消了上一次提问）'); _questionResolves.delete(sessionId) }
+            _questionResolves.set(sessionId, resolve)
+            const onSession = useChatStore.getState().activeSessionId === sessionId
+            useChatStore.setState({
+              pendingQuestion: { sessionId, id: `flail-${Date.now()}`, question, options },
+              questionGate: {
+                ...useChatStore.getState().questionGate,
+                [sessionId]: onSession ? 'auto' : 'confirm',
+              },
+            })
+          })
+          // 把用户的决定作为 user 消息回喂给模型（user 消息无配对约束）。
+          let note = ''
+          if (answer.includes('自动编辑')) {
+            useChatStore.getState().setProjectEditMode(sessionId, 'auto_edit')
+            note = '\n（已切换到自动编辑模式，本轮只读探索被跳过——现在可以直接执行写操作/命令了）'
+          } else if (answer.includes('停止')) {
+            note = '\n（用户选择停止本轮任务）'
+            abortController.abort()
+          }
+          messages.push({ role: 'user', content: `用户回答: ${answer}${note}` })
+          chatStore.addMessage(sessionId, { role: 'user', content: `用户回答: ${answer}${note}` })
+          continue // 跳过本轮只读调用；下一轮按用户决定继续
+        }
+      }
 
       // Add assistant message with tool calls
       chatStore.addMessage(sessionId, {
