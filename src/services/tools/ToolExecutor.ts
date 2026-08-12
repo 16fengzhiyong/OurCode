@@ -22,7 +22,7 @@ const READ_GUARD_TOOLS = new Set(['write_file', 'edit_file', 'delete_file'])
  * model never sees two overlapping sets of git tools.
  */
 const NATIVE_GIT_TOOLS = new Set([
-  'git_status', 'git_diff', 'git_log', 'git_branch', 'git_add', 'git_commit', 'git_push',
+  'git_status', 'git_diff', 'git_log', 'git_branch', 'git_add', 'git_commit', 'git_push', 'git_split_commit',
 ])
 
 /** Normalize a path for read-tracking comparisons — Windows paths differ only
@@ -292,6 +292,12 @@ export class ToolExecutor {
         return `git add ${args.path ? `-- ${args.path}` : '-A (全部变更)'}`
       case 'git_commit':
         return `git commit -m "${(args.message || '').slice(0, 120)}"${args.all ? ' (先 git add -A)' : ''}`
+      case 'git_split_commit':
+        return `按功能分组提交：${Array.isArray(args.groups) ? args.groups.length : 0} 组\n${
+          Array.isArray(args.groups)
+            ? args.groups.map((g: any, i: number) => `${i + 1}. ${String(g?.message || '').slice(0, 80)} (${Array.isArray(g?.files) ? g.files.length : 0} 文件)`).join('\n')
+            : ''
+        }`
       case 'git_push':
         return `git push ${[args.remote, args.branch].filter(Boolean).join(' ') || '(当前分支到 origin)'}`
       case 'web_search':

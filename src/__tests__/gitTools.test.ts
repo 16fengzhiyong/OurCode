@@ -108,6 +108,43 @@ describe('native git tools', () => {
     expect(mockGitExec).toHaveBeenCalledWith('P', ['push', 'upstream'])
   })
 
+  it('git_split_commit stages and commits each group in order', async () => {
+    mockGitExec.mockResolvedValue({ success: true, output: '[main abc1234] feat: x\n 1 file changed' })
+    const out = await exec('git_split_commit', {
+      groups: [
+        { message: 'feat: 视觉扁平化', files: ['src/A.tsx', 'src/B.tsx'] },
+        { message: 'fix: 输入框', files: ['src/C.tsx'] },
+      ],
+    }, { projectPath: 'P' })
+    expect(mockGitExec.mock.calls.map((c) => c[1])).toEqual([
+      ['add', '--', 'src/A.tsx', 'src/B.tsx'],
+      ['commit', '-m', 'feat: 视觉扁平化'],
+      ['add', '--', 'src/C.tsx'],
+      ['commit', '-m', 'fix: 输入框'],
+    ])
+    expect(out).toContain('已按功能提交 2 组')
+  })
+
+  it('git_split_commit with empty files stages everything (git add -A)', async () => {
+    mockGitExec.mockResolvedValue({ success: true, output: '[main abc] ok' })
+    await exec('git_split_commit', { groups: [{ message: 'chore: x' }] }, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['add', '-A'])
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['commit', '-m', 'chore: x'])
+  })
+
+  it('git_split_commit validates groups and aborts on failure', async () => {
+    expect((await exec('git_split_commit', {}, { projectPath: 'P' }))).toContain('Error')
+
+    mockGitExec.mockResolvedValueOnce({ success: true, output: '' })
+    const noMsg = await exec('git_split_commit', { groups: [{ files: ['a.ts'] }] }, { projectPath: 'P' })
+    expect(noMsg).toContain('Error')
+
+    mockGitExec.mockReset()
+    mockGitExec.mockResolvedValueOnce({ success: false, output: '', error: 'pathspec did not match' })
+    const addFail = await exec('git_split_commit', { groups: [{ message: 'feat: x', files: ['nope.ts'] }] }, { projectPath: 'P' })
+    expect(addFail).toContain('add 失败')
+  })
+
   it('git_log clamps maxCount', async () => {
     await exec('git_log', { maxCount: 9999 }, { projectPath: 'P' })
     expect(mockGitExec).toHaveBeenCalledWith('P', ['log', '-100', '--oneline', '--decorate'])

@@ -532,7 +532,9 @@ export function createToolRegistry(): Tool[] {
       description:
         'Stage changes (git add). With a path, stage only that repo-relative file/dir; ' +
         'without one, stage everything including new/deleted files (git add -A). ' +
-        'Reversible via git reset, so no approval is required.',
+        'Reversible via git reset, so no approval is required. ' +
+        '按功能拆分提交时：先 git_status 看改动，再对每个功能涉及的路径逐个 git_add，' +
+        '确认无误后 git_commit；不要用 run_command 绕过，不要写脚本。',
       parameters: {
         type: 'object',
         properties: {
@@ -553,11 +555,13 @@ export function createToolRegistry(): Tool[] {
       name: 'git_commit',
       description:
         'Commit the staged changes (dangerous: writes to git history — requires approval). ' +
-        'Pass all=true to stage everything first (git add -A) before committing.',
+        'Pass all=true to stage everything first (git add -A) before committing. ' +
+        'Commit message 遵循仓库风格（feat:/fix:/refactor:/docs:/chore: 前缀 + 中文或英文描述），' +
+        '只描述该提交涉及的功能，不要混入无关改动。',
       parameters: {
         type: 'object',
         properties: {
-          message: { type: 'string', description: 'Commit message' },
+          message: { type: 'string', description: 'Commit message, 遵循仓库风格（feat:/fix:/refactor: 前缀）' },
           all: { type: 'boolean', description: 'Stage all changes first before committing' },
         },
         required: ['message'],
@@ -604,6 +608,66 @@ export function createToolRegistry(): Tool[] {
           else argv.push(remote)
         }
         return runGit(argv, context?.projectPath)
+      },
+    },
+    {
+      name: 'git_split_commit',
+      description:
+        '按功能分组提交（危险：写 git 历史 — 需要审批）。给定若干组 {message, files}，' +
+        '依次对每组 git add 指定文件并 commit。适合「按功能拆分提交」任务：先用 git_status + ' +
+        'git_diff 看清改动，再一次性把分组方案交给本工具执行，避免逐个 add/commit 的轮次开销，' +
+        '也避免手写脚本。规则：每个文件只能属于一个分组；files 用 repo 相对路径；' +
+        'commit message 遵循仓库风格（feat:/fix:/refactor: 前缀）。某组 add 或 commit 失败会立即停止，' +
+        '前面已提交的分组保留（可用 git reset 撤销）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          groups: {
+            type: 'array',
+            description: '按功能划分的提交分组，按提交顺序排列；每个文件只能属于一个分组',
+            items: {
+              type: 'object',
+              properties: {
+                message: { type: 'string', description: '该功能的 commit message（feat:/fix:/refactor: 前缀）' },
+                files: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: '该功能涉及的 repo 相对路径（文件或目录）；留空则该组暂存全部剩余改动（谨慎）',
+                },
+              },
+              required: ['message'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['groups'],
+        additionalProperties: false,
+      },
+      requiresApproval: true,
+      execute: async (args, context) => {
+        const { runGit } = await import('@/services/tools/helpers')
+        const groups: Array<{ message?: string; files?: string[] }> = Array.isArray(args.groups) ? args.groups : []
+        if (groups.length === 0) return 'Error: git_split_commit 需要 groups 参数'
+        const lines: string[] = []
+        for (const g of groups) {
+          const message = String(g.message || '').trim()
+          if (!message) {
+            return `Error: 第 ${lines.length + 1} 组缺少 commit message（前面 ${lines.length} 组已提交，可用 git reset 撤销后重试）`
+          }
+          const files = Array.isArray(g.files) ? g.files.map((f) => String(f)).filter(Boolean) : []
+          const addArgs = files.length > 0 ? ['add', '--', ...files] : ['add', '-A']
+          const add = await runGit(addArgs, context?.projectPath)
+          if (add.startsWith('Error:')) {
+            return `Error: 第 ${lines.length + 1} 组 add 失败：${add}\n（前面 ${lines.length} 组已提交）`
+          }
+          const commit = await runGit(['commit', '-m', message], context?.projectPath)
+          if (commit.startsWith('Error:')) {
+            return `Error: 第 ${lines.length + 1} 组 commit 失败：${commit}\n（前面 ${lines.length} 组已提交；若为"nothing to commit"多半是该组文件已在之前分组提交过）`
+          }
+          const summary = commit.split('\n').slice(0, 3).join('\n  ')
+          lines.push(`[${lines.length + 1}] ${message}\n  ${summary}`)
+        }
+        return `已按功能提交 ${lines.length} 组：\n${lines.join('\n')}`
       },
     },
   ]
