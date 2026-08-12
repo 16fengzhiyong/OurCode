@@ -181,15 +181,17 @@ export default function ChatMessages() {
   // ── Linear transcript with turn grouping ──
   // HARD REQUIREMENT: one user message → ONE assistant bubble. Consecutive
   // assistant messages (multi-round agent runs) group into a single display
-  // turn sharing one avatar/header; the events INSIDE still render linearly
-  // (thinking → text → tool rows per message, nothing aggregated into a card).
+  // turn sharing one avatar/header; the events INSIDE merge into ONE
+  // 「思考与执行过程」collapse block (thinking → text → tool rows per round,
+  // interleaved in real order), with the final answer below the block.
   // Tool pairing messages (role='tool') are skipped — their results already
   // render inline inside the assistant message's ToolStepRow.
   const messages = useMemo(() => activeSession?.messages || [], [activeSession?.messages])
   const visibleMessages = useMemo(() => messages.filter((m) => m.role !== 'tool'), [messages])
   const turns = useMemo(() => {
-    // 连续 assistant 消息合并为一个气泡（turn），事件在气泡内按真实顺序
-    // 逐条渲染（思考 → 文字 → 工具 → 思考 → 文字 → 工具），不做任何合并。
+    // 连续 assistant 消息合并为一个气泡（turn），多轮思考与工具调用按真实
+    // 顺序渲染进单个「思考与执行过程」折叠块（思考 → 文字 → 工具 → …），
+    // 最终回答的 markdown 正文显示在折叠块下方。
     const result: Array<{ kind: 'user'; message: ChatMessageType } | { kind: 'assistant'; messages: ChatMessageType[] }> = []
     for (const m of messages) {
       if (m.role === 'tool') continue
@@ -236,6 +238,19 @@ export default function ChatMessages() {
       const next = new Set(prev)
       if (next.has(msgId)) next.delete(msgId)
       else next.add(msgId)
+      return next
+    })
+  }, [])
+
+  // 聚合模式：assistant turn 的复选框切换整个 turn 的全部消息 id ——
+  // 批量删除时整轮一起删除，避免只删掉最后一条留下残缺轮次。
+  const toggleTurnSelection = useCallback((members: ChatMessageType[], _id: string) => {
+    setSelectedIds((prev) => {
+      const ids = members.map((m) => m.id)
+      const anySelected = ids.some((id) => prev.has(id))
+      const next = new Set(prev)
+      if (anySelected) ids.forEach((id) => next.delete(id))
+      else ids.forEach((id) => next.add(id))
       return next
     })
   }, [])
@@ -385,8 +400,9 @@ export default function ChatMessages() {
           )
         }
 
-        // Assistant turn — ONE bubble: one avatar/header, all rounds' events
-        // flowing linearly beneath it (thinking → text → tool rows per message).
+        // Assistant turn — ONE bubble: one avatar/header, all rounds' thinking
+        // and tool calls merged into ONE 「思考与执行过程」collapse block, with
+        // the final answer rendered below it.
         const firstId = turn.messages[0].id
         const originalIndex = messages.findIndex((m) => m.id === firstId)
         return (
@@ -406,18 +422,17 @@ export default function ChatMessages() {
             }`}
           >
             <div className="flex flex-col gap-1.5">
-              {turn.messages.map((msg, idx) => (
-                <ChatMessage
-                  key={msg.id}
-                  message={msg}
-                  sessionId={activeSession.id}
-                  isSelectMode={isSelectMode}
-                  isSelected={selectedIds.has(msg.id)}
-                  onToggleSelect={toggleSelect}
-                  hideMeta={idx > 0}
-                  hideActions={idx < turn.messages.length - 1}
-                />
-              ))}
+              {/* 聚合模式：整个 turn 渲染为一个 ChatMessage —— 多轮思考与
+                  工具调用合并进单个「思考与执行过程」折叠块，最终回答在块下方 */}
+              <ChatMessage
+                key={turn.messages[turn.messages.length - 1].id}
+                message={turn.messages[turn.messages.length - 1]}
+                turnMessages={turn.messages}
+                sessionId={activeSession.id}
+                isSelectMode={isSelectMode}
+                isSelected={turn.messages.some((m) => selectedIds.has(m.id))}
+                onToggleSelect={(id) => toggleTurnSelection(turn.messages, id)}
+              />
             </div>
           </div>
         )

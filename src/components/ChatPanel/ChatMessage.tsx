@@ -8,6 +8,7 @@ import { EXHAUSTED_MARKER } from '@shared/constants'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
 import ThinkingSection from './ThinkingSection'
 import ToolStepRow from './ToolStepRow'
+import AgentProcessBlock from './AgentProcessBlock'
 import { PlanCard } from './AgentPanel'
 import WaveLogo from './WaveLogo'
 import ErrorCard from './ErrorCard'
@@ -27,6 +28,10 @@ interface ChatMessageProps {
   hideMeta?: boolean
   /** Hide the hover actions toolbar — only the last message of a turn shows it. */
   hideActions?: boolean
+  /** 聚合模式：同一气泡（turn）内全部 assistant 消息。传入时 `message` 约定为
+   *  turn 的最后一条（最终回答 / run 徽章 / 编辑 / 操作均作用于它），思考与
+   *  工具调用合并进单个「思考与执行过程」折叠块渲染。 */
+  turnMessages?: ChatMessageType[]
 }
 
 /**
@@ -255,7 +260,7 @@ function TokenUsagePopover({ run, model }: { run: AgentRun; model?: string }) {
   )
 }
 
-function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onToggleSelect, hideMeta, hideActions }: ChatMessageProps) {
+function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onToggleSelect, hideMeta, hideActions, turnMessages }: ChatMessageProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
   const [remembered, setRemembered] = useState(false)
@@ -424,7 +429,10 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   // Checkpoints tied to this assistant message → "回滚修改".
   // The store's checkpoint list is per active session — scope defensively by
   // session so parallel sessions can't show each other's checkpoints.
-  const msgCheckpoints = checkpoints.filter((c) => c.sessionId === sessionId && c.messageId === message.id)
+  // 聚合模式下按 turn 内全部消息汇总，多轮各自产生的回滚点都保留。
+  const msgCheckpoints = checkpoints.filter((c) =>
+    c.sessionId === sessionId &&
+    (turnMessages ? turnMessages.some((m) => m.id === c.messageId) : c.messageId === message.id))
 
   const handleRevertMessage = async () => {
     for (const cp of msgCheckpoints) {
@@ -437,6 +445,40 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   // message's ToolCallBlock (via the toolResults prop).
   // Legacy tool messages from older sessions are filtered out in ChatMessages.tsx.
   if (isTool) return null
+
+  // 已编辑指示 + 正文/编辑态 —— 聚合模式与逐条模式共用，但顺序不同：
+  // 聚合模式下最终回答位于「思考与执行过程」折叠块下方。
+  const editedIndicator = message.editedAt && (
+    <div className="text-[10px] text-nova-text-muted italic">{t('chat.edited')}</div>
+  )
+  const contentBlock = isEditing ? (
+    <div>
+      <textarea
+        value={editContent}
+        onChange={(e) => setEditContent(e.target.value)}
+        className="w-full p-2 bg-nova-bg text-text-primary rounded-lg border border-nova-border focus:border-nova-accent focus:outline-none min-h-[80px] font-mono text-sm resize-none"
+        rows={3}
+      />
+      <div className="flex justify-end gap-2 mt-2">
+        <button
+          onClick={handleCancelEdit}
+          className="px-3 py-1 text-xs bg-nova-hover rounded-lg hover:bg-nova-border transition-colors text-nova-text-secondary"
+        >
+          {t('common.cancel')}
+        </button>
+        <button
+          onClick={handleSaveEdit}
+          className="px-3 py-1 text-xs bg-nova-accent rounded-lg hover:opacity-90 transition-opacity text-white"
+        >
+          {t('common.save')}
+        </button>
+      </div>
+    </div>
+  ) : (
+    <div className="text-sm leading-relaxed">
+      <MarkdownRenderer content={message.content} />
+    </div>
+  )
 
   return (
     <div className={`group animate-fade-in ${isUser ? 'flex justify-end' : 'flex gap-2.5'} ${hideMeta && !isUser ? 'pl-[46px]' : ''}`}>
@@ -528,68 +570,53 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                   the canvas as individual rows — 可折叠「思考与执行过程」区块 →
                   markdown 正文/结论 → plan card, no aggregated card. */
               <div className="flex flex-col gap-2">
-                {/* 单轮思考块 —— 最小化可折叠行，按真实调用顺序交错在正文流中
-                    （思考 → 文字 → 工具），一眼看出每轮思考与工具的关系 */}
-                {message.thinking && (
-                  <ThinkingSection
-                    thinking={message.thinking}
-                    defaultExpanded={isSessionRunning}
-                  />
-                )}
-
-                {/* Edited indicator */}
-                {message.editedAt && (
-                  <div className="text-[10px] text-nova-text-muted italic">{t('chat.edited')}</div>
-                )}
-
-                {/* Content */}
-                {isEditing ? (
-                  <div>
-                    <textarea
-                      value={editContent}
-                      onChange={(e) => setEditContent(e.target.value)}
-                      className="w-full p-2 bg-nova-bg text-text-primary rounded-lg border border-nova-border focus:border-nova-accent focus:outline-none min-h-[80px] font-mono text-sm resize-none"
-                      rows={3}
+                {turnMessages ? (
+                  /* 聚合模式：turn 内所有轮次的思考与工具调用合并进单个
+                     「思考与执行过程」折叠块，最终回答渲染在块下方 */
+                  <>
+                    <AgentProcessBlock
+                      messages={turnMessages}
+                      sessionId={sessionId}
+                      defaultExpanded={isSessionRunning}
                     />
-                    <div className="flex justify-end gap-2 mt-2">
-                      <button
-                        onClick={handleCancelEdit}
-                        className="px-3 py-1 text-xs bg-nova-hover rounded-lg hover:bg-nova-border transition-colors text-nova-text-secondary"
-                      >
-                        {t('common.cancel')}
-                      </button>
-                      <button
-                        onClick={handleSaveEdit}
-                        className="px-3 py-1 text-xs bg-nova-accent rounded-lg hover:opacity-90 transition-opacity text-white"
-                      >
-                        {t('common.save')}
-                      </button>
-                    </div>
-                  </div>
+                    {editedIndicator}
+                    {contentBlock}
+                  </>
                 ) : (
-                  <div className="text-sm leading-relaxed">
-                    <MarkdownRenderer content={message.content} />
-                  </div>
+                  /* 逐条模式（单消息）：思考 → 正文 → 工具行 → 计划卡 */
+                  <>
+                    {/* 单轮思考块 —— 最小化可折叠行，按真实调用顺序交错在正文流中
+                        （思考 → 文字 → 工具），一眼看出每轮思考与工具的关系 */}
+                    {message.thinking && (
+                      <ThinkingSection
+                        thinking={message.thinking}
+                        defaultExpanded={isSessionRunning}
+                      />
+                    )}
+
+                    {editedIndicator}
+                    {contentBlock}
+
+                    {/* Tool step rows — 本轮正文之后的工具调用，按时间顺序交错在流中 */}
+                    {(message.toolCalls || []).map((tc) => {
+                      const result = message.toolResults?.find((r) => r.toolCallId === tc.id)
+                      const rejected = !!result?.isError && /用户拒绝/.test(result.result)
+                      return (
+                        <ToolStepRow
+                          key={tc.id}
+                          toolCall={tc}
+                          result={result}
+                          rejected={rejected}
+                          suspended={!result && !rejected && !isSessionRunning}
+                        />
+                      )
+                    })}
+
+                    {/* Submitted plan — rendered inline after the submit_plan tool
+                        row (approve/cancel, or the kept record) */}
+                    {hasSubmittedPlan && <PlanCard sessionId={sessionId} />}
+                  </>
                 )}
-
-                {/* Tool step rows — 本轮正文之后的工具调用，按时间顺序交错在流中 */}
-                {(message.toolCalls || []).map((tc) => {
-                  const result = message.toolResults?.find((r) => r.toolCallId === tc.id)
-                  const rejected = !!result?.isError && /用户拒绝/.test(result.result)
-                  return (
-                    <ToolStepRow
-                      key={tc.id}
-                      toolCall={tc}
-                      result={result}
-                      rejected={rejected}
-                      suspended={!result && !rejected && !isSessionRunning}
-                    />
-                  )
-                })}
-
-                {/* Submitted plan — rendered inline after the submit_plan tool
-                    row (approve/cancel, or the kept record) */}
-                {hasSubmittedPlan && <PlanCard sessionId={sessionId} />}
 
                 {/* Actions — hover-reveal ghost toolbar (only on the last
                     message of a grouped assistant turn) */}
@@ -662,4 +689,25 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
 // memo: `message` (and the merged display message in ChatMessages) keeps a
 // stable reference between renders unless the message itself changes, so during
 // streaming only the newly-added message re-renders — not the whole history.
-export default memo(ChatMessageInner)
+// 聚合模式下 turnMessages 数组会随会话消息变化而重建，这里按成员消息引用逐个
+// 比较：成员对象未变（例如其它轮次收到工具结果）时该轮不无谓重渲染。
+// onToggleSelect 为 ChatMessages 里新建的 turn 级包装函数（切换同一组消息 id，
+// 语义稳定），其身份变化不触发重渲染。
+function chatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps): boolean {
+  if (prev.message !== next.message) return false
+  if (prev.sessionId !== next.sessionId) return false
+  if (prev.isSelectMode !== next.isSelectMode) return false
+  if (prev.isSelected !== next.isSelected) return false
+  if (prev.hideMeta !== next.hideMeta) return false
+  if (prev.hideActions !== next.hideActions) return false
+  const a = prev.turnMessages
+  const b = next.turnMessages
+  if (a === b) return true
+  if (!a || !b || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+export default memo(ChatMessageInner, chatMessagePropsEqual)
