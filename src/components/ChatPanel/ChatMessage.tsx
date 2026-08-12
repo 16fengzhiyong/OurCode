@@ -141,7 +141,7 @@ function UsageDetailRow({
 /** Token badge detail popover — Stitch「现代玻璃态」: floating glass card with a
  *  gradient hero number, cache-hit pill and mono detail rows. Anchored below the
  *  badge with a small arrow; closes on outside click or Escape. */
-function TokenUsagePopover({ run, model }: { run: AgentRun; model?: string }) {
+function TokenUsagePopover({ run, model, placement = 'below' }: { run: AgentRun; model?: string; placement?: 'below' | 'above' }) {
   const t = useI18n()
   const tokensIn = run.tokensIn || 0
   const tokensOut = run.tokensOut || 0
@@ -153,9 +153,14 @@ function TokenUsagePopover({ run, model }: { run: AgentRun; model?: string }) {
   const elapsed = run.finishedAt ? Math.max(0, Math.floor((run.finishedAt - run.startedAt) / 1000)) : 0
 
   return (
-    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 w-[320px] z-50">
-      {/* Arrow pointing up at the token badge */}
-      <div className="absolute -top-[5px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] border-b-[6px] border-l-transparent border-r-transparent border-b-white/90" />
+    <div className={`absolute left-1/2 -translate-x-1/2 z-50 w-[320px] ${placement === 'above' ? 'bottom-full mb-3' : 'top-full mt-3'}`}>
+      {/* Arrow pointing at the token badge (flips with placement — the hover
+          toolbar button sits at the message bottom, so it opens upward) */}
+      <div className={`absolute left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] ${
+        placement === 'above'
+          ? '-bottom-[5px] border-t-[6px] border-t-white/90 border-b-transparent'
+          : '-top-[5px] border-b-[6px] border-b-white/90 border-t-transparent'
+      }`} />
       <div className="bg-white/90 backdrop-blur-xl border border-glass-border rounded-xl shadow-[0_8px_40px_rgba(15,23,42,0.08)] p-5 flex flex-col gap-4">
         {/* Title row */}
         <div className="flex justify-between items-center">
@@ -643,6 +648,22 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                     <GhostButton onClick={handleCopy} title={t('common.copy')}>
                       {t('common.copy')}
                     </GhostButton>
+                    {isAssistant && runTokens > 0 && (
+                      <span className="relative inline-flex" ref={usageRef}>
+                        <button
+                          onClick={() => setUsageOpen((v) => !v)}
+                          title={usageOpen ? t('chat.usage.hint') : t('chat.usage.viewHint')}
+                          className="flex items-center gap-1 font-mono text-[10px] px-2 py-1 rounded-md bg-nova-hover border border-nova-border text-nova-text-muted hover:border-nova-accent/40 hover:text-nova-text-primary transition-colors cursor-pointer"
+                        >
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M12 7v5l3 3" />
+                          </svg>
+                          {formatTokens(runTokens)} {t('statusBar.tokens')}
+                        </button>
+                        {usageOpen && run && <TokenUsagePopover run={run} model={session?.model} placement="above" />}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
