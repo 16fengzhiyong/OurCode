@@ -2197,6 +2197,9 @@ async function runAgentLoop(
   let finishedNaturally = false
   // 计划模式防空转：连续纯只读探索的轮数（见 PLAN_MODE_FLAIL_ROUNDS）
   let readOnlyRounds = 0
+  // 防空转提问每个 run 只弹一次——用户若坚持「保持计划模式」，不再每 5 轮
+  // 重复打扰（避免消息里塞满「用户回答」噪音）
+  let flailAsked = false
 
   while (iterationsLeft-- > 0) {
       if (abortController.signal.aborted) break
@@ -2356,8 +2359,9 @@ async function runAgentLoop(
       if (usePlanTools) {
         const allReadOnly = parsedToolCalls.every((tc) => FLAIL_READ_TOOLS.has(tc.name))
         readOnlyRounds = allReadOnly && WRITE_INTENT_RE.test(userContent) ? readOnlyRounds + 1 : 0
-        if (readOnlyRounds >= PLAN_MODE_FLAIL_ROUNDS) {
+        if (readOnlyRounds >= PLAN_MODE_FLAIL_ROUNDS && !flailAsked) {
           readOnlyRounds = 0
+          flailAsked = true
           const question =
             '当前是计划模式，只开放了只读工具（读文件/搜索），无法执行写操作或命令。' +
             `检测到你请求"${userContent.slice(0, 60)}"需要写权限，而我已经连续 ${PLAN_MODE_FLAIL_ROUNDS} 轮只读探索仍无法完成。请选择如何继续：`
@@ -2374,6 +2378,14 @@ async function runAgentLoop(
                 [sessionId]: onSession ? 'auto' : 'confirm',
               },
             })
+            // 60s 无人应答按「保持计划模式」继续（与批量审批的兜底一致），
+            // 避免用户离席时整个 run 无限挂起
+            setTimeout(() => {
+              if (_questionResolves.get(sessionId) === resolve) {
+                _questionResolves.delete(sessionId)
+                resolve('保持计划模式（只读）')
+              }
+            }, 60000)
           })
           // 把用户的决定作为 user 消息回喂给模型（user 消息无配对约束）。
           let note = ''

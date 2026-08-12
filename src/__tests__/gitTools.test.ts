@@ -99,6 +99,15 @@ describe('native git tools', () => {
     expect(mockGitExec).toHaveBeenCalledWith('P', ['push'])
   })
 
+  it('git_push with only a branch fills in the default remote (origin)', async () => {
+    // 只传 branch 时若拼成 `git push main` 会被 git 当成 remote 解析而报错
+    await exec('git_push', { branch: 'main' }, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['push', 'origin', 'main'])
+
+    await exec('git_push', { remote: 'upstream' }, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['push', 'upstream'])
+  })
+
   it('git_log clamps maxCount', async () => {
     await exec('git_log', { maxCount: 9999 }, { projectPath: 'P' })
     expect(mockGitExec).toHaveBeenCalledWith('P', ['log', '-100', '--oneline', '--decorate'])

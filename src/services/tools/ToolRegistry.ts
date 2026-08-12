@@ -593,10 +593,16 @@ export function createToolRegistry(): Tool[] {
       execute: async (args, context) => {
         const { runGit } = await import('@/services/tools/helpers')
         const argv: string[] = ['push']
-        const remote = typeof args.remote === 'string' && args.remote.trim() ? args.remote.trim() : ''
-        const branch = typeof args.branch === 'string' && args.branch.trim() ? args.branch.trim() : ''
-        if (remote) argv.push(remote)
-        if (branch) argv.push(branch)
+        const hasRemote = typeof args.remote === 'string' && args.remote.trim()
+        const hasBranch = typeof args.branch === 'string' && args.branch.trim()
+        if (hasRemote || hasBranch) {
+          const remote = hasRemote ? args.remote.trim() : 'origin'
+          const branch = hasBranch ? args.branch.trim() : ''
+          // 只传 branch 时必须补默认 remote——否则 `git push main` 会把分支名
+          // 当成 remote 解析而报错
+          if (hasBranch) argv.push(remote, branch)
+          else argv.push(remote)
+        }
         return runGit(argv, context?.projectPath)
       },
     },
