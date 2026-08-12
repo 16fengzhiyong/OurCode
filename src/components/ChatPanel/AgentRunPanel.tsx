@@ -8,7 +8,8 @@ import { TodoPanel, PlanCard } from './AgentPanel'
 /**
  * Agent run panel: shows the live state of the active agent run — status,
  * elapsed time, submitted plan, and todo progress.
- * Tool-level execution detail is now rendered inline in AgentTimeline.
+ * Tool-level execution detail is now rendered inline as linear ToolStepRow
+ * entries in the transcript (see ChatMessage / ToolStepRow).
  * Rendered above the chat messages while an agent run belongs to this session.
  */
 

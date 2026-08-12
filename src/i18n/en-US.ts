@@ -597,6 +597,8 @@ export const enUS: Record<TranslationKey, string> = {
   'tool.failed': 'Failed',
   'tool.done': 'Done',
   'tool.completedWithError': 'Done (errors)',
+  'tool.rejected': 'Rejected',
+  'tool.notExecuted': 'Not executed',
 
   // ── Sidebar / File tree ────────────────────────────────────────────────
   'sidebar.explorer': 'Explorer',

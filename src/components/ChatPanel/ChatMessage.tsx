@@ -6,7 +6,8 @@ import { useMemoryStore } from '@/stores/memoryStore'
 import { useUIStore } from '@/stores/uiStore'
 import { EXHAUSTED_MARKER } from '@shared/constants'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
-import AgentTimeline from './AgentTimeline'
+import ThinkingBlock from './ThinkingBlock'
+import ToolStepRow from './ToolStepRow'
 import { PlanCard } from './AgentPanel'
 import WaveLogo from './WaveLogo'
 import ErrorCard from './ErrorCard'
@@ -298,6 +299,11 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   // previous fallback: the session's active run, else its newest record.
   const activeRun = useChatStore((s) => s.activeRuns[sessionId])
   const session = useChatStore((s) => s.sessions.find((x) => x.id === sessionId))
+  // Session actively running? Pending tool calls without a result only keep a
+  // spinner while the loop may still execute them; once the run ends (stopped /
+  // done / legacy sessions) they flip to a muted "未执行" state instead of an
+  // eternal spinner.
+  const isSessionRunning = useChatStore((s) => s.runningSessionIds.includes(sessionId))
   // agentRuns is newest-first (startAgentRun prepends); when no run is live
   // (restored sessions start with an empty activeRuns) fall back to the NEWEST
   // record — the oldest one would show stale status/tokens.
@@ -407,9 +413,8 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   const isAssistant = message.role === 'assistant'
   const isTool = message.role === 'tool'
   const isExhausted = isAssistant && message.content.startsWith(EXHAUSTED_MARKER)
-
-  // Process summary (thinking + tool calls) → rendered via AgentTimeline
-  const hasProcess = (isAssistant && !!message.thinking) || (isAssistant && !!message.toolCalls?.length)
+  // submit_plan renders its PlanCard inline after the tool rows (see below)
+  const hasSubmittedPlan = isAssistant && (message.toolCalls || []).some((tc) => tc.name === 'submit_plan')
 
   // Checkpoints tied to this assistant message → "回滚修改".
   // The store's checkpoint list is per active session — scope defensively by
@@ -513,18 +518,15 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                 />
               </div>
             ) : (
-              /* Assistant — Stitch 高保真: content floats on the canvas as
-                  individual glass cards (thinking → tool chips → timeline →
-                  plan → markdown), no enclosing heavy border box. */
+              /* Assistant — linear transcript (极简纯净版): content floats on
+                  the canvas as individual rows — thinking block (collapsible) →
+                  markdown → tool step rows → plan card, no aggregated card. */
               <div className="flex flex-col gap-2">
-                {/* Agent execution timeline (thinking + tool calls) */}
-                {hasProcess && (
-                  <AgentTimeline
-                    toolCalls={message.toolCalls}
-                    toolResults={message.toolResults}
-                    thinking={message.thinking}
-                  />
-                )}
+                {/* Linear transcript (极简纯净版): thinking block first — collapsed
+                    to a one-liner once the round is done, then tool step rows in
+                    time order. Each tool call is its own row; results flip
+                    status in place via appendToolResult. */}
+                {message.thinking && <ThinkingBlock content={message.thinking} />}
 
                 {/* Edited indicator */}
                 {message.editedAt && (
@@ -561,11 +563,24 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                   </div>
                 )}
 
-                {/* Submitted plan — rendered inline inside the assistant message
-                    that called submit_plan (approve/cancel, or the kept record) */}
-                {isAssistant && (message.toolCalls || []).some((tc) => tc.name === 'submit_plan') && (
-                  <PlanCard sessionId={sessionId} />
-                )}
+                {/* Tool step rows — one per tool call, chronological */}
+                {(message.toolCalls || []).map((tc) => {
+                  const result = message.toolResults?.find((r) => r.toolCallId === tc.id)
+                  const rejected = !!result?.isError && /用户拒绝/.test(result.result)
+                  return (
+                    <ToolStepRow
+                      key={tc.id}
+                      toolCall={tc}
+                      result={result}
+                      rejected={rejected}
+                      suspended={!result && !rejected && !isSessionRunning}
+                    />
+                  )
+                })}
+
+                {/* Submitted plan — rendered inline after the submit_plan tool
+                    row (approve/cancel, or the kept record) */}
+                {hasSubmittedPlan && <PlanCard sessionId={sessionId} />}
 
                 {/* Actions — hover-reveal ghost toolbar */}
                 {!isEditing && (

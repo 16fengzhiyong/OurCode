@@ -481,7 +481,7 @@ export const zhCN = {
   'chat.changePreview': '变更预览:',
   'chat.reject': '拒绝',
   'chat.approve': '批准',
-  'chat.thinkingTitle': '思考过程',
+  'chat.thinkingTitle': '思考',
   'chat.agentExecutionFlow': 'Agent 执行流',
   'chat.totalSteps': '共 {count} 步',
   'chat.subAgentRunning': '子 Agent 执行中...',
@@ -594,6 +594,8 @@ export const zhCN = {
   'tool.failed': '失败',
   'tool.done': '完成',
   'tool.completedWithError': '已完成(有误)',
+  'tool.rejected': '已拒绝',
+  'tool.notExecuted': '未执行',
 
   // ── 侧边栏 / 文件树 ────────────────────────────────────────────────────
   'sidebar.explorer': '资源管理器',

@@ -2028,6 +2028,17 @@ async function runAgentLoop(
     streamingBySession: { ...s.streamingBySession, [sessionId]: { content: '', thinking: '' } },
   }))
 
+  // The live stream only carries the CURRENT LLM round. Once that round commits
+  // to messages (addMessage below), the committed render takes over — clearing
+  // here prevents the same thinking/text from double-rendering below the
+  // committed message while its tools execute (the old content/thinking used to
+  // linger in streamingBySession until the next round's reset).
+  const clearStream = () => {
+    set((s) => ({
+      streamingBySession: { ...s.streamingBySession, [sessionId]: { content: '', thinking: '' } },
+    }))
+  }
+
   // Idle-clock refresh: every visible piece of progress (stream chunk, tool
   // step, approval dialog) resets the "已 X 分钟无响应" timer. It only runs
   // when the agent loop is genuinely silent — e.g. the model thinking before
@@ -2339,6 +2350,7 @@ async function runAgentLoop(
           thinking: fullThinking || undefined,
           runId,
         })
+        clearStream()
         break
       }
 
@@ -2398,6 +2410,7 @@ async function runAgentLoop(
           }
           messages.push({ role: 'user', content: `用户回答: ${answer}${note}` })
           chatStore.addMessage(sessionId, { role: 'user', content: `用户回答: ${answer}${note}` })
+          clearStream()
           continue // 跳过本轮只读调用；下一轮按用户决定继续
         }
       }
@@ -2410,6 +2423,9 @@ async function runAgentLoop(
         toolCalls: parsedToolCalls,
         runId,
       })
+      // Round committed — the tool rows below render from this message (with
+      // live status via appendToolResult), so the stream's copy must not linger.
+      clearStream()
 
       // Add assistant message to messages array for next iteration
       messages.push({

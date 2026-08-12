@@ -175,53 +175,30 @@ export default function ChatMessages() {
     }
   }, [undoStack.length])
 
-  // ── Message merging ──
-  // Merge all consecutive assistant messages between user messages into
-  // a single display entry. Combines tool calls, results, and thinking from
-  // intermediate messages; uses the last message's content as the final answer.
+  // ── Linear transcript ──
+  // No merging: every message renders as its own entry in time order (zcode /
+  // GPT style) — thinking → text → tool rows flow downward, nothing collapses
+  // into an aggregated card. Tool pairing messages (role='tool') are skipped:
+  // their results already render inline inside the assistant message's
+  // ToolStepRow, and these rows exist only to keep the API history valid.
   const messages = useMemo(() => activeSession?.messages || [], [activeSession?.messages])
-  const displayMessages = useMemo(() => {
-    const result: typeof messages = []
-    let i = 0
-    while (i < messages.length) {
-      const msg = messages[i]
-      if (msg.role === 'tool') { i++; continue }
-
-      if (msg.role === 'assistant') {
-        const mergedToolCalls = [...(msg.toolCalls || [])]
-        const mergedToolResults = [...(msg.toolResults || [])]
-        let mergedThinking = msg.thinking || ''
-        let lastContent = msg.content
-        let last = msg
-        let j = i + 1
-        while (j < messages.length) {
-          const next = messages[j]
-          if (next.role === 'tool') { j++; continue }
-          if (next.role === 'assistant') {
-            // Merge this assistant into the group
-            if (next.toolCalls) mergedToolCalls.push(...next.toolCalls)
-            if (next.toolResults) mergedToolResults.push(...next.toolResults)
-            if (next.thinking) mergedThinking += (mergedThinking ? '\n\n' : '') + next.thinking
-            lastContent = next.content
-            last = next
-            j++
-          } else {
-            break // next user message — stop merging
-          }
-        }
-        result.push({
-          ...last,
-          content: lastContent,
-          toolCalls: mergedToolCalls.length > 0 ? mergedToolCalls : undefined,
-          toolResults: mergedToolResults.length > 0 ? mergedToolResults : undefined,
-          thinking: mergedThinking || undefined,
-        })
-        i = j
-      } else {
-        result.push(msg); i++
-      }
+  const visibleMessages = useMemo(() => messages.filter((m) => m.role !== 'tool'), [messages])
+  // True while the last committed assistant message still has tool calls awaiting
+  // results — their ToolStepRows render above (spinner → ✓/✗ in place), so the
+  // live turn below must stay hidden during that execution phase. NOTE: pairing
+  // tool messages (role='tool') are appended AFTER the assistant message as each
+  // tool finishes, so scan back past them to find the real last assistant message.
+  const isToolsExecuting = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role === 'tool') continue
+      return (
+        m.role === 'assistant' &&
+        (m.toolCalls?.length || 0) > 0 &&
+        m.toolCalls!.some((tc) => !m.toolResults?.some((r) => r.toolCallId === tc.id))
+      )
     }
-    return result
+    return false
   }, [messages])
 
   // Defined BEFORE the early return — React hooks must run unconditionally
@@ -263,7 +240,7 @@ export default function ChatMessages() {
       className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4 relative"
     >
       {/* Batch select toolbar — only in history-edit mode */}
-      {editEnabled && displayMessages.length > 0 && (
+      {editEnabled && visibleMessages.length > 0 && (
         <div className="flex items-center gap-2">
           <button
             onClick={() => { setIsSelectMode(!isSelectMode); setSelectedIds(new Set()) }}
@@ -357,7 +334,7 @@ export default function ChatMessages() {
         </div>
       )}
 
-      {displayMessages
+      {visibleMessages
         .map((msg, _displayIndex) => {
           // Find the real index in the unfiltered messages array for drag-drop
           const originalIndex = messages.findIndex((m) => m.id === msg.id)
@@ -388,7 +365,12 @@ export default function ChatMessages() {
             )
           })}
 
-      {isThisSessionLoading && (
+      {/* Live turn — only while the CURRENT LLM round is still streaming. Once
+          the round commits (addMessage + clearStream in the agent loop) its
+          thinking/text/tool rows render above from the committed message, so
+          this block must NOT also appear. During tool execution the committed
+          message's ToolStepRow shows the live spinner → ✓/✗ via appendToolResult. */}
+      {isThisSessionLoading && !isToolsExecuting && (
         <div className="flex gap-2.5 animate-fade-in">
           <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 avatar-glow" style={{ background: 'var(--grad-brand)' }}>
             <WaveLogo size={16} />
@@ -417,6 +399,7 @@ export default function ChatMessages() {
                 </span>
               )}
             </div>
+            {/* Thinking streams auto-expanded, then collapses once committed */}
             {stream?.thinking && <ThinkingBlock content={stream.thinking} defaultExpanded />}
             {stream?.content ? (
               <div className="text-sm text-nova-text-primary">
