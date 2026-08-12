@@ -441,6 +441,165 @@ export function createToolRegistry(): Tool[] {
         return readUrl(args.url)
       },
     },
+
+    // ──────────────── Native git tools (Claude Code / Codex style) ─────────
+    // 内置、零配置即可用，不依赖 git MCP 服务器是否连接。只读工具在计划
+    // 模式下也可用（chatStore 的 PLAN_TOOLS 包含它们）；写操作按审批策略：
+    // git_add 可逆、免审批，git_commit / git_push 需要用户确认。
+    // execute 优先在 agent 会话的项目根（context.projectPath）执行，兜底
+    // 工作区根。命名避开 mcp__ / skill__ 前缀。
+    {
+      name: 'git_status',
+      description:
+        'Show the current git repository status (compact porcelain format, with branch). ' +
+        'Use this first to see which files changed / are staged before committing.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      execute: async (_args, context) => {
+        const { runGit } = await import('@/services/tools/helpers')
+        return runGit(['status', '--porcelain=v1', '--branch'], context?.projectPath)
+      },
+    },
+    {
+      name: 'git_diff',
+      description:
+        'Show the unified diff of working-tree changes (or staged changes when staged=true). ' +
+        'Limit with path (repo-relative file or dir) or stat=true for a summary. ' +
+        'This is the full diff — unlike the built-in git MCP which only returns --stat.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Optional repo-relative path to limit the diff to' },
+          staged: { type: 'boolean', description: 'Show staged changes (git diff --cached) instead of unstaged' },
+          stat: { type: 'boolean', description: 'Only show a diffstat summary, not the full diff' },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+      execute: async (args, context) => {
+        const { runGit } = await import('@/services/tools/helpers')
+        const argv: string[] = ['diff']
+        if (args.staged) argv.push('--cached')
+        if (args.stat) argv.push('--stat')
+        if (typeof args.path === 'string' && args.path.trim()) argv.push('--', args.path.trim())
+        let out = await runGit(argv, context?.projectPath)
+        // 全量 diff 可能很大——截断到 ~120KB，防止一次性灌爆上下文。
+        // 模型需要细节时可以用 path 限定范围。
+        const MAX_DIFF_CHARS = 120 * 1024
+        if (out.length > MAX_DIFF_CHARS) {
+          out = out.slice(0, MAX_DIFF_CHARS) + `\n...(diff 过长已截断，共 ${out.length} 字符；请用 path 参数限定范围)`
+        }
+        return out
+      },
+    },
+    {
+      name: 'git_log',
+      description: 'Show recent commit history (one line per commit, with decorations).',
+      parameters: {
+        type: 'object',
+        properties: {
+          maxCount: { type: 'number', description: 'Max number of commits to show (default 10, max 100)' },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+      execute: async (args, context) => {
+        const { runGit } = await import('@/services/tools/helpers')
+        const n = Math.min(Math.max(Number(args.maxCount) || 10, 1), 100)
+        return runGit(['log', `-${n}`, '--oneline', '--decorate'], context?.projectPath)
+      },
+    },
+    {
+      name: 'git_branch',
+      description: 'List local branches and mark the current one.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
+      execute: async (_args, context) => {
+        const { runGit } = await import('@/services/tools/helpers')
+        return runGit(['branch'], context?.projectPath)
+      },
+    },
+    {
+      name: 'git_add',
+      description:
+        'Stage changes (git add). With a path, stage only that repo-relative file/dir; ' +
+        'without one, stage everything including new/deleted files (git add -A). ' +
+        'Reversible via git reset, so no approval is required.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Optional repo-relative path to stage' },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+      execute: async (args, context) => {
+        const { runGit } = await import('@/services/tools/helpers')
+        const argv = typeof args.path === 'string' && args.path.trim()
+          ? ['add', '--', args.path.trim()]
+          : ['add', '-A']
+        return runGit(argv, context?.projectPath)
+      },
+    },
+    {
+      name: 'git_commit',
+      description:
+        'Commit the staged changes (dangerous: writes to git history — requires approval). ' +
+        'Pass all=true to stage everything first (git add -A) before committing.',
+      parameters: {
+        type: 'object',
+        properties: {
+          message: { type: 'string', description: 'Commit message' },
+          all: { type: 'boolean', description: 'Stage all changes first before committing' },
+        },
+        required: ['message'],
+        additionalProperties: false,
+      },
+      requiresApproval: true,
+      execute: async (args, context) => {
+        const { runGit } = await import('@/services/tools/helpers')
+        const message = String(args.message || '').trim()
+        if (!message) return 'Error: git_commit 需要 message 参数'
+        if (args.all) {
+          const add = await runGit(['add', '-A'], context?.projectPath)
+          if (add.startsWith('Error:')) return add
+        }
+        return runGit(['commit', '-m', message], context?.projectPath)
+      },
+    },
+    {
+      name: 'git_push',
+      description:
+        'Push the current branch to its remote (dangerous: publishes changes — requires approval). ' +
+        'Optionally specify remote (default origin) and branch (default current).',
+      parameters: {
+        type: 'object',
+        properties: {
+          remote: { type: 'string', description: 'Remote name, default origin' },
+          branch: { type: 'string', description: 'Branch name, default current branch' },
+        },
+        required: [],
+        additionalProperties: false,
+      },
+      requiresApproval: true,
+      execute: async (args, context) => {
+        const { runGit } = await import('@/services/tools/helpers')
+        const argv: string[] = ['push']
+        const remote = typeof args.remote === 'string' && args.remote.trim() ? args.remote.trim() : ''
+        const branch = typeof args.branch === 'string' && args.branch.trim() ? args.branch.trim() : ''
+        if (remote) argv.push(remote)
+        if (branch) argv.push(branch)
+        return runGit(argv, context?.projectPath)
+      },
+    },
   ]
 }
 

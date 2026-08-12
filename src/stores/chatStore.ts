@@ -384,6 +384,9 @@ function summarizeToolCall(tc: ToolCall): string {
 const PLAN_TOOLS = new Set([
   'read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files',
   'web_search', 'read_url', 'manage_todo', 'submit_plan', 'ask_user_question', 'list_agents',
+  // 原生只读 git 工具 — 计划模式也应能查看仓库状态（Claude Code 风格：
+  // 提交前先 git_status / git_diff 探查，再提交计划）
+  'git_status', 'git_diff', 'git_log', 'git_branch',
 ])
 
 // Write tools get a checkpoint snapshot before they run
@@ -402,6 +405,9 @@ const MAX_AGENT_ITERATIONS = 100
 const PLAN_MODE_FLAIL_ROUNDS = 5
 const FLAIL_READ_TOOLS = new Set([
   'read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files', 'web_search', 'read_url',
+  // 只读 git 探索也算「空转」——否则 agent 可无限 git_status/git_diff 而
+  // 不触发防空转（光看状态不提交/不计划 = 没有产出）
+  'git_status', 'git_diff', 'git_log', 'git_branch',
 ])
 const WRITE_INTENT_RE = /(git|commit|push|pull|merge|stash|install|run|build|deploy|create|delete|write|edit|remove|提交|推送|拉取|合并|暂存|执行|运行|安装|删除|新建|创建|写入|修改|改动|发布|部署|打包|构建|启动)/i
 

@@ -1,0 +1,118 @@
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+
+/**
+ * Native git tools (Claude Code style) — unit tests for helpers.runGit and the
+ * git tools' argument building / cwd resolution, with window.electronAPI.gitExec
+ * mocked. The real IPC (git:exec) is covered by the main-process allowlist +
+ * timeout; here we only pin down the renderer-side glue.
+ */
+
+let mockGitExec: ReturnType<typeof vi.fn>
+
+beforeEach(() => {
+  mockGitExec = vi.fn(async (_cwd: string, _args: string[]) => ({ success: true, output: 'ok' }))
+  vi.stubGlobal('window', { electronAPI: { gitExec: mockGitExec } })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+import { runGit } from '@/services/tools/helpers'
+import { createToolRegistry } from '@/services/tools/ToolRegistry'
+
+describe('helpers.runGit', () => {
+  it('runs in the given cwd and returns stdout', async () => {
+    mockGitExec.mockResolvedValueOnce({ success: true, output: ' M src/a.ts' })
+    const out = await runGit(['status', '--porcelain'], 'E:/proj')
+    expect(mockGitExec).toHaveBeenCalledWith('E:/proj', ['status', '--porcelain'])
+    expect(out).toBe(' M src/a.ts')
+  })
+
+  it('wraps failures into an Error result', async () => {
+    mockGitExec.mockResolvedValueOnce({ success: false, output: '', error: 'fatal: not a git repository' })
+    const out = await runGit(['log'], 'E:/proj')
+    expect(out).toBe('Error: fatal: not a git repository')
+  })
+
+  it('normalizes empty output', async () => {
+    mockGitExec.mockResolvedValueOnce({ success: true, output: '' })
+    expect(await runGit(['branch'], 'E:/proj')).toBe('(无输出)')
+  })
+})
+
+describe('native git tools', () => {
+  const registry = createToolRegistry()
+  const exec = (name: string, args: Record<string, any> = {}, context?: { projectPath?: string }) =>
+    registry.find((t) => t.name === name)!.execute(args, context)
+
+  it('git_status runs with the session project path', async () => {
+    await exec('git_status', {}, { projectPath: 'E:/proj' })
+    expect(mockGitExec).toHaveBeenCalledWith('E:/proj', ['status', '--porcelain=v1', '--branch'])
+  })
+
+  it('git_diff builds staged / stat / path variants', async () => {
+    await exec('git_diff', { staged: true }, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['diff', '--cached'])
+
+    await exec('git_diff', { stat: true, path: 'src/' }, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['diff', '--stat', '--', 'src/'])
+  })
+
+  it('git_diff truncates oversized output', async () => {
+    mockGitExec.mockResolvedValueOnce({ success: true, output: 'x'.repeat(200 * 1024) })
+    const out = await exec('git_diff', {}, { projectPath: 'P' })
+    expect(out.length).toBeLessThan(120 * 1024 + 200)
+    expect(out).toContain('已截断')
+  })
+
+  it('git_add stages a single path or everything', async () => {
+    await exec('git_add', { path: 'src/a.ts' }, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['add', '--', 'src/a.ts'])
+
+    await exec('git_add', {}, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['add', '-A'])
+  })
+
+  it('git_commit requires a message and stages all when all=true', async () => {
+    mockGitExec.mockResolvedValue({ success: true, output: '' })
+
+    const noMsg = await exec('git_commit', {}, { projectPath: 'P' })
+    expect(noMsg).toContain('Error')
+
+    await exec('git_commit', { message: 'feat: x', all: true }, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenNthCalledWith(1, 'P', ['add', '-A'])
+    expect(mockGitExec).toHaveBeenNthCalledWith(2, 'P', ['commit', '-m', 'feat: x'])
+
+    mockGitExec.mockClear()
+    await exec('git_commit', { message: 'fix: y' }, { projectPath: 'P' })
+    // 不带 all：不先 add，直接 commit
+    expect(mockGitExec).toHaveBeenCalledTimes(1)
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['commit', '-m', 'fix: y'])
+  })
+
+  it('git_push passes remote/branch and defaults to bare git push', async () => {
+    await exec('git_push', { remote: 'origin', branch: 'main' }, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['push', 'origin', 'main'])
+
+    await exec('git_push', {}, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['push'])
+  })
+
+  it('git_log clamps maxCount', async () => {
+    await exec('git_log', { maxCount: 9999 }, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['log', '-100', '--oneline', '--decorate'])
+
+    await exec('git_log', {}, { projectPath: 'P' })
+    expect(mockGitExec).toHaveBeenCalledWith('P', ['log', '-10', '--oneline', '--decorate'])
+  })
+
+  it('falls back to the workspace root when no project path', async () => {
+    // helpers.workspaceRoot 读 DOM；测试环境给个空 DOM，让兜底路径返回空串
+    vi.stubGlobal('document', { getElementById: () => null })
+    const out = await exec('git_status')
+    // cwd 为空串时 runGit 返回明确错误而不是抛异常
+    expect(typeof out).toBe('string')
+    expect(out.startsWith('Error:')).toBe(true)
+  })
+})

@@ -16,6 +16,15 @@ export interface ToolExecuteContext {
 /** File-write tools gated by the read-before-write guard below. */
 const READ_GUARD_TOOLS = new Set(['write_file', 'edit_file', 'delete_file'])
 
+/**
+ * Native git tools built into the registry. When present they shadow the same
+ * tools from the bundled git MCP server (`mcp__git__git_status` etc.) so the
+ * model never sees two overlapping sets of git tools.
+ */
+const NATIVE_GIT_TOOLS = new Set([
+  'git_status', 'git_diff', 'git_log', 'git_branch', 'git_add', 'git_commit', 'git_push',
+])
+
 /** Normalize a path for read-tracking comparisons — Windows paths differ only
  *  in case and slash direction, and the model may not spell them identically. */
 function normalizePath(p: string): string {
@@ -109,7 +118,14 @@ export class ToolExecutor {
   getToolDefinitions(filter?: (name: string) => boolean): ToolDefinition[] {
     let defs = toToolDefinitions(this.tools)
     if (filter) defs = defs.filter((d) => filter(d.function.name))
-    const dynamic = this.dynamicTools.filter((d) => !filter || filter(d.function.name))
+    const dynamic = this.dynamicTools.filter((d) => {
+      if (filter && !filter(d.function.name)) return false
+      // 内置原生 git 工具存在时，隐藏内置 git-server MCP 的同名工具
+      // （mcp__git__git_status → 已有 git_status），避免模型同时看到两套。
+      const m = /^mcp__git__(.+)$/.exec(d.function.name)
+      if (m && NATIVE_GIT_TOOLS.has(m[1])) return false
+      return true
+    })
     const skills = this.skillTools.filter((d) => !filter || filter(d.function.name))
     // Deterministic order (by tool name) — the exact array is part of the
     // request sent every turn, and provider prefix caches (OpenAI / DeepSeek /
@@ -272,6 +288,12 @@ export class ToolExecutor {
         return `Delete: ${args.path}`
       case 'run_command':
         return `Run: ${args.command}\nIn: ${args.cwd || '(project root)'}`
+      case 'git_add':
+        return `git add ${args.path ? `-- ${args.path}` : '-A (全部变更)'}`
+      case 'git_commit':
+        return `git commit -m "${(args.message || '').slice(0, 120)}"${args.all ? ' (先 git add -A)' : ''}`
+      case 'git_push':
+        return `git push ${[args.remote, args.branch].filter(Boolean).join(' ') || '(当前分支到 origin)'}`
       case 'web_search':
         return `Web search: ${args.query}`
       case 'read_url':

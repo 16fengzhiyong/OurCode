@@ -74,6 +74,27 @@ describe('ToolRegistry', () => {
     expect(sendMessage!.parameters.properties).toHaveProperty('targetSessionId')
     expect(sendMessage!.parameters.properties).toHaveProperty('targetTitle')
   })
+
+  it('registers native git tools with the mainstream approval policy', () => {
+    const tools = createToolRegistry()
+    const names = new Set(tools.map((t) => t.name))
+    const readOnly = ['git_status', 'git_diff', 'git_log', 'git_branch']
+    // git_add 可逆 → 免审批；git_commit / git_push 写历史/对外发布 → 需审批
+    expect(names.has('git_add')).toBe(true)
+    expect(names.has('git_commit')).toBe(true)
+    expect(names.has('git_push')).toBe(true)
+
+    for (const name of readOnly) {
+      const tool = tools.find((t) => t.name === name)
+      expect(tool, name).toBeTruthy()
+      expect(tool!.requiresApproval, name).toBeFalsy()
+    }
+    expect(tools.find((t) => t.name === 'git_add')!.requiresApproval).toBeFalsy()
+    expect(tools.find((t) => t.name === 'git_commit')!.requiresApproval).toBe(true)
+    expect(tools.find((t) => t.name === 'git_push')!.requiresApproval).toBe(true)
+    // 命名避开 mcp__ / skill__ 前缀（否则会被 execute 的动态工具分支劫持）
+    for (const name of readOnly) expect(name.startsWith('mcp__')).toBe(false)
+  })
 })
 
 describe('ToolExecutor', () => {
@@ -135,6 +156,44 @@ describe('ToolExecutor', () => {
 
     expect(preview).toContain('npm test')
     expect(preview).toContain('/project')
+  })
+
+  it('should generate friendly previews for git tools', () => {
+    const executor = new ToolExecutor()
+    const commit = executor.getPreview({ id: 'c', name: 'git_commit', arguments: { message: 'feat: 拆分提交' } })
+    expect(commit).toContain('git commit -m')
+    expect(commit).toContain('feat: 拆分提交')
+
+    const add = executor.getPreview({ id: 'c', name: 'git_add', arguments: { path: 'src/a.ts' } })
+    expect(add).toContain('git add -- src/a.ts')
+
+    const addAll = executor.getPreview({ id: 'c', name: 'git_add', arguments: {} })
+    expect(addAll).toContain('git add -A')
+
+    const push = executor.getPreview({ id: 'c', name: 'git_push', arguments: { remote: 'origin', branch: 'main' } })
+    expect(push).toContain('origin main')
+  })
+
+  it('hides bundled git MCP tools shadowed by native git tools', async () => {
+    const executor = new ToolExecutor()
+    // 模拟已连接内置 git MCP（mcp__git__*）
+    await executor.refreshMcpTools()
+    // refreshMcpTools 走 IPC，测试环境拿不到 → 手工注入同形状的 dynamicTools
+    ;(executor as any).dynamicTools = [
+      { type: 'function', function: { name: 'mcp__git__git_status', description: '', parameters: {} } },
+      { type: 'function', function: { name: 'mcp__git__git_diff', description: '', parameters: {} } },
+      // 自定义的、原生没有的 MCP 工具应保留
+      { type: 'function', function: { name: 'mcp__git__git_stash', description: '', parameters: {} } },
+      { type: 'function', function: { name: 'mcp__other__custom', description: '', parameters: {} } },
+    ]
+    const names = executor.getToolDefinitions().map((d) => d.function.name)
+    expect(names).not.toContain('mcp__git__git_status')
+    expect(names).not.toContain('mcp__git__git_diff')
+    expect(names).toContain('mcp__git__git_stash')
+    expect(names).toContain('mcp__other__custom')
+    // 原生 git 工具本身仍在
+    expect(names).toContain('git_status')
+    expect(names).toContain('git_diff')
   })
 
   it('should generate generic preview for unknown tool', () => {

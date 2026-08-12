@@ -155,6 +155,22 @@ export async function runCommand(command: string, cwd?: string): Promise<string>
   return `Error: ${result.error}${result.output ? '\n' + result.output : ''}`
 }
 
+/**
+ * Run a git command in the given repo root (defaults to the workspace root).
+ * 走主进程 git:exec：已带路径白名单校验 + 15s 超时 + 5MB 上限。cwd 优先用
+ * agent 会话的项目根（context.projectPath），与 agent 视角一致——浏览侧
+ * workspaceRoot() 只是兜底。
+ */
+export async function runGit(args: string[], cwd?: string): Promise<string> {
+  const workDir = cwd || workspaceRoot()
+  if (!workDir) return 'Error: 未打开项目，无法执行 git 命令'
+  const result = await window.electronAPI.gitExec(workDir, args)
+  if (result.success) {
+    return result.output || '(无输出)'
+  }
+  return `Error: ${result.error || 'git 命令失败'}`
+}
+
 /** Web search via DuckDuckGo HTML (no API key required) */
 export async function webSearch(query: string): Promise<string> {
   const url = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query)
