@@ -124,7 +124,7 @@ export default function ChatPanel() {
   const [showMoreMenu, setShowMoreMenu] = useState(false)
 
   const agentMode = activeSession?.agentMode || 'chat'
-  const projectEditMode = activeSession?.projectEditMode || 'plan'
+  const projectEditMode = activeSession?.projectEditMode || 'confirm_before_change'
   const targetMode = activeSession?.targetMode === true
   // Same resolution as the agent loop (`session.model || group.defaultModel`) —
   // previously the pill fell back to nothing when session.model was empty,

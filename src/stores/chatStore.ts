@@ -355,23 +355,27 @@ const PLAN_MODE_INSTRUCTION = `
 
 const PLAN_APPROVED_PREFIX = `用户已批准以下计划，现在开始执行。请严格按计划逐步完成，并在执行过程中用 manage_todo 维护任务列表。计划内容：\n`
 
-// Agent-mode prompt: plan for non-trivial tasks, execute directly for trivial ones.
+// Agent-mode prompt: 直接动手（Claude Code / opencode 风格）。规划只发生在
+// 用户主动进入计划模式时；agent 模式默认动作导向——先调研再实现再验证，
+// 用 manage_todo 跟踪进度，而不是先提交计划等待批准。
 const AGENT_MODE_INSTRUCTION = `
 
-你当前处于「Agent 模式」。你可以自主完成复杂的编码任务。
+你当前处于「Agent 模式」。你可以自主完成编码任务。
 规则：
-- 对于较复杂的任务（涉及多个文件修改、需要运行命令、结构性改动），先调研代码库，然后用 submit_plan 提交一份分步实施计划；计划被批准后严格按计划执行。
-- 对于简单、小范围的任务（如回答代码问题、单文件小改动），可以直接执行，无需提交计划。
-- 全程用 manage_todo 维护任务列表，让用户看到进度。
-- 如果信息不足或任务有歧义，可以调用 ask_user_question 向用户提问。
-- 修改文件时用 edit_file 尽量精确，不要破坏无关代码。`
+- 用搜索/读取工具理解代码库后直接动手实现，不要为规划而规划；需要多步推进的任务用 manage_todo 维护任务列表，让用户看到进度。
+- 完成修改后用项目现有的测试 / lint / typecheck 脚本验证（存在的话）。
+- 有专用工具时禁止用 run_command 绕过：git 操作一律用 git_status / git_diff / git_add / git_commit / git_push / git_split_commit，文件操作一律用 read_file / write_file / edit_file / search_in_files。禁止为一次性的 git 操作编写或调试脚本。
+- 提交前先 git_status + git_diff 确认改动范围；按功能拆分提交时用 git_add 逐组暂存 + git_commit，或 git_split_commit 一次完成分组提交；commit message 遵循仓库风格（feat:/fix:/refactor: 前缀）。
+- 工具结果可能被系统压缩清理：重要的信息（文件内容、命令输出、关键结论）及时写入你的可见回复，不要假设之后还能读到原始工具结果。
+- 修改文件时用 edit_file 尽量精确，不要破坏无关代码。
+- 如果信息不足或任务有歧义，可以调用 ask_user_question 向用户提问。`
 
 /** Map a tool name to its trace category (used for icon rendering) */
 function getToolKind(name: string): AgentToolKind {
   if (['read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files'].includes(name)) return 'search'
   if (['web_search', 'read_url'].includes(name)) return 'fetch'
   if (['write_file', 'edit_file', 'create_directory', 'delete_file'].includes(name)) return 'edit'
-  if (name === 'run_command') return 'execute'
+  if (['run_command', 'git_split_commit'].includes(name)) return 'execute'
   if (name === 'submit_plan') return 'switch_mode'
   if (name === 'ask_user_question') return 'ask'
   return 'other'
@@ -392,6 +396,10 @@ function summarizeToolCall(tc: ToolCall): string {
   if (tc.name === 'ask_user_question') return String(a.question || '')
   if (tc.name === 'send_message') return String(a.targetSessionId || a.targetTitle || '')
   if (tc.name === 'list_agents') return String(a.search || '')
+  if (tc.name === 'git_split_commit') {
+    const groups = Array.isArray(a.groups) ? a.groups : []
+    return `${groups.length} 组: ${groups.map((g: any) => String(g?.message || '').split(':')[0] || '').filter(Boolean).join(' / ')}`
+  }
   return tc.name
 }
 
@@ -422,6 +430,13 @@ const WRITE_INTENT_RE = /(git|commit|push|pull|merge|stash|install|run|build|dep
 
 // Max concurrent run_subagent executions within one tool-call batch
 const MAX_PARALLEL_SUBAGENTS = 3
+/** 同一批 tool_calls 中普通工具的并发上限（Claude Code / opencode 风格：
+ *  无依赖的独立工具调用在同一轮并行执行，如 git_status + git_diff）。 */
+const MAX_PARALLEL_TOOLS = 6
+
+/** Agent 会话默认编辑模式——与 Claude Code 默认一致：直接动手，但改文件前
+ *  先征求用户确认。计划模式（plan）改为用户主动选择，不再作为默认。 */
+const DEFAULT_PROJECT_EDIT_MODE: 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access' = 'confirm_before_change'
 
 // Undo stack for message deletion
 interface UndoEntry {
@@ -612,8 +627,11 @@ type RequestMessage = {
  * 只把「较早的、体积大的」tool 消息内容替换成简短提示；模型需要细节时
  * 自然会重新 read_file。UI 里持久化的会话消息不受影响（只改请求数组）。
  */
-const MAX_UNCOMPACTED_TOOL_RESULTS = 16
-const COMPACT_TOOL_RESULT_THRESHOLD = 4000 // 字符
+// 参照 Claude Code microCompact（keepRecent≈5）与 opencode 源头截断：
+// 只保留最近 5 条完整工具结果、超过 1500 字符即压缩，避免上下文随轮数
+// 平方级膨胀（11m47s 那类会话末段每轮输入涨到 ~95K，推理随之变慢）。
+const MAX_UNCOMPACTED_TOOL_RESULTS = 5
+const COMPACT_TOOL_RESULT_THRESHOLD = 1500 // 字符
 
 /**
  * Estimate a stored conversation's FULL history size the way the live request
@@ -2173,7 +2191,7 @@ async function runAgentLoop(
         }
       }
     } else {
-      const planningPhase = (session.projectEditMode || 'plan') === 'plan' && !opts?.planApproved
+      const planningPhase = (session.projectEditMode || DEFAULT_PROJECT_EDIT_MODE) === 'plan' && !opts?.planApproved
       stableSystemPrompt += planningPhase ? PLAN_MODE_INSTRUCTION : AGENT_MODE_INSTRUCTION
     }
   }
@@ -2259,7 +2277,7 @@ async function runAgentLoop(
     if (agentMode === 'agent') {
       // Read the CURRENT edit mode live — the anti-flail question can switch
       // it mid-run, and approval rules must follow.
-      const mode = useChatStore.getState().sessions.find((s) => s.id === sessionId)?.projectEditMode || 'plan'
+      const mode = useChatStore.getState().sessions.find((s) => s.id === sessionId)?.projectEditMode || DEFAULT_PROJECT_EDIT_MODE
       if (mode === 'full_access') needs = false
       else if (mode === 'auto_edit' && FILE_EDIT_TOOLS.has(name)) needs = false
     }
@@ -2297,7 +2315,7 @@ async function runAgentLoop(
       // approval. Computed PER ITERATION (not once before the loop) so the
       // plan-mode anti-flail question can switch the edit mode mid-run and it
       // takes effect on the very next round.
-      const projectEditMode = useChatStore.getState().sessions.find((s) => s.id === sessionId)?.projectEditMode || 'plan'
+      const projectEditMode = useChatStore.getState().sessions.find((s) => s.id === sessionId)?.projectEditMode || DEFAULT_PROJECT_EDIT_MODE
       const usePlanTools = agentMode === 'agent' && projectEditMode === 'plan' && !opts?.planApproved && !targetMode
       // The auto-memory tool is opt-in — hide it when the user disabled it
       const toolDefinitions = (usePlanTools
@@ -2622,6 +2640,8 @@ async function runAgentLoop(
       // once and made MAX_PARALLEL_SUBAGENTS a dead cap: a batch of 8 subagents
       // fired 8 concurrent LLM requests regardless of the limit.
       const deferredSubagents: Array<{ tc: ToolCall; run: () => Promise<ToolResult> }> = []
+      // 普通工具同样先收集为惰性 thunk，批量结束后并发执行（见 MAX_PARALLEL_TOOLS）。
+      const pendingExecutions: Array<{ tc: ToolCall; run: () => Promise<ToolResult> }> = []
 
       // Record a tool result BOTH in the live request history and as a
       // standalone session message. The API requires every assistant tool_calls
@@ -2794,27 +2814,50 @@ async function runAgentLoop(
         }
 
         // Execute the tool — run_subagent calls are deferred for parallel execution.
-        // The explicit per-call session context keeps usage attribution correct
-        // when multiple sessions run agent loops at the same time (the executor's
-        // single setSessionContext slot is shared).
+        // 普通工具也收集为惰性 thunk（不在此处 await），整批收集完统一并发执行：
+        // 模型在同一响应里发出的多个独立工具调用（如 git_status + git_diff +
+        // 读多个文件）并行跑，避免逐个串行等待。检查点/审批仍在上方顺序进行，
+        // 只有执行阶段并行。
         const runContext = { sessionId, projectPath }
+        const runTool = (tc: ToolCall) => () => toolExecutor.execute(tc, runContext).catch((error: any) => ({
+          toolCallId: tc.id,
+          name: tc.name,
+          result: `Error: ${error?.message || String(error)}`,
+          isError: true,
+        }))
         if (tc.name === 'run_subagent') {
-          deferredSubagents.push({
-            tc,
-            // Lazy thunk — the actual execution starts inside runWithConcurrency
-            // so the concurrency cap actually limits in-flight subagents.
-            run: () => toolExecutor.execute(tc, runContext).catch((error: any) => ({
-              toolCallId: tc.id,
-              name: tc.name,
-              result: `Error: ${error?.message || String(error)}`,
-              isError: true,
-            })),
-          })
+          // Lazy thunk — the actual execution starts inside runWithConcurrency
+          // so the concurrency cap actually limits in-flight subagents.
+          deferredSubagents.push({ tc, run: runTool(tc) })
           continue
         }
 
-        const result = await toolExecutor.execute(tc, runContext)
-        finalizeToolResult(tc, result)
+        pendingExecutions.push({ tc, run: runTool(tc) })
+      }
+
+      // Run all regular tools from this batch concurrently (capped), finalize
+      // in input order. All providers match tool results by tool_call_id, so
+      // the order of the tool messages across the batch is irrelevant.
+      if (pendingExecutions.length > 0) {
+        const settled = await runWithConcurrency(
+          pendingExecutions.map((e) => e.run),
+          MAX_PARALLEL_TOOLS,
+        )
+        for (let i = 0; i < pendingExecutions.length; i++) {
+          const { tc } = pendingExecutions[i]
+          const s = settled[i]
+          finalizeToolResult(
+            tc,
+            s.ok && s.value
+              ? s.value
+              : {
+                  toolCallId: tc.id,
+                  name: tc.name,
+                  result: `Error: ${String(s.reason ?? '工具执行失败')}`,
+                  isError: true,
+                },
+          )
+        }
       }
 
       // Await the deferred subagents concurrently (capped), finalize in order
