@@ -60,6 +60,8 @@ export interface RequestSignature {
 
 /** Per-session signature of the most recent request. */
 const prevBySession = new Map<string, RequestSignature>()
+/** Per-session flag: has the provider ever reported any cache-read tokens? */
+const seenCacheReadBySession = new Map<string, boolean>()
 
 export function rememberRequestSignature(sessionId: string, sig: RequestSignature): void {
   prevBySession.set(sessionId, sig)
@@ -71,6 +73,22 @@ export function getPreviousSignature(sessionId: string): RequestSignature | unde
 
 export function resetSessionSignature(sessionId: string): void {
   prevBySession.delete(sessionId)
+  seenCacheReadBySession.delete(sessionId)
+}
+
+/** Record cache-read tokens reported by the provider (0 means none this request). */
+export function recordCacheRead(sessionId: string, tokens: number): void {
+  if (tokens > 0) seenCacheReadBySession.set(sessionId, true)
+}
+
+/**
+ * Whether this provider has EVER reported cache reads. Guards the "unexpected
+ * miss" diagnostic: a relay that drops cache stats always reports 0, so without
+ * this we'd cry "cache miss" on every round even though the provider just
+ * doesn't report caching at all.
+ */
+export function hasSeenCacheRead(sessionId: string): boolean {
+  return seenCacheReadBySession.get(sessionId) === true
 }
 
 export interface CacheBreakReport {

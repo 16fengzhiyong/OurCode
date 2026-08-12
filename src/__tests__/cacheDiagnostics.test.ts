@@ -6,6 +6,8 @@ import {
   rememberRequestSignature,
   getPreviousSignature,
   resetSessionSignature,
+  recordCacheRead,
+  hasSeenCacheRead,
 } from '@/services/llm/cacheDiagnostics'
 
 describe('cacheDiagnostics', () => {
@@ -56,5 +58,24 @@ describe('cacheDiagnostics', () => {
     expect(getPreviousSignature('sess-2')).toBeUndefined()
     resetSessionSignature('sess-1')
     expect(getPreviousSignature('sess-1')).toBeUndefined()
+  })
+
+  it('recordCacheRead gates the unexpected-miss cause for providers that never report cache', () => {
+    resetSessionSignature('sess-diag')
+    const sig = { systemHash: djb2Hash('s'), toolsHash: djb2Hash('t'), perTool: {} }
+    rememberRequestSignature('sess-diag', sig)
+
+    // Provider has never reported a cache read → the generic miss cause exists
+    // in the raw report but callers filter it via hasSeenCacheRead.
+    const raw = analyzeCacheBreak(sig, sig)
+    expect(raw.causes.some((c) => c.includes('未变但缓存未命中'))).toBe(true)
+    expect(hasSeenCacheRead('sess-diag')).toBe(false)
+
+    // Once ANY cache read is seen, the flag flips.
+    recordCacheRead('sess-diag', 0)
+    expect(hasSeenCacheRead('sess-diag')).toBe(false)
+    recordCacheRead('sess-diag', 120)
+    expect(hasSeenCacheRead('sess-diag')).toBe(true)
+    resetSessionSignature('sess-diag')
   })
 })

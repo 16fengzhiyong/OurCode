@@ -12,7 +12,7 @@ import { t } from '@/i18n'
 import { getFileContent } from '@/editor/modelRegistry'
 import { sendLLMRequest, configureLLMCache } from '@/services/llm/LLMClient'
 import { parseLLMError } from '@/services/llm/errors'
-import { djb2Hash, toolSignature, rememberRequestSignature, getPreviousSignature, analyzeCacheBreak } from '@/services/llm/cacheDiagnostics'
+import { djb2Hash, toolSignature, rememberRequestSignature, getPreviousSignature, analyzeCacheBreak, recordCacheRead, hasSeenCacheRead } from '@/services/llm/cacheDiagnostics'
 import { ToolExecutor } from '@/services/tools'
 import { ToolCall, ToolResult } from '@/services/tools/types'
 import { runWithConcurrency } from '@/services/subagents/parallel'
@@ -2423,6 +2423,9 @@ async function runAgentLoop(
       const cacheIsSeparate = configGroup.provider === 'anthropic' || configGroup.apiFormat === 'anthropic'
       const contextTokens = reqTokensIn + (cacheIsSeparate ? reqCacheRead + reqCacheWrite : 0) + reqTokensOut
       if (contextTokens > 0) {
+        // Real API response — note whether the provider reported cache reads
+        // (flips the diagnostics' seen-cache flag as soon as it ever does).
+        recordCacheRead(sessionId, reqCacheRead)
         useChatStore.setState((s) => ({
           sessions: s.sessions.map((sess) =>
             sess.id === sessionId
@@ -2442,7 +2445,10 @@ async function runAgentLoop(
       // diff the previous request's signature to name the culprit — e.g. a tool
       // description/schema that changed every round (MCP / skill tools with
       // dynamic content) silently busts the whole tools segment every turn.
-      // Skipped on local replays (no API call) and tiny prefixes.
+      // Skipped on local replays (no API call) and tiny prefixes. The generic
+      // "system+工具未变" cause is only reported once the provider has actually
+      // reported cache reads before — relays that drop cache stats always show
+      // 0 and would otherwise cry miss on every round.
       if (
         prevSignature &&
         !cacheHit &&
@@ -2450,8 +2456,11 @@ async function runAgentLoop(
         reqCacheRead < Math.floor(stablePrefixEstTokens * 0.5)
       ) {
         const report = analyzeCacheBreak(prevSignature, requestSignature)
-        if (report.causes.length > 0) {
-          console.warn(`[cache诊断] 会话 ${sessionId} 提示词缓存未命中 — ${report.causes.join('；')}`)
+        const causes = hasSeenCacheRead(sessionId)
+          ? report.causes
+          : report.causes.filter((c) => !c.includes('未变但缓存未命中'))
+        if (causes.length > 0) {
+          console.warn(`[cache诊断] 会话 ${sessionId} 提示词缓存未命中 — ${causes.join('；')}`)
         }
       }
 
