@@ -7,6 +7,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { EXHAUSTED_MARKER } from '@shared/constants'
 import MarkdownRenderer from '../Common/MarkdownRenderer'
 import ThinkingSection from './ThinkingSection'
+import ToolStepRow from './ToolStepRow'
 import { PlanCard } from './AgentPanel'
 import WaveLogo from './WaveLogo'
 import ErrorCard from './ErrorCard'
@@ -14,14 +15,6 @@ import MemoryPreviewModal from './MemoryPreviewModal'
 import FileChip from './FileChip'
 import { splitFileLinks } from '@/utils/fileRefs'
 import { useI18n } from '@/i18n/useI18n'
-
-/** 合并后的整个 assistant 气泡（turn）的思考+工具数据 —— 一个气泡只渲染
- *  一个「思考与执行过程」区块，turn 内所有轮次的思考与工具行合并收纳。 */
-interface TurnThinking {
-  thinking?: string
-  toolCalls: Array<{ id: string; name: string; arguments: Record<string, any> }>
-  toolResults?: Array<{ toolCallId: string; name: string; result: string; isError?: boolean }>
-}
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -34,9 +27,6 @@ interface ChatMessageProps {
   hideMeta?: boolean
   /** Hide the hover actions toolbar — only the last message of a turn shows it. */
   hideActions?: boolean
-  /** Turn 级合并的思考+工具数据：由 ChatMessages 传给 turn 的第一条消息渲染，
-   *  其余消息传 null（不重复渲染思考区）。 */
-  turnThinking?: TurnThinking | null
 }
 
 /**
@@ -265,7 +255,7 @@ function TokenUsagePopover({ run, model }: { run: AgentRun; model?: string }) {
   )
 }
 
-function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onToggleSelect, hideMeta, hideActions, turnThinking = null }: ChatMessageProps) {
+function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onToggleSelect, hideMeta, hideActions }: ChatMessageProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
   const [remembered, setRemembered] = useState(false)
@@ -538,16 +528,11 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                   the canvas as individual rows — 可折叠「思考与执行过程」区块 →
                   markdown 正文/结论 → plan card, no aggregated card. */
               <div className="flex flex-col gap-2">
-                {/* 思考 + 工具调用合并为可折叠「思考与执行过程」区块（Stitch 可折叠
-                    思考版）：整个 assistant 气泡只渲染一个（由 ChatMessages 合并
-                    turn 内所有轮次后传入）；正文/结论在此区块下方独立呈现。
-                    运行中挂载时自动展开（让工具执行进度可见），会话结束后可手动收起。 */}
-                {turnThinking && (
+                {/* 单轮思考块 —— 最小化可折叠行，按真实调用顺序交错在正文流中
+                    （思考 → 文字 → 工具），一眼看出每轮思考与工具的关系 */}
+                {message.thinking && (
                   <ThinkingSection
-                    thinking={turnThinking.thinking}
-                    toolCalls={turnThinking.toolCalls}
-                    toolResults={turnThinking.toolResults}
-                    isSessionRunning={isSessionRunning}
+                    thinking={message.thinking}
                     defaultExpanded={isSessionRunning}
                   />
                 )}
@@ -586,6 +571,21 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                     <MarkdownRenderer content={message.content} />
                   </div>
                 )}
+
+                {/* Tool step rows — 本轮正文之后的工具调用，按时间顺序交错在流中 */}
+                {(message.toolCalls || []).map((tc) => {
+                  const result = message.toolResults?.find((r) => r.toolCallId === tc.id)
+                  const rejected = !!result?.isError && /用户拒绝/.test(result.result)
+                  return (
+                    <ToolStepRow
+                      key={tc.id}
+                      toolCall={tc}
+                      result={result}
+                      rejected={rejected}
+                      suspended={!result && !rejected && !isSessionRunning}
+                    />
+                  )
+                })}
 
                 {/* Submitted plan — rendered inline after the submit_plan tool
                     row (approve/cancel, or the kept record) */}

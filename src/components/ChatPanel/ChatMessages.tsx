@@ -188,30 +188,15 @@ export default function ChatMessages() {
   const messages = useMemo(() => activeSession?.messages || [], [activeSession?.messages])
   const visibleMessages = useMemo(() => messages.filter((m) => m.role !== 'tool'), [messages])
   const turns = useMemo(() => {
-    // 合并同一 assistant turn（气泡）内所有轮次的思考与工具数据 —— 整个气泡
-    // 只渲染一个「思考与执行过程」区块，避免每轮一个重复的标题。
-    type Turn =
-      | { kind: 'user'; message: ChatMessageType }
-      | { kind: 'assistant'; messages: ChatMessageType[]; thinking?: string; toolCalls: NonNullable<ChatMessageType['toolCalls']>; toolResults: NonNullable<ChatMessageType['toolResults']> }
-    const result: Turn[] = []
+    // 连续 assistant 消息合并为一个气泡（turn），事件在气泡内按真实顺序
+    // 逐条渲染（思考 → 文字 → 工具 → 思考 → 文字 → 工具），不做任何合并。
+    const result: Array<{ kind: 'user'; message: ChatMessageType } | { kind: 'assistant'; messages: ChatMessageType[] }> = []
     for (const m of messages) {
       if (m.role === 'tool') continue
       if (m.role === 'assistant') {
         const last = result[result.length - 1]
-        if (last && last.kind === 'assistant') {
-          last.messages.push(m)
-          if (m.thinking) last.thinking = last.thinking ? last.thinking + '\n\n' + m.thinking : m.thinking
-          if (m.toolCalls?.length) last.toolCalls.push(...m.toolCalls)
-          if (m.toolResults?.length) last.toolResults.push(...m.toolResults)
-        } else {
-          result.push({
-            kind: 'assistant',
-            messages: [m],
-            thinking: m.thinking,
-            toolCalls: m.toolCalls ? [...m.toolCalls] : [],
-            toolResults: m.toolResults ? [...m.toolResults] : [],
-          })
-        }
+        if (last && last.kind === 'assistant') last.messages.push(m)
+        else result.push({ kind: 'assistant', messages: [m] })
       } else {
         result.push({ kind: 'user', message: m })
       }
@@ -431,9 +416,6 @@ export default function ChatMessages() {
                   onToggleSelect={toggleSelect}
                   hideMeta={idx > 0}
                   hideActions={idx < turn.messages.length - 1}
-                  // 合并后的思考+工具区只挂在气泡第一条消息上渲染一次；
-                  // 直接传 turn 对象（引用稳定，保住 ChatMessage 的 memo）
-                  turnThinking={idx === 0 ? turn : null}
                 />
               ))}
             </div>
@@ -476,7 +458,7 @@ export default function ChatMessages() {
               )}
             </div>
             {/* Thinking streams auto-expanded, then collapses once committed */}
-            {stream?.thinking && <ThinkingSection thinking={stream.thinking} toolCalls={[]} defaultExpanded />}
+            {stream?.thinking && <ThinkingSection thinking={stream.thinking} defaultExpanded />}
             {stream?.content ? (
               <div className="text-sm text-nova-text-primary">
                 <MarkdownRenderer content={stream.content} />
