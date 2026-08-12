@@ -15,6 +15,14 @@ import FileChip from './FileChip'
 import { splitFileLinks } from '@/utils/fileRefs'
 import { useI18n } from '@/i18n/useI18n'
 
+/** 合并后的整个 assistant 气泡（turn）的思考+工具数据 —— 一个气泡只渲染
+ *  一个「思考与执行过程」区块，turn 内所有轮次的思考与工具行合并收纳。 */
+interface TurnThinking {
+  thinking?: string
+  toolCalls: Array<{ id: string; name: string; arguments: Record<string, any> }>
+  toolResults?: Array<{ toolCallId: string; name: string; result: string; isError?: boolean }>
+}
+
 interface ChatMessageProps {
   message: ChatMessageType
   sessionId: string
@@ -26,6 +34,9 @@ interface ChatMessageProps {
   hideMeta?: boolean
   /** Hide the hover actions toolbar — only the last message of a turn shows it. */
   hideActions?: boolean
+  /** Turn 级合并的思考+工具数据：由 ChatMessages 传给 turn 的第一条消息渲染，
+   *  其余消息传 null（不重复渲染思考区）。 */
+  turnThinking?: TurnThinking | null
 }
 
 /**
@@ -254,7 +265,7 @@ function TokenUsagePopover({ run, model }: { run: AgentRun; model?: string }) {
   )
 }
 
-function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onToggleSelect, hideMeta, hideActions }: ChatMessageProps) {
+function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onToggleSelect, hideMeta, hideActions, turnThinking = null }: ChatMessageProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
   const [remembered, setRemembered] = useState(false)
@@ -528,14 +539,14 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                   markdown 正文/结论 → plan card, no aggregated card. */
               <div className="flex flex-col gap-2">
                 {/* 思考 + 工具调用合并为可折叠「思考与执行过程」区块（Stitch 可折叠
-                    思考版）：思考文本与全部工具行收纳在同一容器里；正文/结论在下方
-                    独立呈现。运行中挂载时自动展开（让工具执行进度可见），
-                    会话结束后可手动收起。 */}
-                {(message.thinking || (message.toolCalls || []).length > 0) && (
+                    思考版）：整个 assistant 气泡只渲染一个（由 ChatMessages 合并
+                    turn 内所有轮次后传入）；正文/结论在此区块下方独立呈现。
+                    运行中挂载时自动展开（让工具执行进度可见），会话结束后可手动收起。 */}
+                {turnThinking && (
                   <ThinkingSection
-                    thinking={message.thinking}
-                    toolCalls={message.toolCalls || []}
-                    toolResults={message.toolResults}
+                    thinking={turnThinking.thinking}
+                    toolCalls={turnThinking.toolCalls}
+                    toolResults={turnThinking.toolResults}
                     isSessionRunning={isSessionRunning}
                     defaultExpanded={isSessionRunning}
                   />

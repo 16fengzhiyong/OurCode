@@ -5,6 +5,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Material Symbols Outlined — 工具调用等处的图标字体（Stitch 全工具版设计）。
+   类名与 Google 字体 CSS 一致；本地兜底定义保证在离线/字体加载失败时
+   退化为字面文本而不破坏布局。 */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
 /* Root — Light Glassmorphism design tokens (GPT-platform style).
    Default is LIGHT; `.dark` (below) overrides with the dark glass variant. */
 :root {

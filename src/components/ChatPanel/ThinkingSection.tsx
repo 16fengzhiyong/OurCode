@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '@/i18n/useI18n'
 import ToolStepRow from './ToolStepRow'
 
@@ -11,7 +11,7 @@ interface ThinkingSectionProps {
   toolResults?: Array<{ toolCallId: string; name: string; result: string; isError?: boolean }>
   /** 会话是否仍在运行 —— 决定无结果工具显示「执行中」还是「未执行」 */
   isSessionRunning?: boolean
-  /** 流式期间自动展开；提交后默认收起为一行摘要 */
+  /** 运行/流式期间自动展开（defaultExpanded 变 true 时也会展开）；默认收起 */
   defaultExpanded?: boolean
 }
 
@@ -30,6 +30,12 @@ export default function ThinkingSection({
 }: ThinkingSectionProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
   const t = useI18n()
+
+  // 运行中自动展开（新轮次并入同一气泡时 defaultExpanded 变化也能生效）；
+  // 只扩不缩 —— 会话结束或用户手动收起都不会被这个 effect 干扰。
+  useEffect(() => {
+    if (defaultExpanded) setIsExpanded(true)
+  }, [defaultExpanded])
 
   const { pendingCount, errorCount } = useMemo(() => {
     let pending = 0
@@ -60,7 +66,9 @@ export default function ThinkingSection({
         className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left cursor-pointer select-none group hover:bg-nova-hover/50 transition-colors"
       >
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[14px] leading-none shrink-0">💭</span>
+          <span className="material-symbols-outlined text-[16px] leading-none text-nova-text-secondary shrink-0" aria-hidden>
+            psychology
+          </span>
           <span className="text-[12px] font-medium text-nova-text-secondary shrink-0">
             {t('chat.thinkingProcess')}
           </span>
@@ -76,21 +84,21 @@ export default function ThinkingSection({
             </span>
           )}
         </div>
-        <svg
-          className={`w-3 h-3 text-nova-text-muted shrink-0 transition-transform duration-200 group-hover:text-nova-text-secondary ${isExpanded ? 'rotate-180' : ''}`}
-          fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"
+        <span
+          className={`material-symbols-outlined text-[16px] leading-none text-nova-text-muted shrink-0 transition-transform duration-200 group-hover:text-nova-text-secondary ${isExpanded ? 'rotate-180' : ''}`}
+          aria-hidden
         >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+          expand_more
+        </span>
       </button>
 
       {isExpanded && (
         <div className="px-3 pb-3 flex flex-col gap-3 border-t border-nova-border/50 pt-3">
-          {/* 思考文本 — 紫色左线（设计：border-l-2 border-tertiary/40） */}
+          {/* 思考文本 — 紫色左线（设计：border-l-2 border-tertiary/40，斜体） */}
           {thinking && (
             <div className="relative pl-3 border-l-2 border-accent-purple/40 py-0.5">
-              <p className="text-[12.5px] text-nova-text-muted leading-[1.65] whitespace-pre-wrap">
-                <span className="mr-1">💭</span>
+              <p className="text-[12.5px] text-nova-text-muted leading-[1.65] whitespace-pre-wrap italic">
+                <span className="mr-1 not-italic">💭</span>
                 {thinking}
               </p>
             </div>

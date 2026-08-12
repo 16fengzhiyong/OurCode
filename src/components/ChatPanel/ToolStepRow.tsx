@@ -14,14 +14,19 @@ export interface ToolStepRowProps {
   suspended?: boolean
 }
 
-/** Emoji icon per tool type — shown inside the row's leading icon */
+/**
+ * Material Symbols Outlined 图标（Stitch「全工具增强版」设计）——
+ * 每个工具类型一个符号名；设计稿未覆盖的工具按同类语义映射。
+ */
 const TOOL_ICONS: Record<string, string> = {
-  read_file: '📄', list_directory: '📁', get_directory_tree: '🌳',
-  search_files: '🔍', search_in_files: '🔎', write_file: '✏️',
-  edit_file: '🔧', create_directory: '📂', delete_file: '🗑️',
-  run_command: '⚡', manage_todo: '✅', submit_plan: '📋',
-  ask_user_question: '❓', web_search: '🌐', read_url: '🔗',
-  run_subagent: '🤖',
+  read_file: 'description', list_directory: 'folder', get_directory_tree: 'account_tree',
+  search_files: 'search', search_in_files: 'search', write_file: 'save',
+  edit_file: 'edit', create_directory: 'create_new_folder', delete_file: 'delete',
+  run_command: 'terminal', manage_todo: 'task_alt', submit_plan: 'assignment',
+  ask_user_question: 'help', web_search: 'language', read_url: 'link',
+  run_subagent: 'smart_toy', send_message: 'forum',
+  git_status: 'info', git_diff: 'difference', git_log: 'history', git_branch: 'call_split',
+  git_add: 'add_box', git_push: 'publish', git_commit: 'commit', git_init: 'rocket_launch',
 }
 
 const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
@@ -52,98 +57,87 @@ function extractKey(tc: ToolStepRowProps['toolCall']): string {
     case 'web_search': return tc.arguments.query || ''
     case 'read_url': return tc.arguments.url || ''
     case 'run_subagent': return tc.arguments.name || tc.arguments.description?.slice(0, 30) || 'sub-agent'
+    case 'send_message': return tc.arguments.targetSessionId || tc.arguments.targetTitle || ''
     default:
       if (tc.name.startsWith('mcp__')) return tc.name.slice('mcp__'.length).split('__').pop() || tc.name
       return JSON.stringify(tc.arguments).slice(0, 40)
   }
 }
 
-/** Collapse a long result to a one-line summary for the inline caption */
+/** Collapse a long result to a one-line summary (shown on the pill's tooltip) */
 function summarizeResult(result: string, maxLen = 90): string {
   const flat = result.replace(/\s+/g, ' ').trim()
   return flat.length > maxLen ? flat.slice(0, maxLen) + '…' : flat
 }
 
 /**
- * One tool call rendered as its own row in the linear transcript (极简纯净版):
- * icon + mono name + compact key + status, click to expand args/result.
- * Pending rows spin in accent blue and flip to ✓/✗ in place when the result lands.
+ * 单个工具调用行（Stitch「全工具增强版」设计）：圆角胶囊
+ *  = Material 图标 + mono 工具名 + 琥珀色 key chip + 分隔线 + 状态，
+ *  点击展开参数/完整结果。Pending 胶囊带蓝色描边与旋转 spinner。
  */
 export default function ToolStepRow({ toolCall, result, rejected, suspended = false }: ToolStepRowProps) {
   const [expanded, setExpanded] = useState(false)
   const t = useI18n()
 
-  const icon = TOOL_ICONS[toolCall.name] || '🔧'
+  const icon = TOOL_ICONS[toolCall.name] || (toolCall.name.startsWith('mcp__') ? 'extension' : 'bolt')
   const labelKey = TOOL_LABEL_KEYS[toolCall.name]
   const key = extractKey(toolCall)
   const isPending = !result && !rejected && !suspended
   const isError = !!result?.isError || !!rejected
-  const done = !!result && !result.isError
+
+  const pillCls = expanded
+    ? 'border-nova-accent/40 bg-nova-hover'
+    : isPending
+      ? 'border-nova-accent/30 bg-nova-accent/5'
+      : 'border-nova-border/60 bg-nova-card/60 hover:bg-nova-hover/60'
 
   return (
     <div className="flex flex-col gap-1">
-      {/* Status caption (one line, secondary) — pending shows spinner + 执行中 */}
-      {isPending && (
-        <div className="flex items-center gap-1.5 text-[11px] text-nova-text-muted pl-0.5">
-          <svg className="w-3 h-3 animate-spin-slow text-nova-accent shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-          </svg>
-          <span className="font-mono">{t('tool.running')}…</span>
-        </div>
-      )}
-      {suspended && (
-        <div className="text-[11px] text-nova-text-muted pl-0.5">
-          <span className="text-nova-text-muted mr-1">—</span>
-          {t('tool.notExecuted')}
-        </div>
-      )}
-      {done && result && (
-        <div className="text-[11px] text-nova-text-muted pl-0.5 truncate" title={result.result}>
-          <span className="text-success mr-1">✓</span>
-          {summarizeResult(result.result)}
-        </div>
-      )}
-      {isError && (
-        <div className="text-[11px] text-nova-text-muted pl-0.5 truncate">
-          <span className="text-error mr-1">✗</span>
-          {rejected ? t('tool.rejected') : (result?.result ? summarizeResult(result.result) : t('tool.failed'))}
-        </div>
-      )}
-
       {/* The pill row */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className={`inline-flex items-center gap-1.5 pl-2 pr-2 py-1 rounded-lg border transition-colors select-none text-left max-w-full ${
-          expanded ? 'border-nova-accent/40 bg-nova-hover' : 'border-nova-border bg-nova-surface/40 hover:bg-nova-hover'
-        } ${isPending ? 'border-nova-accent/30' : ''}`}
+        title={
+          isPending ? t('tool.running')
+          : suspended ? t('tool.notExecuted')
+          : rejected ? t('tool.rejected')
+          : result?.result ? summarizeResult(result.result) : undefined
+        }
+        className={`inline-flex items-center gap-1.5 pl-2.5 pr-2 py-1.5 rounded-full border transition-colors select-none text-left max-w-full ${pillCls}`}
       >
-        <span className="shrink-0 text-[13px] leading-none">{icon}</span>
-        <span className="font-mono text-[11.5px] font-semibold text-nova-accent shrink-0">
+        <span className="material-symbols-outlined text-[14px] leading-none text-nova-text-secondary shrink-0" aria-hidden>
+          {icon}
+        </span>
+        <span className="font-mono text-[11.5px] text-nova-text-primary shrink-0">
           {labelKey ? t(labelKey) : toolCall.name}
         </span>
         {key && (
-          <span className="font-mono text-[11px] text-nova-text-muted truncate max-w-[130px]">
-            <span className="opacity-70">“</span>{key}<span className="opacity-70">”</span>
+          <span className="font-mono text-[11px] text-amber-600/90 bg-amber-500/10 px-1.5 py-0.5 rounded truncate max-w-[150px]">
+            “{key}”
           </span>
         )}
-        <span className="ml-auto shrink-0 flex items-center">
-          {suspended ? (
-            <span className="text-nova-text-muted text-[12px] leading-none">–</span>
-          ) : isPending ? (
-            <svg className="w-3 h-3 animate-spin-slow text-nova-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-            </svg>
-          ) : isError ? (
-            <span className="text-error text-[12px] leading-none">✗</span>
-          ) : (
-            <span className="text-success text-[12px] leading-none">✓</span>
-          )}
-          <svg
-            className={`w-3 h-3 ml-1 text-nova-text-muted transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-            fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24" strokeLinecap="round" strokeLinejoin="round"
-          >
-            <path d="M6 9l6 6 6-6" />
-          </svg>
+        <span className="w-px h-3 bg-nova-border/60 mx-0.5 shrink-0" aria-hidden />
+        {/* Status */}
+        {suspended ? (
+          <span className="text-nova-text-muted text-[12px] leading-none shrink-0">–</span>
+        ) : isPending ? (
+          <span className="material-symbols-outlined text-[14px] leading-none text-nova-accent animate-spin-slow shrink-0" aria-hidden>
+            progress_activity
+          </span>
+        ) : isError ? (
+          <span className="material-symbols-outlined text-[14px] leading-none text-error shrink-0" aria-hidden>
+            close
+          </span>
+        ) : (
+          <span className="material-symbols-outlined text-[14px] leading-none text-success shrink-0" aria-hidden>
+            check
+          </span>
+        )}
+        {/* Chevron — 展开/收起 */}
+        <span
+          className={`material-symbols-outlined text-[14px] leading-none text-nova-text-muted shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+          aria-hidden
+        >
+          expand_more
         </span>
       </button>
 
