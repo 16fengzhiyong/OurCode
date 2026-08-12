@@ -21,7 +21,7 @@ const mockApi = {
 }
 vi.stubGlobal('window', { electronAPI: mockApi })
 
-import { useChatStore, stopGitBranchPolling, trimHistoryForContext, compactToolResults, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, estimateSessionHistoryTokens, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
+import { useChatStore, stopGitBranchPolling, trimHistoryForContext, compactToolResults, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, estimateSessionHistoryTokens, estimateContextTokens, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { createToolRegistry } from '@/services/tools/ToolRegistry'
@@ -353,6 +353,35 @@ describe('chatStore estimateSessionHistoryTokens', () => {
     const total = estimateSessionHistoryTokens(messages)
     // Old formula ≈ 18×2 + 6×1.3 + ~17×0.5 ≈ 53; new ≈ 18×1.2 + 23×0.3 ≈ 28
     expect(total).toBeLessThan(35)
+  })
+})
+
+describe('chatStore estimateContextTokens', () => {
+  it('baselines on real API usage and estimates only messages added since', () => {
+    const base = [
+      { role: 'user' as const, content: '你好' },
+      { role: 'assistant' as const, content: '好的' },
+    ]
+    const session = {
+      lastContextTokens: 150000, // billing-accurate usage from last API response
+      lastContextMessageCount: base.length,
+      messages: [
+        ...base,
+        { role: 'user' as const, content: '继续' },
+        { role: 'assistant' as const, content: '完成' },
+      ],
+    }
+    const total = estimateContextTokens(session)
+    // 150000 baseline + only the 2 new messages estimated (a few tokens)
+    expect(total).toBeGreaterThan(150000)
+    expect(total).toBeLessThan(150000 + 50)
+  })
+
+  it('falls back to pure estimation when no real baseline was recorded', () => {
+    const session = {
+      messages: [{ role: 'user' as const, content: '你好世界' }],
+    }
+    expect(estimateContextTokens(session)).toBe(estimateSessionHistoryTokens(session.messages))
   })
 })
 

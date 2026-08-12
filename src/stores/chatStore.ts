@@ -634,6 +634,31 @@ export function estimateSessionHistoryTokens(messages: Array<{ role: string; con
   return sum
 }
 
+/**
+ * Estimate the context window a session occupies — REAL token usage from the
+ * last API response (input + cache + output, provider-aware) as the baseline,
+ * plus a rough estimate for messages added since (Claude Code's
+ * tokenCountWithEstimation pattern). This is what the "已使用 X%" indicator
+ * shows: the baseline is exact (billing-accurate), only the delta is estimated.
+ * Falls back to pure estimation when no real usage has been recorded yet.
+ */
+export function estimateContextTokens(session: {
+  lastContextTokens?: number
+  lastContextMessageCount?: number
+  messages: Array<{ role: string; content: string }>
+}): number {
+  const baseCount = session.lastContextMessageCount ?? 0
+  const baseline = session.lastContextTokens
+  if (baseline == null || baseline <= 0 || baseCount <= 0) {
+    return estimateSessionHistoryTokens(session.messages)
+  }
+  // History edits (opt-in) may have deleted messages below the baseline count —
+  // clamp so the delta can't go negative; the baseline then slightly
+  // over-counts until the next request refreshes it.
+  const added = session.messages.slice(Math.min(baseCount, session.messages.length))
+  return baseline + estimateSessionHistoryTokens(added)
+}
+
 /** Exported for unit tests. */
 export function compactToolResults(messages: RequestMessage[]): RequestMessage[] {
   const totalTools = messages.filter((m) => m.role === 'tool').length
@@ -2372,6 +2397,30 @@ async function runAgentLoop(
       if (cacheHit) {
         runCacheHits += 1
         runCacheTokensSaved += cacheHit.savedTokensIn + cacheHit.savedTokensOut
+      }
+
+      // Persist the REAL context size of this API response so the "已使用 X%"
+      // indicator baselines on billing-accurate usage (Claude Code-style) and
+      // estimates only messages added since. Provider-aware: Anthropic reports
+      // cache separately from input_tokens; OpenAI-compatible prompt_tokens
+      // (DeepSeek et al.) already include the cached prefix, so adding cache
+      // again there would double-count. Skip local cache replays (no API call,
+      // usage is 0) so the previous real baseline is kept.
+      const cacheIsSeparate = configGroup.provider === 'anthropic' || configGroup.apiFormat === 'anthropic'
+      const contextTokens = reqTokensIn + (cacheIsSeparate ? reqCacheRead + reqCacheWrite : 0) + reqTokensOut
+      if (contextTokens > 0) {
+        useChatStore.setState((s) => ({
+          sessions: s.sessions.map((sess) =>
+            sess.id === sessionId
+              ? {
+                  ...sess,
+                  lastContextTokens: contextTokens,
+                  lastContextMessageCount: sess.messages.length,
+                  updatedAt: Date.now(),
+                }
+              : sess
+          ),
+        }))
       }
 
       // No tool calls - we're done

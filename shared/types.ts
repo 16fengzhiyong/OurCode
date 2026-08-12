@@ -79,6 +79,14 @@ export interface ChatSession {
   planStatus?: 'none' | 'pending_approval' | 'approved' | 'canceled'
   // Project workspace path this session belongs to (captured at creation time)
   projectPath?: string
+  // Real context size (input + cache + output tokens) reported by the last API
+  // response. The "已使用 X%" indicator baselines on this (Claude Code-style)
+  // and only estimates messages added after it, instead of re-summing the whole
+  // history from characters (which drifts further from reality every round).
+  lastContextTokens?: number
+  /** session.messages.length when lastContextTokens was recorded — messages
+   *  added after that point are the only part that needs rough estimation. */
+  lastContextMessageCount?: number
 }
 
 // Agent todo list item (managed via the manage_todo tool)
