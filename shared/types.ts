@@ -307,6 +307,11 @@ export interface UserPreferences {
   /** Send Anthropic prompt-caching cache_control breakpoints (system/tools/
    *  mid-conversation) so repeated reads are billed at the cached rate. */
   anthropicPromptCache: boolean
+  /** Extend Anthropic prompt-cache breakpoints to a 1-hour TTL (cache_control
+   *  { type: 'ephemeral', ttl: '1h' }) instead of the default 5 minutes — long
+   *  agent runs keep their prefix cached across slow tool rounds. Only models
+   *  with 1h ephemeral cache support accept the ttl field. */
+  anthropicPromptCache1h?: boolean
   /** LSP servers by Monaco language id, e.g. { python: "pylsp", go: "gopls -mode stdio" } */
   lspServers?: Record<string, string>
   /** How this app treats inbound cross-session messages (send_message tool):
@@ -375,6 +380,10 @@ export interface LLMRequest {
    *  Set by the client when the user enabled prompt caching — not part of the
    *  cache key. */
   providerCache?: boolean
+  /** Internal: extend Anthropic cache_control breakpoints to a 1-hour TTL
+   *  (cache_control { type: 'ephemeral', ttl: '1h' }) instead of the default
+   *  ~5 minutes. Set alongside providerCache by the client. */
+  providerCacheTtl1h?: boolean
 }
 
 // LLM Stream Chunk

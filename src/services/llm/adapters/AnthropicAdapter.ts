@@ -91,19 +91,20 @@ function estimateRequestTokens(req: LLMRequest): number {
  * Add a cache_control breakpoint to a message's LAST content block when that
  * block can carry one (text, or tool_use — tool_result blocks can't). Returns
  * true when a breakpoint was placed. The block array is copied so the
- * caller's request objects are never mutated.
+ * caller's request objects are never mutated. `cc` is the cache_control value
+ * (plain ephemeral, or ephemeral + ttl: '1h' when the 1h-TTL pref is on).
  */
-function addHistoryBreakpoint(m: any): boolean {
+function addHistoryBreakpoint(m: any, cc: Record<string, unknown>): boolean {
   const content = m.content
   if (typeof content === 'string') {
     if (!content) return false
-    m.content = [{ type: 'text', text: content, cache_control: { type: 'ephemeral' } }]
+    m.content = [{ type: 'text', text: content, cache_control: cc }]
     return true
   }
   if (Array.isArray(content) && content.length > 0) {
     const last = content[content.length - 1]
     if (last && (last.type === 'text' || last.type === 'tool_use')) {
-      m.content = [...content.slice(0, -1), { ...last, cache_control: { type: 'ephemeral' } }]
+      m.content = [...content.slice(0, -1), { ...last, cache_control: cc }]
       return true
     }
   }
@@ -142,6 +143,11 @@ export class AnthropicAdapter implements LLMAdapter {
      * mutation can't leak into the retry.
      */
     const buildBody = (cache: boolean): { body: Record<string, any>; messages: any[] } => {
+      // cache_control value for every breakpoint — plain ephemeral (~5 min TTL),
+      // or ttl: '1h' when the user enabled the 1h prompt-cache preference.
+      const cc: Record<string, unknown> = req.providerCacheTtl1h
+        ? { type: 'ephemeral', ttl: '1h' }
+        : { type: 'ephemeral' }
       // Anthropic: separate system message from messages array
       let systemPrompt = ''
       // any[] — the cache_control breakpoint below rewrites a message's content
@@ -237,12 +243,12 @@ export class AnthropicAdapter implements LLMAdapter {
         const sysToolsTokens = estimateBodyTokens(body.system, body.tools)
         if (sysToolsTokens >= MIN_CACHE_SEGMENT_TOKENS) {
           if (typeof body.system === 'string' && body.system) {
-            body.system = [{ type: 'text', text: body.system, cache_control: { type: 'ephemeral' } }]
+            body.system = [{ type: 'text', text: body.system, cache_control: cc }]
           }
           // Cache the tools segment: the breakpoint goes on the LAST tool.
           if (Array.isArray(body.tools) && body.tools.length > 0) {
             const last = body.tools[body.tools.length - 1]
-            body.tools[body.tools.length - 1] = { ...last, cache_control: { type: 'ephemeral' } }
+            body.tools[body.tools.length - 1] = { ...last, cache_control: cc }
           }
         }
         // Recent-history breakpoint: walk back from the second-to-last message
@@ -267,7 +273,7 @@ export class AnthropicAdapter implements LLMAdapter {
         let recentIdx = -1
         for (let i = messages.length - 2; i >= start; i--) {
           if (prefixTokens[i] + msgTokens[i] < MIN_CACHE_SEGMENT_TOKENS) continue
-          if (addHistoryBreakpoint(messages[i])) {
+          if (addHistoryBreakpoint(messages[i], cc)) {
             recentIdx = i
             break
           }
@@ -287,7 +293,7 @@ export class AnthropicAdapter implements LLMAdapter {
             ) {
               messages[i] = {
                 ...m,
-                content: [{ type: 'text', text: m.content, cache_control: { type: 'ephemeral' } }],
+                content: [{ type: 'text', text: m.content, cache_control: cc }],
               }
               break
             }

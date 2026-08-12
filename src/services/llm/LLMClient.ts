@@ -41,15 +41,20 @@ interface LLMCacheConfig {
   responseCacheEnabled?: () => boolean
   /** Provider prompt-caching markers (Anthropic cache_control). */
   anthropicPromptCacheEnabled?: () => boolean
+  /** Anthropic 1-hour cache TTL (cache_control { type: 'ephemeral', ttl: '1h' })
+   *  instead of the default 5 minutes. */
+  anthropicPromptCache1hEnabled?: () => boolean
 }
 
 let responseCacheEnabled: () => boolean = () => false
 let anthropicPromptCacheEnabled: () => boolean = () => true
+let anthropicPromptCache1hEnabled: () => boolean = () => false
 
 /** Wire cache toggles (lazily evaluated per request, defaults = cache off). */
 export function configureLLMCache(config: LLMCacheConfig): void {
   if (config.responseCacheEnabled) responseCacheEnabled = config.responseCacheEnabled
   if (config.anthropicPromptCacheEnabled) anthropicPromptCacheEnabled = config.anthropicPromptCacheEnabled
+  if (config.anthropicPromptCache1hEnabled) anthropicPromptCache1hEnabled = config.anthropicPromptCache1hEnabled
 }
 
 /** Replay a cached response as stream chunks, zeroing usage (no tokens billed). */
@@ -89,9 +94,16 @@ export async function* sendLLMRequest(
 
   // Provider prompt-caching markers (Anthropic cache_control breakpoints, DeepSeek
   // auto-caches repeated prefixes server-side) so repeated prefixes are billed
-  // at the cached read rate.
+  // at the cached read rate. Anthropic optionally extends the breakpoints to a
+  // 1-hour TTL (default is ~5 min) so long agent runs keep their prefix cached.
   const reqWithCache = (config.provider === 'anthropic' || config.provider === 'deepseek') && anthropicPromptCacheEnabled()
-    ? { ...req, providerCache: true }
+    ? {
+        ...req,
+        providerCache: true,
+        ...(config.provider === 'anthropic' && anthropicPromptCache1hEnabled()
+          ? { providerCacheTtl1h: true }
+          : {}),
+      }
     : req
 
   const controller = new AbortController()

@@ -326,4 +326,17 @@ describe('AnthropicAdapter — prompt caching (cache_control)', () => {
     expect(JSON.stringify(body)).not.toContain('cache_control')
     expect(typeof body.system).toBe('string')
   })
+
+  it('extends every breakpoint to a 1-hour TTL when providerCacheTtl1h is set', async () => {
+    await drain(new AnthropicAdapter(), largeRequest({ providerCache: true, providerCacheTtl1h: true }))
+
+    const body = JSON.parse(llmFetchMock.mock.calls[0][1].body)
+    expect(body.system[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' })
+    expect(body.tools[body.tools.length - 1].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' })
+    // mid-conversation breakpoint also carries the ttl
+    expect(body.messages[body.messages.length - 2].content[0].cache_control).toEqual({
+      type: 'ephemeral',
+      ttl: '1h',
+    })
+  })
 })

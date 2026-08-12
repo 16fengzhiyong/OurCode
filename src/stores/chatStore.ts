@@ -12,6 +12,7 @@ import { t } from '@/i18n'
 import { getFileContent } from '@/editor/modelRegistry'
 import { sendLLMRequest, configureLLMCache } from '@/services/llm/LLMClient'
 import { parseLLMError } from '@/services/llm/errors'
+import { djb2Hash, toolSignature, rememberRequestSignature, getPreviousSignature, analyzeCacheBreak } from '@/services/llm/cacheDiagnostics'
 import { ToolExecutor } from '@/services/tools'
 import { ToolCall, ToolResult } from '@/services/tools/types'
 import { runWithConcurrency } from '@/services/subagents/parallel'
@@ -31,6 +32,7 @@ import { captureCheckpoint as captureCheckpointService } from '@/services/checkp
 configureLLMCache({
   responseCacheEnabled: () => useEditorStore.getState().preferences.llmResponseCache,
   anthropicPromptCacheEnabled: () => useEditorStore.getState().preferences.anthropicPromptCache,
+  anthropicPromptCache1hEnabled: () => !!useEditorStore.getState().preferences.anthropicPromptCache1h,
 })
 
 // Cached git info (refreshed via refreshGitBranch)
@@ -2291,6 +2293,18 @@ async function runAgentLoop(
         : toolExecutor.getToolDefinitions())
         .filter((d) => useEditorStore.getState().preferences.aiAutoMemory || d.function.name !== 'remember')
 
+      // Cache-break diagnostics: sign the byte-stable prefix (system + tools)
+      // before the request so a later cache miss can name what changed.
+      const toolSig = toolSignature(toolDefinitions)
+      const requestSignature = {
+        systemHash: djb2Hash(stable),
+        toolsHash: toolSig.hash,
+        perTool: toolSig.perTool,
+      }
+      const prevSignature = getPreviousSignature(sessionId)
+      rememberRequestSignature(sessionId, requestSignature)
+      const stablePrefixEstTokens = estimateTokens(stable) + estimateTokens(JSON.stringify(toolDefinitions))
+
       const req = {
         model,
         messages: messages.map((m) => ({
@@ -2421,6 +2435,24 @@ async function runAgentLoop(
               : sess
           ),
         }))
+      }
+
+      // Cache-break diagnostics (Claude Code promptCacheBreakDetection style):
+      // when the stable prefix should have been cache-read but mostly wasn't,
+      // diff the previous request's signature to name the culprit — e.g. a tool
+      // description/schema that changed every round (MCP / skill tools with
+      // dynamic content) silently busts the whole tools segment every turn.
+      // Skipped on local replays (no API call) and tiny prefixes.
+      if (
+        prevSignature &&
+        !cacheHit &&
+        stablePrefixEstTokens >= 4096 &&
+        reqCacheRead < Math.floor(stablePrefixEstTokens * 0.5)
+      ) {
+        const report = analyzeCacheBreak(prevSignature, requestSignature)
+        if (report.causes.length > 0) {
+          console.warn(`[cache诊断] 会话 ${sessionId} 提示词缓存未命中 — ${report.causes.join('；')}`)
+        }
       }
 
       // No tool calls - we're done
