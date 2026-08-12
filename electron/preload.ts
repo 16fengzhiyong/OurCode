@@ -147,6 +147,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Git
   gitExec: (cwd: string, args: string[], input?: string) => ipcRenderer.invoke(IPC_CHANNELS.GIT_EXEC, cwd, args, input),
+  // Git with untrimmed stdout (byte-exact blob reads for the central diff)
+  gitExecRaw: (cwd: string, args: string[], input?: string) => ipcRenderer.invoke(IPC_CHANNELS.GIT_EXEC_RAW, cwd, args, input),
 
   // Shell
   shellExec: (command: string, cwd?: string) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_EXEC, command, cwd),

@@ -77,6 +77,20 @@ function isSafeEnvVarName(name: string): boolean {
 
 /** Execute a git command and return stdout */
 function gitExec(cwd: string, args: string[], input?: string): Promise<string> {
+  return runGit(cwd, args, input, true)
+}
+
+/**
+ * Execute a git command and return stdout WITHOUT trimming. Used to read blob
+ * content (`git show :file` / `git show HEAD:file`) where a trailing newline or
+ * leading whitespace is meaningful — the trimmed variant would corrupt the
+ * left side of a diff (e.g. drop the final newline and invent a phantom change).
+ */
+function gitExecRaw(cwd: string, args: string[], input?: string): Promise<string> {
+  return runGit(cwd, args, input, false)
+}
+
+function runGit(cwd: string, args: string[], input: string | undefined, trim: boolean): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
@@ -86,7 +100,8 @@ function gitExec(cwd: string, args: string[], input?: string): Promise<string> {
         if (error) {
           reject(new Error(String(stderr || error.message)))
         } else {
-          resolve(String(stdout).trim())
+          const text = String(stdout)
+          resolve(trim ? text.trim() : text)
         }
       },
     )
@@ -1265,6 +1280,17 @@ function registerIpcHandlers(): void {
     try {
       if (cwd) assertPathAllowed(cwd)
       const result = await gitExec(cwd, args, input)
+      return { success: true, output: result }
+    } catch (error: any) {
+      return { success: false, output: '', error: error.message }
+    }
+  })
+
+  // Git handler returning untrimmed stdout (byte-exact blob reads)
+  ipcMain.handle('git:execRaw', async (_event, cwd: string, args: string[], input?: string) => {
+    try {
+      if (cwd) assertPathAllowed(cwd)
+      const result = await gitExecRaw(cwd, args, input)
       return { success: true, output: result }
     } catch (error: any) {
       return { success: false, output: '', error: error.message }
