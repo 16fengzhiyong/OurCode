@@ -176,6 +176,9 @@ export const MODEL_METADATA: Record<string, { contextWindow: number; vision: boo
   'deepseek-chat': { contextWindow: 200000, vision: false, functionCall: true },
   'deepseek-coder': { contextWindow: 200000, vision: false, functionCall: false },
   'deepseek-reasoner': { contextWindow: 200000, vision: false, functionCall: false },
+  // API 拉取的 V4 命名（deepseek-v4-flash / deepseek-v4-reasoner …）经
+  // lookupModelMetadata 的前缀匹配落到这里，否则会回退默认 128K。
+  'deepseek-v4': { contextWindow: 200000, vision: false, functionCall: true },
   // Gemini
   'gemini-1.5-pro': { contextWindow: 2000000, vision: true, functionCall: true },
   'gemini-1.5-flash': { contextWindow: 1000000, vision: true, functionCall: true },

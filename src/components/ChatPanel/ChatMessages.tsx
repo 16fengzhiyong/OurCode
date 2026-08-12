@@ -15,6 +15,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gpt-4o': 128000, 'gpt-4o-mini': 128000, 'gpt-4-turbo': 128000, 'gpt-3.5-turbo': 16385,
   'claude-3-opus': 200000, 'claude-3-sonnet': 200000, 'claude-3-haiku': 200000,
   'deepseek-chat': 200000, 'deepseek-coder': 200000, 'deepseek-reasoner': 200000,
+  'deepseek-v4': 200000,
   'gemini-1.5-pro': 2000000, 'gemini-1.5-flash': 1000000,
 }
 
@@ -73,7 +74,13 @@ export default function ChatMessages() {
     if (!activeSession) return null
     const totalTokens = activeSession.messages.reduce((sum, m) => sum + (m.tokenCount || 0), 0)
     const modelId = activeSession.model || ''
-    const contextWindow = MODEL_CONTEXT_WINDOWS[modelId] || MODEL_CONTEXT_WINDOWS[modelId.split('/').pop() || ''] || 128000
+    // 精确 → 去掉 provider 前缀（a/b 形式）→ 前缀两段（deepseek-v4-flash → deepseek-v4）
+    const ctxId = modelId.split('/').pop() || ''
+    const contextWindow =
+      MODEL_CONTEXT_WINDOWS[modelId]
+      || MODEL_CONTEXT_WINDOWS[ctxId]
+      || MODEL_CONTEXT_WINDOWS[ctxId.split('-').slice(0, 2).join('-')]
+      || 128000
     const usage = totalTokens / contextWindow
     if (usage > 0.9) return { level: 'critical' as const, percent: Math.round(usage * 100), totalTokens, contextWindow }
     if (usage > 0.7) return { level: 'warning' as const, percent: Math.round(usage * 100), totalTokens, contextWindow }
