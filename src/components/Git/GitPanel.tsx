@@ -4,7 +4,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useConfigStore } from '@/stores/configStore'
 import { sendLLMRequest } from '@/services/llm/LLMClient'
 import { runLifeguardCheck, LifeguardFinding } from '@/services/lifeguard'
-import GitDiffView from './GitDiffView'
+import { fetchGitDiffSides, onGitChanged, runGitCommand as gitRun } from '@/services/git'
 import { useI18n } from '@/i18n/useI18n'
 
 interface GitStatus {
@@ -28,9 +28,6 @@ export default function GitPanel() {
   const [log, setLog] = useState<GitCommit[]>([])
   const [lastCommit, setLastCommit] = useState<GitCommit | null>(null)
   const [showLog, setShowLog] = useState(false)
-  const [diffContent, setDiffContent] = useState<string | null>(null)
-  const [diffFile, setDiffFile] = useState<string | null>(null)
-  const [diffStaged, setDiffStaged] = useState(false)
   const [generatingCommit, setGeneratingCommit] = useState(false)
   const t = useI18n()
 
@@ -38,6 +35,7 @@ export default function GitPanel() {
   // git panel on every editorStore change (each cursor move / dirty toggle
   // while this sidebar tab is open).
   const openFile = useEditorStore((s) => s.openFile)
+  const openDiff = useEditorStore((s) => s.openDiff)
 
   // Get root path from store
   const getRootPath = useCallback(() => {
@@ -52,11 +50,7 @@ export default function GitPanel() {
     return rootPath.replace(/[/\\]$/, '') + sep + file
   }, [getRootPath])
 
-  const runGitCommand = useCallback(async (args: string[], input?: string): Promise<{ success: boolean; output: string; error?: string }> => {
-    const rootPath = getRootPath()
-    if (!rootPath) return { success: false, output: '', error: t('git.noFolder') }
-    return window.electronAPI.gitExec(rootPath, args, input)
-  }, [getRootPath, t])
+  const runGitCommand = useCallback((args: string[], input?: string) => gitRun(args, input), [])
   const refreshStatus = useCallback(async () => {
     const rootPath = getRootPath()
     if (!rootPath) return
@@ -213,51 +207,27 @@ export default function GitPanel() {
     refreshStatus()
   }
 
-  const handleViewDiff = async (file: string, staged: boolean) => {
-    // Staged file → diff of the index vs HEAD; unstaged → working tree vs index.
-    // The GitDiffView renders this as a dark hunked diff with per-hunk
-    // stage/revert actions (Stitch: 源代码管理与差异对比 高保真).
-    const args = staged ? ['diff', '--cached', '--', file] : ['diff', '--', file]
-    const result = await runGitCommand(args)
-    if (result.success) {
-      setDiffContent(result.output || t('git.noDiffShort'))
-      setDiffFile(file)
-      setDiffStaged(staged)
-    }
-  }
+  const handleViewDiff = useCallback(async (file: string, staged: boolean, untracked = false) => {
+    // Open the change in the CENTRAL editor area as a Monaco side-by-side diff
+    // (VS Code "Open Changes") — left = HEAD/index, right = index/worktree,
+    // with per-change revert/stage arrows in both gutters.
+    const absPath = resolveFilePath(file)
+    const fileName = file.split(/[/\\]/).pop() || file
+    const sides = await fetchGitDiffSides(file, staged, untracked)
+    openDiff({
+      path: absPath,
+      fileName,
+      original: sides.original,
+      modified: sides.modified,
+      language: useEditorStore.getState().getLanguageByPath(absPath),
+      kind: 'git',
+      git: { repoFile: file, staged, untracked, diffText: sides.diffText },
+    })
+  }, [openDiff, resolveFilePath])
 
-  const handleCloseDiff = () => {
-    setDiffContent(null)
-    setDiffFile(null)
-    setDiffStaged(false)
-  }
-
-  const handleDiffChanged = async () => {
-    // After a hunk action the status list and the open diff must both refresh.
-    await refreshStatus()
-    const file = diffFile
-    if (!file) return
-
-    // A hunk action can move the file between staged/unstaged (e.g. staging the
-    // last hunk of a modified file). Detect its current state instead of
-    // trusting the stale flag: pick whichever diff still has content.
-    const cached = await runGitCommand(['diff', '--cached', '--', file])
-    if (cached.success && cached.output) {
-      setDiffStaged(true)
-      setDiffContent(cached.output)
-      return
-    }
-    const work = await runGitCommand(['diff', '--', file])
-    if (work.success && work.output) {
-      setDiffStaged(false)
-      setDiffContent(work.output)
-      return
-    }
-    // No diff left in either state — the file was fully staged or reverted.
-    setDiffContent(null)
-    setDiffFile(null)
-    setDiffStaged(false)
-  }
+  // Keep the status list in sync when the central diff editor mutates git state
+  // (revert/stage a hunk, revert everything, ...).
+  useEffect(() => onGitChanged(() => void refreshStatus()), [refreshStatus])
 
   const handleViewLog = async () => {
     setShowLog(true)
@@ -501,15 +471,10 @@ export default function GitPanel() {
               {stagedChanges.map((item) => {
                 const { icon, color } = getStatusIcon(item.status)
                 const fileName = item.file.split(/[/\\]/).pop() || item.file
-                const isDiffOpen = diffFile === item.file && diffStaged
                 return (
                   <div
                     key={item.file}
-                    className={`group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors mx-1 ${
-                      isDiffOpen
-                        ? 'bg-primary-container border-l-2 border-nova-accent'
-                        : 'hover:bg-white/70 dark:hover:bg-white/10'
-                    }`}
+                    className="group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors mx-1 hover:bg-white/70 dark:hover:bg-white/10"
                     onClick={() => handleViewDiff(item.file, true)}
                   >
                     <button
@@ -564,15 +529,10 @@ export default function GitPanel() {
               {unstagedChanges.map((item) => {
                 const { icon, color } = getStatusIcon(item.status)
                 const fileName = item.file.split(/[/\\]/).pop() || item.file
-                const isDiffOpen = diffFile === item.file && !diffStaged
                 return (
                   <div
                     key={item.file}
-                    className={`group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors mx-1 ${
-                      isDiffOpen
-                        ? 'bg-primary-container border-l-2 border-nova-accent'
-                        : 'hover:bg-white/70 dark:hover:bg-white/10'
-                    }`}
+                    className="group flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors mx-1 hover:bg-white/70 dark:hover:bg-white/10"
                     onClick={() => handleViewDiff(item.file, false)}
                   >
                     <button
@@ -623,6 +583,7 @@ export default function GitPanel() {
                   <div
                     key={item.file}
                     className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/70 dark:hover:bg-white/10 cursor-pointer transition-colors mx-1"
+                    onClick={() => handleViewDiff(item.file, false, true)}
                   >
                     <span className="w-[18px]" />
                     <span className="font-mono text-[12px] font-medium text-nova-text-muted w-4 text-center">U</span>
@@ -686,19 +647,6 @@ export default function GitPanel() {
           </div>
         )}
       </div>
-
-      {/* Diff view — dark hunked diff with per-hunk stage/revert (Stitch: 高保真) */}
-      {diffContent !== null && diffFile && (
-        <GitDiffView
-          file={diffFile}
-          diffText={diffContent}
-          staged={diffStaged}
-          onClose={handleCloseDiff}
-          onChanged={handleDiffChanged}
-          runGitCommand={runGitCommand}
-          onEditFile={(file) => openFile(resolveFilePath(file))}
-        />
-      )}
 
       {/* Git Log */}
       {showLog && (

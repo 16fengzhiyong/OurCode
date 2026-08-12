@@ -1,15 +1,16 @@
-import { useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
 import { monaco } from '@/editor/monacoSetup'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
-import { useInlineCompletion } from '@/hooks/useInlineCompletion'
 import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoader, trackLoad, fileUri } from '@/editor/modelRegistry'
 import { ensureLanguageService, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
 import { setPendingVibeReplace } from '@/services/vibeReplace'
 import { attachLsp, detachLsp } from '@/services/lsp/lspClient'
 import BreadcrumbBar from './BreadcrumbBar'
+import DiffView from './DiffView'
+import GitDiffEditor from './GitDiffEditor'
 import type { UserPreferences } from '@/types'
 import { useI18n } from '@/i18n/useI18n'
 import { t as moduleT } from '@/i18n'
@@ -90,13 +91,14 @@ interface EditorContainerProps {
 export default function EditorContainer({ panelId }: EditorContainerProps) {
   const editorRef = useRef<HTMLDivElement>(null)
   const monacoRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
-  // Held in state (not just a ref) so useInlineCompletion's effects re-run once the editor exists
-  const [editor, setEditor] = useState<monaco.editor.IStandaloneCodeEditor | null>(null)
 
   const panels = useEditorStore((s) => s.panels)
   const openFiles = useEditorStore((s) => s.openFiles)
   const preferences = useEditorStore((s) => s.preferences)
   const setCursorPosition = useEditorStore((s) => s.setCursorPosition)
+  const activeDiff = useEditorStore((s) => s.activeDiff)
+  const activePanelId = useEditorStore((s) => s.activePanelId)
+  const closeDiff = useEditorStore((s) => s.closeDiff)
 
   const panel = panels[panelId]
   const activeFilePath = panel?.activeFilePath ?? null
@@ -109,9 +111,6 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   const showContextMenu = useUIStore((s) => s.showContextMenu)
   const uiTheme = useUIStore((s) => s.theme)
   const t = useI18n()
-
-  // AI inline completion (ghost text, Tab to accept / Esc to reject)
-  const { triggerCompletion } = useInlineCompletion(editor)
 
   // Reload open models when a file changes on disk (tool edits / checkpoint reverts)
   useEffect(() => {
@@ -159,7 +158,6 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     )
 
     monacoRef.current = editor
-    setEditor(editor)
     editorInstances.add(editor)
     updateWindowEditor()
 
@@ -218,8 +216,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
           { label: moduleT('editor.aiOptimize'), icon: '⚡', action: () => sendToAI('请分析以下代码的性能瓶颈并提供优化方案：\n\n```' + ext + '\n' + selectedText + '\n```') },
           { label: moduleT('editor.aiTranslate'), icon: '🌐', action: () => sendToAI('请将以下代码中的中文注释和字符串翻译为英文：\n\n```' + ext + '\n' + selectedText + '\n```') },
         ] : []),
-        { label: moduleT('editor.aiInlineCompletion'), icon: '✨', action: () => triggerCompletion() },
-        { separator: true, label: '' },
+        ...(selectedText ? [{ separator: true, label: '' }] : []),
         { label: moduleT('editor.commandPalette'), shortcut: 'Ctrl+Shift+P', action: () => openCommandPalette() },
       ]
 
@@ -259,6 +256,20 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
       input?.focus()
     }, 300)
   }, [panelId])
+
+  // Revert the diffed file to its pre-AI-edit checkpoint, then open the reverted
+  // file in a normal tab (openFile closes the diff view).
+  const handleDiffRevert = useCallback(() => {
+    const diff = useEditorStore.getState().activeDiff
+    if (!diff?.checkpointId) return
+    if (!window.confirm(`确定要回退 "${diff.fileName}" 的 AI 改动吗？此操作会恢复到 AI 修改之前的内容。`)) return
+    useChatStore.getState().revertCheckpoint(diff.checkpointId)
+      .then(() => {
+        window.dispatchEvent(new CustomEvent('ourcode:file-changed', { detail: diff.path }))
+        return useEditorStore.getState().openFile(diff.path)
+      })
+      .catch((error) => console.error('Failed to revert checkpoint:', error))
+  }, [])
 
   // Keep editor options in sync with preferences and the active file's size
   // (large files get a reduced-feature preset). Depends on the file size as a
@@ -365,9 +376,17 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   // when no file is open yet (previously the empty state replaced the div, the
   // one-time init effect saw `editorRef.current === null`, and the editor was
   // never created — every file then opened into a blank pane).
+
+  // Diff mode: an AI-edit diff is overlaid on the ACTIVE panel's editor (VS
+  // Code "Open Changes"). The overlay — not an early return — keeps the Monaco
+  // editor's DOM attached underneath, so closing the diff restores the plain
+  // editor without a re-init glitch. Navigating to any file/panel closes the
+  // diff (see the store's navigation actions).
+  const diffMode = activeDiff && panelId === activePanelId
+
   return (
     <div className="flex-1 h-full min-h-0 flex flex-col">
-      {activeFile?.plainText && (
+      {!diffMode && activeFile?.plainText && (
         <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 text-xs bg-sky-500/15 text-sky-300 border-b border-sky-500/20">
           <span>📄</span>
           <span>
@@ -375,10 +394,10 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
           </span>
         </div>
       )}
-      <BreadcrumbBar />
+      {!diffMode && <BreadcrumbBar />}
       <div className="relative flex-1 min-h-0">
         <div ref={editorRef} className="absolute inset-0" />
-        {activeFile?.isLoading && (activeFile.size ?? 0) > 1024 * 1024 && (
+        {!diffMode && activeFile?.isLoading && (activeFile.size ?? 0) > 1024 * 1024 && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-nova-bg/70 pointer-events-none">
             <div className="w-8 h-8 rounded-full border-2 border-nova-accent border-t-transparent animate-spin" />
             <div className="text-sm text-nova-text-secondary">
@@ -390,6 +409,23 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
                 style={{ width: `${activeFile.loadProgress ?? 0}%` }}
               />
             </div>
+          </div>
+        )}
+        {diffMode && activeDiff && (
+          <div className="absolute inset-0 z-20 bg-nova-bg">
+            {activeDiff.kind === 'git' ? (
+              <GitDiffEditor diff={activeDiff} onClose={closeDiff} />
+            ) : (
+              <DiffView
+                original={activeDiff.original}
+                modified={activeDiff.modified}
+                language={activeDiff.language}
+                title={activeDiff.fileName}
+                notice={activeDiff.notice}
+                onClose={closeDiff}
+                onRevert={activeDiff.checkpointId ? handleDiffRevert : undefined}
+              />
+            )}
           </div>
         )}
       </div>

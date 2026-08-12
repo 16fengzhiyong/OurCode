@@ -698,6 +698,15 @@ export const enUS: Record<TranslationKey, string> = {
   'git.revertAllShort': 'Revert All',
   'git.applyHunkFailed': 'Failed to apply hunk, please retry',
   'git.editFile': 'Edit file',
+  'git.revertChange': 'Revert Change',
+  'git.stageChange': 'Stage Change',
+  'git.unstageChange': 'Unstage Change',
+  'git.revertAllChanges': 'Revert All Changes',
+  'git.revertAllConfirm': 'Revert all changes to this file?\n{file}',
+  'git.openFile': 'Open File',
+  'git.inlineView': 'Switch to Inline View',
+  'git.sideBySideView': 'Switch to Side-by-Side View',
+  'git.untrackedNotice': 'Untracked file: stage it to start tracking.',
 
   // ── Command palette ────────────────────────────────────────────────────
   'palette.dialog': 'Command Palette',
@@ -784,7 +793,6 @@ export const enUS: Record<TranslationKey, string> = {
   'editor.aiFix': 'AI: Fix issues',
   'editor.aiOptimize': 'AI: Optimize performance',
   'editor.aiTranslate': 'AI: Translate to English',
-  'editor.aiInlineCompletion': 'AI: Inline Completion',
   'editor.commandPalette': 'Command Palette',
   'editor.largeFileMode': 'Large text mode: file is large ({mb} MB), shown as plain text (no syntax highlighting); editing works normally.',
   'editor.loadingFile': 'Loading file… {percent}%',

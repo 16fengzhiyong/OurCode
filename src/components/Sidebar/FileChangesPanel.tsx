@@ -1,9 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
-import DiffView from '../Editor/DiffView'
-import type { ChatSession } from '@/types'
+import type { ChatSession, Checkpoint } from '@/types'
 
 /** File-modifying tool names */
 const FILE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory'])
@@ -61,6 +60,21 @@ function resolvePath(relative: string): string {
   return rootPath.replace(/[/\\]$/, '') + sep + relative
 }
 
+/** Find the checkpoint holding the pre-edit snapshot of this file change.
+ *  Prefer an exact (messageId + path) match: an assistant message with several
+ *  parallel file tools yields one checkpoint PER file that shares the same
+ *  messageId, so a messageId-only lookup can resolve to the WRONG file's
+ *  snapshot — which used to leave `original` empty and the diff "显示不全". */
+function findCheckpointForChange(checkpoints: Checkpoint[], change: FileChange): Checkpoint | undefined {
+  return (
+    checkpoints.find(
+      (c) => c.messageId === change.messageId && c.files.some((f) => f.path === change.filePath),
+    ) ||
+    checkpoints.find((c) => c.files.some((f) => f.path === change.filePath)) ||
+    checkpoints.find((c) => c.messageId === change.messageId)
+  )
+}
+
 export default function FileChangesPanel() {
   const sessions = useChatStore((s) => s.sessions)
   const loadCheckpoints = useChatStore((s) => s.loadCheckpoints)
@@ -68,9 +82,6 @@ export default function FileChangesPanel() {
   // Select the ACTION only — a whole-store subscription would re-render this
   // panel on every editorStore change (each cursor move while this tab is open).
   const openFile = useEditorStore((s) => s.openFile)
-
-  const [diffSession, setDiffSession] = useState<FileChange | null>(null)
-  const [diffContent, setDiffContent] = useState<{ original: string; modified: string; language: string } | null>(null)
 
   // Group file changes by session
   const groupedChanges = useMemo(() => {
@@ -114,22 +125,19 @@ export default function FileChangesPanel() {
   }
 
   const handleViewDiff = async (change: FileChange) => {
-    setDiffSession(change)
+    await loadCheckpoints(change.sessionId)
+    const checkpoint = findCheckpointForChange(useChatStore.getState().checkpoints, change)
+    const cpFile = checkpoint?.files.find((f) => f.path === change.filePath)
 
-    // Try to find a matching checkpoint
-    const sessionCheckpoints = await (async () => {
-      await loadCheckpoints(change.sessionId)
-      return useChatStore.getState().checkpoints
-    })()
-
-    const checkpoint = sessionCheckpoints.find(
-      (c) => c.messageId === change.messageId || (c.files && c.files.some((f) => f.path === change.filePath))
-    )
-
+    // A snapshot whose `existed` is false means the AI created the file — an
+    // empty original (whole file shown as added) is the correct diff. Only when
+    // no snapshot exists at all do we surface a hint banner.
     let original = ''
-    if (checkpoint && checkpoint.files) {
-      const file = checkpoint.files.find((f) => f.path === change.filePath)
-      if (file) original = file.content
+    let notice: string | undefined
+    if (cpFile) {
+      original = cpFile.existed ? cpFile.content : ''
+    } else {
+      notice = '未找到该文件的修改前快照，左侧仅展示当前内容。'
     }
 
     // Read current file content
@@ -149,25 +157,29 @@ export default function FileChangesPanel() {
       html: 'html', css: 'css', json: 'json', md: 'markdown', yaml: 'yaml', yml: 'yaml',
     }
 
-    setDiffContent({
-      original: original || '(没有原始版本记录)',
+    // Show the diff in the CENTRAL editor area (VS Code "Open Changes") instead
+    // of a cramped modal over the left sidebar.
+    useEditorStore.getState().openDiff({
+      path: absPath,
+      fileName: change.fileName,
+      original,
       modified,
       language: langMap[ext] || ext,
+      kind: 'checkpoint',
+      checkpointId: checkpoint?.id,
+      notice,
     })
   }
 
   const handleRevert = async (change: FileChange) => {
     await loadCheckpoints(change.sessionId)
-    const sessionCheckpoints = useChatStore.getState().checkpoints
-    const checkpoint = sessionCheckpoints.find(
-      (c) => c.messageId === change.messageId || (c.files && c.files.some((f) => f.path === change.filePath))
-    )
+    const checkpoint = findCheckpointForChange(useChatStore.getState().checkpoints, change)
 
     if (checkpoint) {
       if (confirm(`确定要回退 "${change.fileName}" 的 AI 改动吗？此操作会恢复到 AI 修改之前的内容。`)) {
         await revertCheckpoint(checkpoint.id)
         // Force file reload in editor
-        window.dispatchEvent(new CustomEvent('ourcode:file-changed', { detail: change.filePath }))
+        window.dispatchEvent(new CustomEvent('ourcode:file-changed', { detail: resolvePath(change.filePath) }))
       }
     } else {
       alert('没有找到该文件的检查点记录，无法回退。')
@@ -292,59 +304,6 @@ export default function FileChangesPanel() {
             </svg>
             查看完整历史
           </button>
-        </div>
-      )}
-
-      {/* Diff modal */}
-      {diffContent && diffSession && (
-        <div
-          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => { setDiffContent(null); setDiffSession(null) }}
-        >
-          <div
-            className="w-[700px] max-w-[90vw] max-h-[80vh] glass-modal rounded-2xl flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-nova-border">
-              <span className="text-sm font-semibold text-nova-text-primary truncate">
-                变更预览 — {diffSession.fileName}
-              </span>
-              <button
-                onClick={() => { setDiffContent(null); setDiffSession(null) }}
-                className="w-7 h-7 flex items-center justify-center rounded-md text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M18 6 6 18M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="flex-1 overflow-hidden" style={{ minHeight: 250 }}>
-              <DiffView
-                original={diffContent.original}
-                modified={diffContent.modified}
-                language={diffContent.language}
-                onClose={() => { setDiffContent(null); setDiffSession(null) }}
-              />
-            </div>
-            <div className="flex justify-end gap-2 px-4 py-2.5 border-t border-nova-border">
-              <button
-                onClick={() => { setDiffContent(null); setDiffSession(null) }}
-                className="px-3 py-1.5 text-xs bg-nova-hover text-nova-text-secondary rounded-md hover:text-nova-text-primary transition-colors"
-              >
-                关闭
-              </button>
-              <button
-                onClick={() => {
-                  setDiffContent(null)
-                  handleRevert(diffSession)
-                  setDiffSession(null)
-                }}
-                className="px-3 py-1.5 text-xs bg-red-500/20 text-red-400 border border-red-500/30 rounded-md hover:bg-red-500/30 transition-colors"
-              >
-                ↩ 回退此变更
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

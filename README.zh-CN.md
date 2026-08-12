@@ -35,7 +35,7 @@ OurCode IDE 是一个基于 Electron 构建的桌面代码编辑器，将 AI 助
 
 ### 📝 代码编辑器与工作区
 
-- **基于 Monaco 的编辑器** — 多标签编辑、Diff 视图、面包屑、Snippet、minimap，以及 AI 行内补全（ghost text，`Tab` 接受）。
+- **基于 Monaco 的编辑器** — 多标签编辑、Diff 视图、面包屑、Snippet、minimap。
 - **大文件友好** — 大文件分块流式加载，自动编码检测，写入保留原编码与 BOM。
 - **快速导航** — 文件浏览器、快速打开（`Ctrl+P`）、类 VS Code 命令面板（`Ctrl+Shift+P`）。
 - **搜索与替换** — 工作区全文搜索（大小写/全字/正则、包含/排除模式），支持批量替换。

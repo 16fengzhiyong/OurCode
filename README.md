@@ -34,7 +34,7 @@ OurCode IDE is a desktop code editor built with Electron that brings an AI assis
 
 ### 📝 Code Editor & Workspace
 
-- **Monaco-based editor** — Multi-tab editing, diff views, breadcrumbs, snippets, minimap, and AI inline completion (ghost text, `Tab` to accept).
+- **Monaco-based editor** — Multi-tab editing, diff views, breadcrumbs, snippets, and minimap.
 - **Large-file friendly** — Chunked streaming for big files, automatic encoding detection, and encoding/BOM-preserving writes.
 - **Fast navigation** — File explorer, Quick Open (`Ctrl+P`), and a VS Code-style command palette (`Ctrl+Shift+P`).
 - **Search & replace** — Whole-workspace search with case/whole-word/regex options, include/exclude patterns, and batch replace.
@@ -152,7 +152,7 @@ OurCode-ide/
 │   │                    # CommandPalette, Skills, Plugin, Settings...
 │   ├── services/        # LLM clients/adapters, tools, skills, subagents, plugin, commands
 │   ├── stores/          # Zustand stores (chat, editor, config, plugins, shortcuts...)
-│   ├── hooks/           # Custom hooks (e.g. inline completion)
+│   ├── hooks/           # Custom hooks
 │   └── utils/           # Helpers (file icons, etc.)
 ├── shared/              # Types & constants shared between main and renderer
 ├── e2e/                 # Playwright end-to-end tests

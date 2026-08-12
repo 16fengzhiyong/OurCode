@@ -695,6 +695,15 @@ export const zhCN = {
   'git.revertAllShort': '全部撤销',
   'git.applyHunkFailed': '应用代码块失败，请重试',
   'git.editFile': '编辑文件',
+  'git.revertChange': '还原此更改',
+  'git.stageChange': '暂存此更改',
+  'git.unstageChange': '取消暂存此更改',
+  'git.revertAllChanges': '还原所有更改',
+  'git.revertAllConfirm': '确定要还原该文件的所有更改吗？\n{file}',
+  'git.openFile': '打开文件',
+  'git.inlineView': '切换为内联视图',
+  'git.sideBySideView': '切换为并排视图',
+  'git.untrackedNotice': '未跟踪文件：先暂存以开始跟踪。',
 
   // ── 命令面板 ───────────────────────────────────────────────────────────
   'palette.dialog': '命令面板',
@@ -781,7 +790,6 @@ export const zhCN = {
   'editor.aiFix': 'AI: 修复问题',
   'editor.aiOptimize': 'AI: 优化性能',
   'editor.aiTranslate': 'AI: 翻译为英文',
-  'editor.aiInlineCompletion': 'AI: 内联补全',
   'editor.commandPalette': '命令面板',
   'editor.largeFileMode': '大文本模式：文件较大（{mb} MB），以纯文本显示（无语法高亮），可正常编辑。',
   'editor.loadingFile': '正在加载文件… {percent}%',

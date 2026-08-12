@@ -162,6 +162,8 @@ export default function MainLayout() {
         if (ui.isCommandPaletteOpen) ui.closeCommandPalette()
         if (ui.isQuickOpenOpen) ui.closeQuickOpen()
         if (ui.contextMenu) ui.hideContextMenu()
+        // Close the central diff view (file changes history → 查看变更)
+        useEditorStore.getState().closeDiff()
         return
       }
     }

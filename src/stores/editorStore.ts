@@ -103,6 +103,35 @@ export interface Panel {
   activeFilePath: string | null
 }
 
+/** A file's AI-edit diff shown in the central editor area (VS Code-style
+ *  "Open Changes"). Rendered instead of the Monaco editor of the active panel. */
+export interface ActiveDiff {
+  /** Absolute path of the modified file (used for revert + re-open). */
+  path: string
+  fileName: string
+  /** Pre-edit snapshot from the checkpoint — '' means the file didn't exist. */
+  original: string
+  /** Current file content on disk. */
+  modified: string
+  language: string
+  /** 'checkpoint' = AI-edit diff; 'git' = source-control diff (VS Code style). */
+  kind: 'checkpoint' | 'git'
+  checkpointId?: string
+  /** Optional banner above the diff (e.g. no pre-edit snapshot found). */
+  notice?: string
+  /** Git diff extras — set when kind === 'git'. */
+  git?: {
+    /** Repo-relative path used in git commands (as reported by `git status`). */
+    repoFile: string
+    /** True when comparing HEAD vs index (staged); false = index vs worktree. */
+    staged: boolean
+    /** True for untracked files (no left side, whole-file actions only). */
+    untracked?: boolean
+    /** Raw `git diff [--cached]` text for this file (parsed for hunk patches). */
+    diffText: string
+  }
+}
+
 interface EditorState {
   // Panel model
   panels: Record<string, Panel>
@@ -114,6 +143,9 @@ interface EditorState {
   // Global file content (shared across panels)
   openFiles: OpenFile[]
   preferences: UserPreferences
+
+  // Diff shown in place of the active panel's editor (null = normal editing)
+  activeDiff: ActiveDiff | null
 
   // Backward-compatible: derived from active panel
   activeFilePath: string | null
@@ -132,6 +164,10 @@ interface EditorState {
   closePanel: (panelId: string) => void
   resizeSplit: (index: number, ratio: number) => void
   cyclePanelFocus: () => void
+
+  // Diff mode
+  openDiff: (diff: ActiveDiff) => void
+  closeDiff: () => void
 
   // File actions (panel-aware)
   openFile: (path: string, panelId?: string) => Promise<void>
@@ -389,6 +425,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   // Global
   openFiles: [],
   preferences: DEFAULT_PREFERENCES,
+  activeDiff: null,
 
   // Derived
   activeFilePath: null,
@@ -419,6 +456,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   // --- Panel actions ---
 
   setActivePanel: (panelId) => {
+    get().closeDiff()
     set((s) => {
       if (!s.panels[panelId]) return s
       const next = { ...s, activePanelId: panelId }
@@ -450,6 +488,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   closePanel: (panelId) => {
+    get().closeDiff()
     set((s) => {
       if (s.panelOrder.length <= 1) return s
 
@@ -515,6 +554,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })
   },
 
+  // --- Diff mode ---
+
+  /** Show a file's AI-edit diff in the central editor area. Replaces any diff
+   *  already open; any subsequent navigation (openFile/tab switch/...) closes it. */
+  openDiff: (diff) => {
+    // Opening a diff implies the user wants to see the editor — bring it back
+    // if it was closed (the ✕ button hides it to focus on the chat panel).
+    if (!useUIStore.getState().isEditorVisible) {
+      useUIStore.getState().setEditorVisible(true)
+    }
+    set({ activeDiff: diff })
+  },
+
+  closeDiff: () => {
+    // Guard: set() with an identical value would re-render subscribers for
+    // nothing on every editor focus while no diff is open.
+    if (get().activeDiff) set({ activeDiff: null })
+  },
+
   // --- File actions ---
 
   openFile: async (path, panelId) => {
@@ -526,6 +584,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (!useUIStore.getState().isEditorVisible) {
       useUIStore.getState().setEditorVisible(true)
     }
+    // The user navigated to a real file — leave the diff view
+    get().closeDiff()
 
     // Track the most recently opened file (Ctrl+R list)
     useRecentFilesStore.getState().addRecentFile(path)
@@ -582,6 +642,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   closeFile: (path, panelId) => {
+    get().closeDiff()
     set((s) => {
       const targetPanelId = panelId || s.activePanelId
       const panel = s.panels[targetPanelId]
@@ -623,6 +684,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   setActiveFile: (path, panelId) => {
+    get().closeDiff()
     set((s) => {
       const targetPanelId = panelId || s.activePanelId
       const panel = s.panels[targetPanelId]
@@ -635,6 +697,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   /** Create an untitled buffer in the active panel and return its pseudo path */
   newFile: () => {
+    get().closeDiff()
     const path = `/untitled/untitled-${Date.now()}.txt`
     // Creating a file also implies the user wants the editor visible
     if (!useUIStore.getState().isEditorVisible) {
@@ -815,6 +878,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   revertFile: async (path) => {
+    get().closeDiff()
     try {
       const { content, encoding, hasBom } = await window.electronAPI.readFile(path)
       // Refresh the live model too, so the editor immediately matches disk
@@ -842,6 +906,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   /** Open a tab filled with hot-exit backup content (no disk read, marked dirty). */
   restoreFromBackup: async (filePath, content, encoding, hasBom) => {
+    get().closeDiff()
     const state = get()
     const language = state.getLanguageByPath(filePath)
 

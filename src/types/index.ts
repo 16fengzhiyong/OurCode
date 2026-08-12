@@ -97,6 +97,8 @@ export interface ElectronAPI {
 
   // Git
   gitExec: (cwd: string, args: string[], input?: string) => Promise<{ success: boolean; output: string; error?: string }>
+  /** gitExec variant whose stdout is returned untrimmed (byte-exact blob reads). */
+  gitExecRaw: (cwd: string, args: string[], input?: string) => Promise<{ success: boolean; output: string; error?: string }>
 
   // Shell
   shellExec: (command: string, cwd?: string) => Promise<{ success: boolean; output: string; error?: string }>
