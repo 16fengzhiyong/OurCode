@@ -564,6 +564,14 @@ export default function ChatInput() {
       }
     }
 
+    // Cmd/Ctrl + Enter also submits (Cursor/Claude-style shortcut); plain
+    // Enter keeps sending as before and Shift+Enter stays a newline.
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      handleSubmit()
+      return
+    }
+
     // Submit on Enter (without Shift)
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -584,33 +592,20 @@ export default function ChatInput() {
 
   return (
     <div className="border-t border-nova-border p-3">
-      {/* 当前关注文件 —— 上下文锚点：被动指示（活动文件已由 <current_file> 注入
-          提示词，不加入本轮 contextFiles），点击跳转编辑器打开/聚焦该文件 */}
-      {activeFilePath && (
-        <div className="flex items-center gap-1.5 mb-2">
-          <span className="flex items-center gap-0.5 text-[10px] uppercase tracking-wider text-nova-text-muted font-semibold shrink-0">
-            <span className="material-symbols-outlined text-[11px] leading-none" aria-hidden>forum</span>
-            {t('chat.contextLabel')}
-          </span>
-          <button
-            onClick={() => { useEditorStore.getState().openFile(activeFilePath) }}
-            title={activeFilePath}
-            className="inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full bg-nova-card/60 border border-nova-border/60 hover:border-nova-accent/40 hover:bg-nova-hover/60 transition-colors max-w-[240px]"
-          >
-            <span className="material-symbols-outlined text-[12px] leading-none text-nova-accent shrink-0" aria-hidden>description</span>
-            <span className="font-mono text-[11px] text-nova-text-primary truncate">{activeFilePath.split(/[/\\]/).pop()}</span>
-          </button>
-          {openFilesCount > 1 && (
-            <span className="text-[10px] text-nova-text-muted shrink-0">
-              {t('chat.contextOpenFiles', { count: openFilesCount - 1 })}
-            </span>
+      {/* 上下文锚点 + 附加文件 —— 合并为单行（主流工具如 Cursor 的做法：输入框
+          上方一行紧凑标签，减少层数）；当前关注文件被动指示，点击跳转编辑器。 */}
+      {(activeFilePath || contextFiles.length > 0) && (
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          {activeFilePath && (
+            <button
+              onClick={() => { useEditorStore.getState().openFile(activeFilePath) }}
+              title={activeFilePath}
+              className="inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full bg-nova-card/60 border border-nova-border/60 hover:border-nova-accent/40 hover:bg-nova-hover/60 transition-colors max-w-[200px]"
+            >
+              <span className="material-symbols-outlined text-[12px] leading-none text-nova-accent shrink-0" aria-hidden>description</span>
+              <span className="font-mono text-[11px] text-nova-text-primary truncate">{activeFilePath.split(/[/\\]/).pop()}</span>
+            </button>
           )}
-        </div>
-      )}
-
-      {/* Attached files — Stitch glass chips (icon + name + ×) */}
-      {contextFiles.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-2">
           {contextFiles.map((file) => (
             <FileChip
               key={file}
@@ -621,6 +616,11 @@ export default function ChatInput() {
               removeLabel={t('chat.removeFile')}
             />
           ))}
+          {activeFilePath && openFilesCount > 1 && (
+            <span className="text-[10px] text-nova-text-muted shrink-0">
+              {t('chat.contextOpenFiles', { count: openFilesCount - 1 })}
+            </span>
+          )}
         </div>
       )}
 
