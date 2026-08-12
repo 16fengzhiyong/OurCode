@@ -389,7 +389,11 @@ const PLAN_TOOLS = new Set([
 // Write tools get a checkpoint snapshot before they run
 const CHECKPOINT_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory'])
 
-const MAX_AGENT_ITERATIONS = 20
+// Agent 工具调用轮数上限。主流工具（Cursor/Windsurf/Claude Code）不设这么
+// 低的上限——20 轮对多文件任务（读文件→改文件→跑测试）经常不够，触发后还得
+// 手动点「继续」，既打断流程又让模型带着已压缩的历史重跑。这里只保留一个
+// 防止死循环的安全阀（100 轮 ≈ 实际用不完），不再作为常态限制。
+const MAX_AGENT_ITERATIONS = 100
 
 // Max concurrent run_subagent executions within one tool-call batch
 const MAX_PARALLEL_SUBAGENTS = 3
@@ -566,6 +570,40 @@ type RequestMessage = {
   content: string
   toolCalls?: LLMToolCall[]
   toolCallId?: string
+}
+
+/**
+ * Agent 循环的历史压缩 — 每轮 LLM 请求都会把此前所有工具结果（read_file
+ * 全文、search 结果等）原样重发给模型，轮数一多输入 token 呈平方级增长
+ * （一个 20 轮的任务总输入 ≈ Σ 每轮全量历史，轻松到 1M+）。
+ *
+ * 主流工具（Cursor/Windsurf/Claude Code）的做法是只保留最近几轮工具结果，
+ * 更早的压缩成一行提示。这里不删除任何消息（保住 tool 配对的完整性），
+ * 只把「较早的、体积大的」tool 消息内容替换成简短提示；模型需要细节时
+ * 自然会重新 read_file。UI 里持久化的会话消息不受影响（只改请求数组）。
+ */
+const MAX_UNCOMPACTED_TOOL_RESULTS = 16
+const COMPACT_TOOL_RESULT_THRESHOLD = 4000 // 字符
+
+/** Exported for unit tests. */
+export function compactToolResults(messages: RequestMessage[]): RequestMessage[] {
+  const totalTools = messages.filter((m) => m.role === 'tool').length
+  let seen = 0
+  return messages.map((m) => {
+    if (m.role !== 'tool') return m
+    seen++
+    // 从前往后第 seen 条，其「从后往前」位置 = totalTools - seen + 1。
+    // 只压缩位置超过 MAX_UNCOMPACTED_TOOL_RESULTS（即较早）的超长结果；
+    // 消息本身全部保留，tool 配对完整。
+    const fromBack = totalTools - seen + 1
+    if (fromBack > MAX_UNCOMPACTED_TOOL_RESULTS && m.content && m.content.length > COMPACT_TOOL_RESULT_THRESHOLD) {
+      return {
+        ...m,
+        content: `[…该工具结果较长（约 ${m.content.length} 字符），已压缩以节省上下文。需要细节请重新调用对应工具读取。]`,
+      }
+    }
+    return m
+  })
 }
 
 /**
@@ -2156,6 +2194,9 @@ async function runAgentLoop(
   while (iterationsLeft-- > 0) {
       if (abortController.signal.aborted) break
       touchActivity() // a new request round resets the idle clock
+      // 压缩早期的大体积工具结果，避免每轮重发全量历史导致 token 平方级增长
+      // （见 compactToolResults 注释）
+      messages = compactToolResults(messages)
       const req = {
         model,
         messages: messages.map((m) => ({
@@ -2587,7 +2628,7 @@ async function runAgentLoop(
     if (iterationsLeft <= 0 && !finishedNaturally && !abortController.signal.aborted && !planWasSubmitted(sessionId)) {
       chatStore.addMessage(sessionId, {
         role: 'assistant',
-        content: '[已达到最大工具调用轮数 (20)。点击下方"继续"按钮可继续执行。]',
+        content: `[已达到最大工具调用轮数 (${MAX_AGENT_ITERATIONS})。点击下方"继续"按钮可继续执行。]`,
         runId,
       })
       // Target mode keeps the agent going after rounds are exhausted — it only

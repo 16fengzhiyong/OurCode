@@ -92,6 +92,9 @@ export const IPC_CHANNELS = {
 
   // Git
   GIT_EXEC: 'git:exec',
+  // Git raw output — same as GIT_EXEC but stdout is returned UNTRIMMED so blob
+  // content (`git show :file` / `git show HEAD:file`) is byte-exact for diffs.
+  GIT_EXEC_RAW: 'git:execRaw',
 
   // Shell
   SHELL_EXEC: 'shell:exec',
@@ -167,10 +170,12 @@ export const MODEL_METADATA: Record<string, { contextWindow: number; vision: boo
   'claude-3-opus-20240229': { contextWindow: 200000, vision: true, functionCall: true },
   'claude-3-sonnet-20240229': { contextWindow: 200000, vision: true, functionCall: true },
   'claude-3-haiku-20240307': { contextWindow: 200000, vision: true, functionCall: true },
-  // DeepSeek
-  'deepseek-chat': { contextWindow: 64000, vision: false, functionCall: true },
-  'deepseek-coder': { contextWindow: 64000, vision: false, functionCall: false },
-  'deepseek-reasoner': { contextWindow: 64000, vision: false, functionCall: false },
+  // DeepSeek — V4 系列原生支持最高 1M token 上下文，默认按 200K 计入，
+  // 避免 trimHistoryForContext 把预算压到 51K 导致 agent 中途丢上下文
+  // 而反复重读文件、拉长工具调用轮数（每轮重发全量历史 → 总 token 爆炸）。
+  'deepseek-chat': { contextWindow: 200000, vision: false, functionCall: true },
+  'deepseek-coder': { contextWindow: 200000, vision: false, functionCall: false },
+  'deepseek-reasoner': { contextWindow: 200000, vision: false, functionCall: false },
   // Gemini
   'gemini-1.5-pro': { contextWindow: 2000000, vision: true, functionCall: true },
   'gemini-1.5-flash': { contextWindow: 1000000, vision: true, functionCall: true },

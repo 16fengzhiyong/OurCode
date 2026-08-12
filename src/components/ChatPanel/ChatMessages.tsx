@@ -14,7 +14,8 @@ import { useI18n } from '@/i18n/useI18n'
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gpt-4o': 128000, 'gpt-4o-mini': 128000, 'gpt-4-turbo': 128000, 'gpt-3.5-turbo': 16385,
   'claude-3-opus': 200000, 'claude-3-sonnet': 200000, 'claude-3-haiku': 200000,
-  'deepseek-chat': 64000, 'deepseek-coder': 64000, 'gemini-1.5-pro': 2000000, 'gemini-1.5-flash': 1000000,
+  'deepseek-chat': 200000, 'deepseek-coder': 200000, 'deepseek-reasoner': 200000,
+  'gemini-1.5-pro': 2000000, 'gemini-1.5-flash': 1000000,
 }
 
 export default function ChatMessages() {

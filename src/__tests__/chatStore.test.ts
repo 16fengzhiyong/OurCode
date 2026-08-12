@@ -21,7 +21,7 @@ const mockApi = {
 }
 vi.stubGlobal('window', { electronAPI: mockApi })
 
-import { useChatStore, stopGitBranchPolling, trimHistoryForContext, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
+import { useChatStore, stopGitBranchPolling, trimHistoryForContext, compactToolResults, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { createToolRegistry } from '@/services/tools/ToolRegistry'
@@ -282,6 +282,49 @@ describe('chatStore trimHistoryForContext', () => {
       { role: 'user' as const, content: small },
     ]
     expect(trimHistoryForContext(messages, 'unknown-model-xyz')).toHaveLength(2)
+  })
+})
+
+describe('chatStore compactToolResults', () => {
+  const bigTool = (id: string) => ({ role: 'tool' as const, content: 'x'.repeat(9000), toolCallId: id })
+
+  it('keeps the most recent tool results untouched and compresses older long ones', () => {
+    // 18 tool results (> MAX_UNCOMPACTED_TOOL_RESULTS = 16) with long content
+    const messages = [
+      { role: 'system' as const, content: 'sys' },
+      { role: 'user' as const, content: 'question' },
+      ...Array.from({ length: 18 }, (_, i) => bigTool(`t${i}`)),
+    ]
+    const result = compactToolResults(messages)
+    // 消息数与 role/toolCallId 全部保留（tool 配对完整性）
+    expect(result).toHaveLength(20)
+    result.forEach((m, i) => {
+      if (i >= 2) expect(m.role).toBe('tool')
+      if (i >= 2 && m.role === 'tool') expect(m.toolCallId).toBe(`t${i - 2}`)
+    })
+    // 最早的 2 条被压缩，最新的 16 条保留原文
+    expect(result[2].content).toContain('已压缩')
+    expect(result[3].content).toContain('已压缩')
+    expect(result[4].content).toBe('x'.repeat(9000))
+    expect(result[result.length - 1].content).toBe('x'.repeat(9000))
+  })
+
+  it('does not compress short tool results or recent ones', () => {
+    const messages = [
+      { role: 'tool' as const, content: 'short', toolCallId: 'a' },
+      { role: 'tool' as const, content: 'x'.repeat(5000), toolCallId: 'b' }, // long but within the newest 16
+    ]
+    const result = compactToolResults(messages)
+    expect(result[0].content).toBe('short')
+    expect(result[1].content).toBe('x'.repeat(5000))
+  })
+
+  it('preserves non-tool messages as-is', () => {
+    const messages = [
+      { role: 'system' as const, content: 'sys' },
+      { role: 'user' as const, content: 'hello' },
+    ]
+    expect(compactToolResults(messages)).toEqual(messages)
   })
 })
 
