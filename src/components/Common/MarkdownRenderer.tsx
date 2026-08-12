@@ -38,7 +38,13 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
     try {
       // Sanitize the rendered HTML to prevent XSS from AI/tool output
       // (marked >= v5 no longer sanitizes; DOMPurify strips scripts/event handlers)
-      return DOMPurify.sanitize(marked.parse(content) as string)
+      // Whitelist a few rich-typography tags so AI answers can emit <mark>
+      // highlights, <kbd> keys and <details>/<summary> collapsible panels —
+      // nothing executable slips through (no onclick/onerror/script allowed).
+      return DOMPurify.sanitize(marked.parse(content) as string, {
+        ADD_TAGS: ['mark', 'kbd', 'details', 'summary'],
+        ADD_ATTR: ['open'],
+      })
     } catch {
       return DOMPurify.sanitize(`<p>${content}</p>`)
     }

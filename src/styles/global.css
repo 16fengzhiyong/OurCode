@@ -359,6 +359,49 @@ textarea[data-ai-input] {
   background: var(--surface);
 }
 
+/* Rich-typography extras allowed via the DOMPurify whitelist —
+   <mark> 高亮强调、<kbd> 按键样式、<details>/<summary> 折叠面板。 */
+.markdown-body mark {
+  background: rgba(250, 204, 21, 0.35);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.markdown-body kbd {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: var(--text-primary);
+}
+
+.markdown-body details {
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+
+.markdown-body summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.markdown-body summary:hover {
+  color: var(--accent);
+}
+
+.markdown-body details[open] summary {
+  margin-bottom: 6px;
+}
+
 /* Context menu (blurred floating panel) */
 .context-menu {
   background: color-mix(in srgb, var(--card, #27272a) 85%, transparent);
@@ -598,12 +641,16 @@ textarea[data-ai-input] {
 }
 .code-block .hljs-addition {
   color: #aff5b4;
-  /* GitHub-style: translucent green tint on the added line (incl. its + marker) */
+  /* GitHub-style: translucent green tint on the added line (incl. its + marker).
+     display:block 让底色整行铺满（默认 inline 只盖住文字本身），
+     达到 GitHub 代码审查视图里整行红/绿底的效果。 */
+  display: block;
   background-color: rgba(46, 160, 67, 0.16);
 }
 .code-block .hljs-deletion {
   color: #ffdcd7;
   /* GitHub-style: translucent red tint on the removed line (incl. its - marker) */
+  display: block;
   background-color: rgba(248, 81, 73, 0.16);
 }
 
