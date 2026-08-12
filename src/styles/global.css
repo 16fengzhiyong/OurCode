@@ -598,11 +598,13 @@ textarea[data-ai-input] {
 }
 .code-block .hljs-addition {
   color: #aff5b4;
-  background-color: #033a16;
+  /* GitHub-style: translucent green tint on the added line (incl. its + marker) */
+  background-color: rgba(46, 160, 67, 0.16);
 }
 .code-block .hljs-deletion {
   color: #ffdcd7;
-  background-color: #67060c;
+  /* GitHub-style: translucent red tint on the removed line (incl. its - marker) */
+  background-color: rgba(248, 81, 73, 0.16);
 }
 
 /* Light theme — hover whitening (a dark-theme hover emphasis: file-tree rows,

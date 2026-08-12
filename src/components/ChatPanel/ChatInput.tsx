@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useEditorStore } from '@/stores/editorStore'
 import { filterSlashCommands, buildSlashPrompt, getEditorSlashContext, getAllSlashCommands, SLASH_COMMANDS, SlashCommand } from '@/services/commands/slashCommands'
 import { takePendingVibeReplace } from '@/services/vibeReplace'
 import { useI18n } from '@/i18n/useI18n'
@@ -173,6 +174,9 @@ export default function ChatInput() {
   })
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
   const rootPath = useUIStore((s) => s.rootPath)
+  // 当前关注文件 —— 输入框上方的被动上下文锚点（不加入本轮发送，点击跳转编辑器）
+  const activeFilePath = useEditorStore((s) => s.activeFilePath)
+  const openFilesCount = useEditorStore((s) => s.openFiles.length)
 
   // Auto-resize textarea
   useEffect(() => {
@@ -580,6 +584,30 @@ export default function ChatInput() {
 
   return (
     <div className="border-t border-nova-border p-3">
+      {/* 当前关注文件 —— 上下文锚点：被动指示（活动文件已由 <current_file> 注入
+          提示词，不加入本轮 contextFiles），点击跳转编辑器打开/聚焦该文件 */}
+      {activeFilePath && (
+        <div className="flex items-center gap-1.5 mb-2">
+          <span className="flex items-center gap-0.5 text-[10px] uppercase tracking-wider text-nova-text-muted font-semibold shrink-0">
+            <span className="material-symbols-outlined text-[11px] leading-none" aria-hidden>forum</span>
+            {t('chat.contextLabel')}
+          </span>
+          <button
+            onClick={() => { useEditorStore.getState().openFile(activeFilePath) }}
+            title={activeFilePath}
+            className="inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full bg-nova-card/60 border border-nova-border/60 hover:border-nova-accent/40 hover:bg-nova-hover/60 transition-colors max-w-[240px]"
+          >
+            <span className="material-symbols-outlined text-[12px] leading-none text-nova-accent shrink-0" aria-hidden>description</span>
+            <span className="font-mono text-[11px] text-nova-text-primary truncate">{activeFilePath.split(/[/\\]/).pop()}</span>
+          </button>
+          {openFilesCount > 1 && (
+            <span className="text-[10px] text-nova-text-muted shrink-0">
+              {t('chat.contextOpenFiles', { count: openFilesCount - 1 })}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Attached files — Stitch glass chips (icon + name + ×) */}
       {contextFiles.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-2">

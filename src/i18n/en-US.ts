@@ -495,6 +495,14 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.totalSteps': '{count} steps total',
   'chat.subAgentRunning': 'Sub-agent running...',
   'chat.thinkingOutput': 'Thinking',
+  // Context anchor / in-action feedback / tool stats (input + process block)
+  'chat.contextLabel': 'Context',
+  'chat.contextOpenFiles': '+{count} more open',
+  'chat.analyzing': 'Analyzing the codebase…',
+  'chat.toolStatReads': 'Read {n}',
+  'chat.toolStatEdits': 'Edited {n}',
+  'chat.toolStatCommands': '{n} cmds',
+  'chat.toolStatTotal': '{n} tools',
 
   // ── Agent panel ────────────────────────────────────────────────────────
   'agent.pending': 'Pending',

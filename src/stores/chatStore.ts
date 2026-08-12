@@ -295,6 +295,7 @@ async function buildSystemPrompt(
   // active conversation, not the file tree).
   let stable = buildEnhancedSystemPrompt(basePrompt, projectPath)
   stable += BEHAVIOR_GUIDELINES
+  stable += OUTPUT_STYLE_GUIDELINES
 
   // Workspace rules + skills (.ourcoderules, .claude/skills, .ourcode/skills)
   // mtime-cached, so in practice stable per workspace.
@@ -328,6 +329,16 @@ const BEHAVIOR_GUIDELINES = `
 - 如实报告结果：测试失败要带上输出说明失败；跳过某一步要说跳过；完成并验证过的事要明确说明，不要含糊其辞。
 - 工具调用被拒绝表示用户不认可该操作，应调整方案而不是原样重试。
 - 如果任务是编程任务，交付前必须自行完整检查一遍代码，确保没有 bug；发现 bug 或潜在问题（逻辑错误、边界情况、类型问题、并发隐患等）要主动修复后再交付。`
+
+// 输出风格准则 —— 结论先行：工具调用执行完毕后，最终回答必须以高度概括的
+// 结论收尾，而不是复述过程日志。与 BEHAVIOR_GUIDELINES 同属 stable 前缀。
+const OUTPUT_STYLE_GUIDELINES = `
+
+# 输出风格准则
+- 所有工具调用执行完毕后的最终回答必须「结论先行」：用一段高度概括、加粗核心发现的人类自然语言收尾，随后给出具体建议或可执行代码。
+- 绝对禁止在最终回答里复述读取、搜索、命令输出等工具返回的原始内容；需要引用细节时使用「文件路径:行号」的形式。
+- 回答使用易读的 Markdown：列表、表格、清晰的标题层级；代码块必须标注语言（如 \`\`\`typescript），涉及变更时用 \`\`\`diff 展示新增/删除。
+- 计划模式下以 submit_plan 提交的计划为准，无需在提交前额外输出长篇总结。`
 
 // Plan-mode prompt: explore + produce a plan, no mutations
 const PLAN_MODE_INSTRUCTION = `

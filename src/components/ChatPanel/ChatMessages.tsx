@@ -480,13 +480,17 @@ export default function ChatMessages() {
                 <span className="animate-pulse-dot text-nova-accent">▋</span>
               </div>
             ) : !stream?.thinking ? (
-              <div className="flex items-center gap-2 text-nova-text-muted text-sm">
-                <div className="flex gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485' }} />
-                  <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.2s' }} />
-                  <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.4s' }} />
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2 text-nova-text-muted text-sm">
+                  <div className="flex gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485' }} />
+                    <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.2s' }} />
+                    <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.4s' }} />
+                  </div>
+                  <span>{t('chat.thinking')}</span>
                 </div>
-                <span>{t('chat.thinking')}</span>
+                {/* 动作期状态反馈：搜索/读取代码库时给出明确加载文案，而非卡住 */}
+                <div className="pl-0.5 text-[11px] text-nova-text-muted/70">{t('chat.analyzing')}</div>
               </div>
             ) : null}
           </div>

@@ -152,8 +152,17 @@ export default function ToolStepRow({ toolCall, result, rejected, suspended = fa
           </pre>
           {result && (
             <>
-              <div className="px-2.5 pt-1.5 text-[10px] uppercase tracking-wider text-nova-text-muted font-semibold border-t border-nova-border/60">
-                {t('tool.result')}
+              <div className="px-2.5 pt-1.5 flex items-center justify-between border-t border-nova-border/60">
+                <span className="text-[10px] uppercase tracking-wider text-nova-text-muted font-semibold">
+                  {t('tool.result')}
+                </span>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(result.result).catch(() => { /* ignore */ }) }}
+                  title={t('common.copy')}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border text-nova-text-muted hover:text-nova-text-primary hover:border-nova-accent/40 transition-colors"
+                >
+                  {t('common.copy')}
+                </button>
               </div>
               <pre className={`px-2.5 pb-2 pt-0.5 text-[11.5px] font-mono whitespace-pre-wrap break-all leading-[1.55] max-h-40 overflow-y-auto ${
                 isError ? 'text-error' : 'text-nova-text-secondary'

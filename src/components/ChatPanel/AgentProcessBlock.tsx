@@ -2,8 +2,46 @@ import { Fragment, useEffect, useState } from 'react'
 import type { ChatMessage as ChatMessageType } from '@/types'
 import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
+import type { TranslationKey } from '@/i18n'
 import ToolStepRow from './ToolStepRow'
 import { PlanCard } from './AgentPanel'
+
+/** 工具调用统计（收起头部摘要 chip 用）—— 按类别聚合，避免「已读 N 个文件」
+ *  这种过程信息以几十行原文形式铺满对话流 */
+interface ToolStats {
+  reads: number
+  edits: number
+  commands: number
+  others: number
+}
+
+const TOOL_STAT_SETS = {
+  reads: new Set(['read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files']),
+  edits: new Set(['write_file', 'edit_file', 'create_directory', 'delete_file']),
+}
+
+function countToolStats(messages: ChatMessageType[]): ToolStats {
+  const stats: ToolStats = { reads: 0, edits: 0, commands: 0, others: 0 }
+  for (const m of messages) {
+    for (const tc of m.toolCalls || []) {
+      if (TOOL_STAT_SETS.reads.has(tc.name)) stats.reads++
+      else if (TOOL_STAT_SETS.edits.has(tc.name)) stats.edits++
+      else if (tc.name === 'run_command') stats.commands++
+      else stats.others++
+    }
+  }
+  return stats
+}
+
+/** 摘要文案：只列出非零类别（如「已读 24 · 改 3 · 命令 2」）；全为其他类别时回退总数 */
+function buildToolStats(t: (key: TranslationKey, vars?: Record<string, string | number>) => string, stats: ToolStats): string {
+  const segs: string[] = []
+  if (stats.reads > 0) segs.push(t('chat.toolStatReads', { n: stats.reads }))
+  if (stats.edits > 0) segs.push(t('chat.toolStatEdits', { n: stats.edits }))
+  if (stats.commands > 0) segs.push(t('chat.toolStatCommands', { n: stats.commands }))
+  if (segs.length === 0) segs.push(t('chat.toolStatTotal', { n: stats.reads + stats.edits + stats.commands + stats.others }))
+  return segs.join(' · ')
+}
 
 interface AgentProcessBlockProps {
   /** 同一气泡（turn）内全部 assistant 消息，按真实轮次顺序排列 */
@@ -32,6 +70,10 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
   const hasToolCalls = messages.some((m) => (m.toolCalls?.length || 0) > 0)
   const hasProcess = messages.some((m) => m.thinking || (m.toolCalls?.length || 0) > 0)
   if (!hasProcess) return null
+
+  // 收起头部摘要：把「读了几十个文件」压缩成一行统计 chip
+  const toolStats = hasToolCalls ? countToolStats(messages) : { reads: 0, edits: 0, commands: 0, others: 0 }
+  const totalTools = toolStats.reads + toolStats.edits + toolStats.commands + toolStats.others
 
   // 收起预览：优先第一条思考文本的首行；纯工具轮次则显示首个工具名。
   const firstThinking = messages.find((m) => m.thinking)?.thinking || ''
@@ -69,6 +111,11 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
             {hasToolCalls ? t('chat.thinkingProcess') : t('chat.thinkingTitle')}
           </span>
         </span>
+        {hasToolCalls && totalTools > 0 && (
+          <span className="shrink-0 font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border text-nova-text-muted">
+            {buildToolStats(t, toolStats)}
+          </span>
+        )}
         {!isExpanded && collapsedPreview && (
           <span className="min-w-0 flex-1 truncate text-[12px] text-nova-text-muted leading-5">
             {collapsedPreview}

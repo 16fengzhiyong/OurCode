@@ -492,6 +492,14 @@ export const zhCN = {
   'chat.totalSteps': '共 {count} 步',
   'chat.subAgentRunning': '子 Agent 执行中...',
   'chat.thinkingOutput': '思考/输出',
+  // 上下文锚点 / 动作期反馈 / 工具统计（输入框与执行过程块）
+  'chat.contextLabel': '上下文',
+  'chat.contextOpenFiles': '+{count} 个打开文件',
+  'chat.analyzing': '正在根据代码库分析…',
+  'chat.toolStatReads': '已读 {n}',
+  'chat.toolStatEdits': '已改 {n}',
+  'chat.toolStatCommands': '命令 {n}',
+  'chat.toolStatTotal': '{n} 个工具',
 
   // ── Agent 面板 ─────────────────────────────────────────────────────────
   'agent.pending': '待办',
