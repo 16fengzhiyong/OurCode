@@ -21,7 +21,7 @@ const mockApi = {
 }
 vi.stubGlobal('window', { electronAPI: mockApi })
 
-import { useChatStore, stopGitBranchPolling, trimHistoryForContext, compactToolResults, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, estimateSessionHistoryTokens, estimateContextTokens, DEFAULT_SESSION_TITLE, normalizeTodos } from '@/stores/chatStore'
+import { useChatStore, stopGitBranchPolling, trimHistoryForContext, compactToolResults, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, estimateSessionHistoryTokens, estimateContextTokens, DEFAULT_SESSION_TITLE, normalizeTodos, sessionLastUserActivity } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { createToolRegistry } from '@/services/tools/ToolRegistry'
@@ -977,5 +977,91 @@ describe('chatStore normalizeTodos', () => {
   it('returns an empty array for non-array input', () => {
     expect(normalizeTodos(undefined)).toEqual([])
     expect(normalizeTodos('x')).toEqual([])
+  })
+})
+
+describe('chatStore session user-activity sort anchor', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useChatStore.setState({
+      ...initialState,
+      sessions: [],
+      activeSessionId: null,
+      undoStack: [],
+      queuedMessagesBySession: {},
+    })
+  })
+
+  it('sessionLastUserActivity prefers lastUserMessageAt over updatedAt', () => {
+    const s = {
+      id: 'x',
+      title: 't',
+      configGroupId: 'g',
+      model: '',
+      modelParams: {},
+      messages: [],
+      createdAt: 100,
+      updatedAt: 200,
+      lastUserMessageAt: 150,
+    } as any
+    // lastUserMessageAt wins even though updatedAt is newer (agent activity
+    // refreshes updatedAt constantly — the list must not follow it).
+    expect(sessionLastUserActivity(s)).toBe(150)
+    delete s.lastUserMessageAt
+    expect(sessionLastUserActivity(s)).toBe(200)
+  })
+
+  it('addMessage sets lastUserMessageAt only for user messages', () => {
+    makeSession()
+    addUser('s1', 'first question')
+    const afterUser = useChatStore.getState().sessions[0]
+    expect(afterUser.lastUserMessageAt).toBeTypeOf('number')
+    const anchor = afterUser.lastUserMessageAt!
+
+    // An assistant reply (agent activity) must NOT move the anchor.
+    const tick = Date.now()
+    useChatStore.setState((st) => ({
+      sessions: st.sessions.map((s) => (s.id === 's1' ? { ...s, updatedAt: tick + 60_000 } : s)),
+    }))
+    addAssistant('s1', 'working on it…')
+    expect(useChatStore.getState().sessions[0].lastUserMessageAt).toBe(anchor)
+  })
+
+  it('loadSessions backfills lastUserMessageAt for legacy sessions', async () => {
+    const legacy = {
+      id: 'legacy-1',
+      title: '旧会话',
+      configGroupId: 'cfg-1',
+      model: '',
+      modelParams: {},
+      messages: [
+        { id: 'm1', role: 'user', content: 'a', createdAt: 1_000, sortOrder: 0 },
+        { id: 'm2', role: 'assistant', content: 'b', createdAt: 2_000, sortOrder: 1 },
+        { id: 'm3', role: 'user', content: 'c', createdAt: 3_000, sortOrder: 2 },
+      ],
+      createdAt: 500,
+      updatedAt: 9_000, // agent activity later refreshed this
+    }
+    ;(mockApi.getSessions as any).mockResolvedValueOnce([legacy])
+    await useChatStore.getState().loadSessions()
+
+    const loaded = useChatStore.getState().sessions[0]
+    // Derived from the LAST user message, not updatedAt (which would jump).
+    expect(loaded.lastUserMessageAt).toBe(3_000)
+    expect(sessionLastUserActivity(loaded)).toBe(3_000)
+  })
+
+  it('createSession seeds the last-picked agent/edit modes', () => {
+    localStorage.setItem('lastAgentMode', 'agent')
+    localStorage.setItem('lastProjectEditMode', 'full_access')
+    try {
+      useChatStore.getState().createSession('cfg-1', 'C:/proj')
+      const s = useChatStore.getState().sessions[0]
+      expect(s.agentMode).toBe('agent')
+      expect(s.projectEditMode).toBe('full_access')
+    } finally {
+      localStorage.removeItem('lastAgentMode')
+      localStorage.removeItem('lastProjectEditMode')
+    }
   })
 })

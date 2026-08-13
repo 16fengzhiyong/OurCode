@@ -130,6 +130,18 @@ export class SQLiteStore {
     if (!sessColumns.some((c: any) => c.name === 'summary_message_count')) {
       this.db.exec("ALTER TABLE chat_sessions ADD COLUMN summary_message_count INTEGER DEFAULT 0")
     }
+    // Add per-session project edit mode (手动确认/完全访问/自动编辑/计划) if
+    // missing — persisting it lets a restored session (new window / restart)
+    // keep the mode the user last chose, matching agent_mode persistence.
+    if (!sessColumns.some((c: any) => c.name === 'project_edit_mode')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN project_edit_mode TEXT DEFAULT 'confirm_before_change'")
+    }
+    // Add the "last user message time" sort anchor if missing. The session list
+    // sorts by this (not updatedAt, which agent activity refreshes constantly);
+    // persisting it keeps the anchor correct even if history is later trimmed.
+    if (!sessColumns.some((c: any) => c.name === 'last_user_message_at')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN last_user_message_at INTEGER DEFAULT 0")
+    }
     // Add project_path column to memories if missing (project-scoped memories)
     const memColumns = this.db.prepare("PRAGMA table_info(memories)").all() as any[]
     if (!memColumns.some((c: any) => c.name === 'project_path')) {
@@ -412,6 +424,14 @@ export class SQLiteStore {
         archivedAt: session.archived_at || undefined,
         // Legacy 'plan' mode was merged into 'agent' — map old sessions on load
         agentMode: (session.agent_mode === 'plan' ? 'agent' : session.agent_mode || 'chat') as 'chat' | 'agent',
+        // Per-session edit mode (手动确认/完全访问/自动编辑/计划) — persisted so
+        // a restored session keeps the user's choice across windows/restarts.
+        projectEditMode: (['confirm_before_change', 'auto_edit', 'plan', 'full_access'].includes(session.project_edit_mode)
+          ? session.project_edit_mode
+          : undefined) as ChatSession['projectEditMode'],
+        // Sort anchor: last time the user sent a message. 0 = unset (renderer
+        // backfills from messages / falls back to updatedAt).
+        lastUserMessageAt: session.last_user_message_at > 0 ? session.last_user_message_at : undefined,
         todos: parseJsonField<TodoItem[]>(session.todos, []),
         planContent: session.plan_content || undefined,
         planStatus: (session.plan_status || 'none') as 'none' | 'pending_approval' | 'approved' | 'canceled',
@@ -437,7 +457,7 @@ export class SQLiteStore {
         SET title = ?, config_group_id = ?, model = ?, model_params = ?, updated_at = ?,
             active_branch_id = ?, branches = ?, pinned_at = ?, archived_at = ?,
             agent_mode = ?, todos = ?, plan_content = ?, plan_status = ?, agent_runs = ?, project_path = ?,
-            summary = ?, summary_message_count = ?
+            summary = ?, summary_message_count = ?, project_edit_mode = ?, last_user_message_at = ?
         WHERE id = ?
       `).run(
         session.title,
@@ -457,14 +477,16 @@ export class SQLiteStore {
         (session as any).projectPath || '',
         (session as any).summary || '',
         (session as any).summaryMessageCount || 0,
+        (session as any).projectEditMode || 'confirm_before_change',
+        (session as any).lastUserMessageAt || 0,
         id
       )
     } else {
       this.db.prepare(`
         INSERT INTO chat_sessions (id, title, config_group_id, model, model_params, created_at, updated_at,
           active_branch_id, branches, pinned_at, archived_at, agent_mode, todos, plan_content, plan_status, agent_runs, project_path,
-          summary, summary_message_count)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          summary, summary_message_count, project_edit_mode, last_user_message_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         session.title,
@@ -484,7 +506,9 @@ export class SQLiteStore {
         JSON.stringify((session as any).agentRuns || []),
         (session as any).projectPath || '',
         (session as any).summary || '',
-        (session as any).summaryMessageCount || 0
+        (session as any).summaryMessageCount || 0,
+        (session as any).projectEditMode || 'confirm_before_change',
+        (session as any).lastUserMessageAt || 0
       )
     }
 
