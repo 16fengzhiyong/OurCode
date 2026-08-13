@@ -101,6 +101,18 @@ function getLastProjectEditMode(): 'confirm_before_change' | 'auto_edit' | 'plan
  *  after the first message, and never overwritten once the user renames. */
 export const DEFAULT_SESSION_TITLE = '新对话'
 
+/** 从未使用的"幽灵会话"：没有消息、标题仍是默认的"新对话"、且未置顶/归档。
+ *  新建后啥也不干的空对话不应出现在任何会话列表里（首条消息发出后才算真正的
+ *  会话，进入列表并持久化）——否则"新建对话"会堆积一堆空白会话。 */
+export function isGhostSession(s: Pick<ChatSession, 'messages' | 'title' | 'pinnedAt' | 'archivedAt'>): boolean {
+  return (
+    s.messages.length === 0 &&
+    (!s.title || s.title === DEFAULT_SESSION_TITLE) &&
+    !s.pinnedAt &&
+    !s.archivedAt
+  )
+}
+
 /** Derive a concise conversation title from the first user message: first
  *  non-empty line, stripped of markdown-ish prefixes, capped at 30 chars.
  *  Exported for unit tests. */
@@ -1418,12 +1430,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   deleteSession: (sessionId) => {
     set((s) => {
-      const newSessions = s.sessions.filter((sess) => sess.id !== sessionId)
+      const remaining = s.sessions.filter((sess) => sess.id !== sessionId)
       // Drop transient sub-agent progress belonging to the deleted session
       const subagentProgress = { ...s.subagentProgress }
       for (const [id, p] of Object.entries(subagentProgress)) {
         if (p.sessionId === sessionId) delete subagentProgress[id]
       }
+      // 顺带清掉从未用过的幽灵会话（新建后没发消息的空对话）；"下一个激活"绝不
+      // 能落到幽灵上——否则删除当前对话后界面会跳到一个不可见的空白会话。若当前
+      // 激活会话（可能是用户正在输入的空对话）没被删除则保留它。
+      const newSessions = remaining.filter(
+        (sess) => sess.id === s.activeSessionId || !isGhostSession(sess)
+      )
       return {
         sessions: newSessions,
         activeSessionId: s.activeSessionId === sessionId
@@ -1475,7 +1493,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (get().pendingQuestion?.sessionId === sessionId && get().questionGate[sessionId] === 'dismissed') {
       get().setQuestionGate(sessionId, 'confirm')
     }
-    set({ activeSessionId: sessionId })
+    set((s) => ({
+      activeSessionId: sessionId,
+      // 切走时清掉从未用过的幽灵会话（新建后没发消息的空对话）——它们不落盘，
+      // 留在内存里只会让列表计数和内存膨胀；首条消息发出后即成为真正会话。
+      sessions: s.sessions.filter((x) => x.id === sessionId || !isGhostSession(x)),
+    }))
     get().loadCheckpoints(sessionId)
   },
 

@@ -327,8 +327,6 @@ export interface UserPreferences {
   fontSize: number
   fontFamily: string
   tabSize: number
-  autoSave: boolean
-  autoSaveInterval: number
   showMinimap: boolean
   showHiddenFiles: boolean
   chatPosition: 'right' | 'bottom'

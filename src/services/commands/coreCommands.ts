@@ -76,14 +76,8 @@ export function registerCoreCommands(): void {
   registerCommand({
     id: 'closeTab', title: t('commands.closeTab'), category: t('commands.catFile'), shortcut: 'Ctrl+W',
     run: () => {
-      const { activeFilePath, openFiles, closeFile } = useEditorStore.getState()
-      if (!activeFilePath) return
-      const file = openFiles.find((f) => f.path === activeFilePath)
-      if (file?.isDirty) {
-        if (confirm(t('commands.unsavedConfirm'))) closeFile(activeFilePath)
-      } else {
-        closeFile(activeFilePath)
-      }
+      const { activeFilePath, closeFileWithConfirm } = useEditorStore.getState()
+      if (activeFilePath) void closeFileWithConfirm(activeFilePath)
     },
   })
 
@@ -112,7 +106,7 @@ export function registerCoreCommands(): void {
     id: 'closePanel', title: t('commands.closePanel'), category: t('commands.catView'),
     run: () => {
       const state = useEditorStore.getState()
-      if (state.panelOrder.length > 1) state.closePanel(state.activePanelId)
+      if (state.panelOrder.length > 1) void state.closePanelWithConfirm(state.activePanelId)
     },
   })
   registerCommand({ id: 'cyclePanelFocus', title: t('commands.cyclePanelFocus'), category: t('commands.catView'), shortcut: 'Ctrl+Shift+\\', run: () => useEditorStore.getState().cyclePanelFocus() })

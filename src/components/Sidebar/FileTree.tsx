@@ -180,10 +180,9 @@ function FileTree({ rootPath }: FileTreeProps) {
     await loadExpandedChildren(children, seq)
   }, [rootPath, loadFiles, loadExpandedChildren])
 
-  /** Watcher callback. Autosave fires every second while typing and writes the
-   *  file we're editing — the tree entry doesn't move (only name + git badge
-   *  are shown, and git is polled separately), so self-saves are skipped. Other
-   *  changes refresh only the affected directory. */
+  /** Watcher callback. Saving the file we're editing doesn't move the tree
+   *  entry (only name + git badge are shown, and git is polled separately), so
+   *  self-saves are skipped. Other changes refresh only the affected dir. */
   const handleFileChanged = useCallback((changedPath: string) => {
     const openFiles = useEditorStore.getState().openFiles
     if (openFiles.some((f) => f.path === changedPath)) return

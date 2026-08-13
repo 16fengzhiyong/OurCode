@@ -51,3 +51,6 @@ electron/__tests__/fixtures/mcp-http-config-*/
 # One-off debug repro scripts & screenshots (bug investigation, not project tooling)
 tools/repro-*.*
 .ourcode/targemode/
+
+# e2e debug screenshots (cursor/caret/hit probes during bug investigation)
+e2e/*.png

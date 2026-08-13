@@ -1,8 +1,7 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { getFileIconHTML } from '@/utils/fileIcons'
-import ConfirmDialog from '@/components/Common/ConfirmDialog'
 import { useI18n } from '@/i18n/useI18n'
 
 interface TabBarProps {
@@ -21,12 +20,12 @@ export default function TabBar({ panelId }: TabBarProps) {
   const panelOrder = useEditorStore((s) => s.panelOrder)
   const openFiles = useEditorStore((s) => s.openFiles)
   const setActiveFile = useEditorStore((s) => s.setActiveFile)
-  const closeFile = useEditorStore((s) => s.closeFile)
+  const closeFileWithConfirm = useEditorStore((s) => s.closeFileWithConfirm)
+  const closePanelWithConfirm = useEditorStore((s) => s.closePanelWithConfirm)
   const reorderTabs = useEditorStore((s) => s.reorderTabs)
   const moveTabToPanel = useEditorStore((s) => s.moveTabToPanel)
   const saveFile = useEditorStore((s) => s.saveFile)
   const splitPanel = useEditorStore((s) => s.splitPanel)
-  const closePanel = useEditorStore((s) => s.closePanel)
   const toggleEditorVisible = useUIStore((s) => s.toggleEditorVisible)
 
   const panel = panels[panelId]
@@ -35,7 +34,6 @@ export default function TabBar({ panelId }: TabBarProps) {
 
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
-  const [confirmClose, setConfirmClose] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const t = useI18n()
 
@@ -107,20 +105,10 @@ export default function TabBar({ panelId }: TabBarProps) {
 
   const handleClose = (e: React.MouseEvent, path: string) => {
     e.stopPropagation()
-    const file = openFiles.find((f) => f.path === path)
-    if (file?.isDirty) {
-      setConfirmClose(path)
-    } else {
-      closeFile(path, panelId)
-    }
+    // Clean files close immediately; dirty ones prompt Save / Don't Save /
+    // Cancel inside closeFileWithConfirm.
+    void closeFileWithConfirm(path, panelId)
   }
-
-  const handleConfirmClose = useCallback(() => {
-    if (confirmClose) {
-      closeFile(confirmClose, panelId)
-      setConfirmClose(null)
-    }
-  }, [confirmClose, panelId, closeFile])
 
   const handleSave = (e: React.MouseEvent, path: string) => {
     e.stopPropagation()
@@ -235,7 +223,7 @@ export default function TabBar({ panelId }: TabBarProps) {
           </button>
           {panelOrder.length > 1 && (
             <button
-              onClick={() => closePanel(panelId)}
+              onClick={() => void closePanelWithConfirm(panelId)}
               className="p-1.5 text-nova-text-muted hover:text-red-400 hover:bg-nova-hover rounded-full transition-colors"
               title={t('editor.closePanel')}
             >
@@ -258,17 +246,6 @@ export default function TabBar({ panelId }: TabBarProps) {
           </button>
         </div>
       </div>
-
-      <ConfirmDialog
-        isOpen={!!confirmClose}
-        title={t('editor.unsavedTitle')}
-        message={t('editor.unsavedMessage', { name: confirmClose ? getFileName(confirmClose) : '' })}
-        confirmText={t('editor.discardAndClose')}
-        cancelText={t('common.cancel')}
-        variant="warning"
-        onConfirm={handleConfirmClose}
-        onCancel={() => setConfirmClose(null)}
-      />
     </>
   )
 }

@@ -117,10 +117,9 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     const reloadModel = (path: string) => {
       const model = getModel(path)
       if (!model || model.isDisposed()) return
-      // Skip files with unsaved edits — our own autosave writes this file every
-      // second while typing; reloading then would revert whatever the user typed
-      // since the snapshot (and reset the cursor). External edits to a CLEAN
-      // file still reload as before.
+      // Skip files with unsaved edits — reloading would revert whatever the
+      // user typed since the snapshot (and reset the cursor). External edits to
+      // a CLEAN file still reload as before.
       const openFile = useEditorStore.getState().openFiles.find((f) => f.path === path)
       if (openFile?.isDirty) return
       window.electronAPI.readFile(path).then(({ content }) => {

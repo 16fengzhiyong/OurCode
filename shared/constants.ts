@@ -124,8 +124,6 @@ export const DEFAULT_PREFERENCES = {
   fontSize: 14,
   fontFamily: "'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace",
   tabSize: 2,
-  autoSave: true,
-  autoSaveInterval: 1000,
   showMinimap: true,
   showHiddenFiles: false,
   chatPosition: 'right' as const,

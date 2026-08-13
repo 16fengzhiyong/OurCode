@@ -190,9 +190,9 @@ export class FileSystemService {
   async openWriteStream(filePath: string, encoding = 'utf-8', hasBom = false): Promise<number> {
     const normalizedEncoding = this.normalizeEncoding(encoding)
     // Unique temp name per write — the old `.${basename}.${process.pid}.tmp`
-    // collided when two saves of the SAME file overlapped (autosave ticking
-    // while a large streamed save is in flight), truncating each other's
-    // temp file and corrupting the rename.
+    // collided when two saves of the SAME file overlapped (e.g. save-all plus
+    // a manual save while a large streamed save is in flight), truncating each
+    // other's temp file and corrupting the rename.
     const tmpPath = join(dirname(filePath), `.${basename(filePath)}.${process.pid}.${++this.tmpSeq}.tmp`)
     const fd = await open(tmpPath, 'w')
     const encoder = iconv.getEncoder(normalizedEncoding)

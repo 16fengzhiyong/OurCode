@@ -21,7 +21,7 @@ const mockApi = {
 }
 vi.stubGlobal('window', { electronAPI: mockApi })
 
-import { useChatStore, stopGitBranchPolling, trimHistoryForContext, compactToolResults, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, estimateSessionHistoryTokens, estimateContextTokens, DEFAULT_SESSION_TITLE, normalizeTodos, sessionLastUserActivity } from '@/stores/chatStore'
+import { useChatStore, stopGitBranchPolling, trimHistoryForContext, compactToolResults, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, estimateSessionHistoryTokens, estimateContextTokens, DEFAULT_SESSION_TITLE, normalizeTodos, sessionLastUserActivity, isGhostSession } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { createToolRegistry } from '@/services/tools/ToolRegistry'
@@ -247,6 +247,69 @@ describe('chatStore generateSessionTitle', () => {
     expect(DEFAULT_SESSION_TITLE).toBe('新对话')
     makeSession()
     expect(useChatStore.getState().sessions[0].title).toBe(DEFAULT_SESSION_TITLE)
+  })
+})
+
+describe('chatStore ghost sessions (never-used empty chats)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useChatStore.setState({
+      ...initialState,
+      sessions: [],
+      activeSessionId: null,
+      undoStack: [],
+      queuedMessagesBySession: {},
+    })
+  })
+
+  it('isGhostSession is true right after creation, false once a message is sent', () => {
+    makeSession('s1')
+    const fresh = useChatStore.getState().sessions.find((x) => x.id === 's1')!
+    expect(isGhostSession(fresh)).toBe(true)
+    addUser('s1', '帮我修一下登录页')
+    const used = useChatStore.getState().sessions.find((x) => x.id === 's1')!
+    expect(isGhostSession(used)).toBe(false)
+  })
+
+  it('a renamed-but-still-empty session is NOT a ghost (user showed intent)', () => {
+    makeSession('s1')
+    useChatStore.getState().renameSession('s1', 'TODO 备忘')
+    const renamed = useChatStore.getState().sessions.find((x) => x.id === 's1')!
+    expect(isGhostSession(renamed)).toBe(false)
+  })
+
+  it('setActiveSession prunes never-used ghost sessions but keeps the target', () => {
+    makeSession('s1')
+    makeSession('s2')
+    useChatStore.getState().setActiveSession('s2')
+    expect(useChatStore.getState().sessions.map((x) => x.id)).toEqual(['s2'])
+  })
+
+  it('setActiveSession keeps used sessions and prunes only ghosts', () => {
+    makeSession('s1')
+    addUser('s1', 'hello') // s1 becomes a real conversation
+    makeSession('s2') // s2 is a fresh ghost
+    useChatStore.getState().setActiveSession('s1')
+    expect(useChatStore.getState().sessions.map((x) => x.id)).toEqual(['s1'])
+  })
+
+  it('deleteSession does not leave an invisible ghost active when the active session is deleted', () => {
+    makeSession('s1')
+    makeSession('s2') // s2 is a ghost, now active
+    addUser('s2', 'hello') // s2 becomes real; s1 stays an unused ghost
+    useChatStore.getState().deleteSession('s2')
+    // The next active must not fall onto the invisible ghost s1
+    expect(useChatStore.getState().sessions).toHaveLength(0)
+    expect(useChatStore.getState().activeSessionId).toBeNull()
+  })
+
+  it('deleteSession keeps the active ghost the user is composing in', () => {
+    makeSession('s1')
+    addUser('s1', 'hello') // s1 is a real conversation
+    makeSession('g1') // g1 is a ghost, now active
+    useChatStore.getState().deleteSession('s1')
+    expect(useChatStore.getState().sessions.map((x) => x.id)).toEqual(['g1'])
+    expect(useChatStore.getState().activeSessionId).toBe('g1')
   })
 })
 

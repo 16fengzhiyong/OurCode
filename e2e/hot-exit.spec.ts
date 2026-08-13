@@ -60,24 +60,7 @@ test.describe('Hot Exit', () => {
       await win1.locator('#file-tree-root >> text=hello.ts').first().click()
       await win1.waitForTimeout(800)
 
-      // Disable Auto Save so the buffer stays dirty: 文件 → 偏好设置 →
-      // Settings modal, then the 编辑器 tab (the Stitch redesign re-labeled the
-      // tabs; Auto Save lives under Editor). The preference persists in SQLite,
-      // so only click when it is currently ON. Labels are localized, so match
-      // either locale.
-      await win1.locator('button', { hasText: '文件' }).first().click()
-      await win1.locator('button', { hasText: /偏好设置|Preferences/ }).first().click()
-      const settingsDialog = win1.locator('[role="dialog"]').first()
-      await settingsDialog.locator('button', { hasText: /编辑器|Editor/ }).first().click()
-      const autoSaveRow = settingsDialog.locator('div.flex.items-center.justify-between', { hasText: /自动保存|Auto Save/ }).first()
-      // Cold start renders the settings modal lazily; give it 10 s instead of 5.
-      await expect(autoSaveRow).toBeVisible({ timeout: 10000 })
-      const toggleBtn = autoSaveRow.locator('button').first()
-      // The toggle is colored via inline style (`var(--accent)` when on), not a class
-      const autoSaveOn = (await toggleBtn.getAttribute('style'))?.includes('var(--accent)') ?? false
-      if (autoSaveOn) await toggleBtn.click()
-      // Close settings
-      await win1.locator('button:has(svg path[d*="6 6l12 12"])').first().click().catch(() => {})
+      // No autosave anymore — the buffer stays dirty until explicitly saved.
 
       // Type at the end of the file → dirty buffer → debounced backup. Focus
       // Monaco directly (a Playwright click waits on the blinking cursor).

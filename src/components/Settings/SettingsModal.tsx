@@ -768,9 +768,6 @@ export default function SettingsModal() {
                 <SettingRow label="显示缩略图" desc="在编辑器右侧显示代码缩略导航图" right={
                   <ToggleButton on={preferences.showMinimap} onClick={() => savePreferences({ showMinimap: !preferences.showMinimap })} />
                 } />
-                <SettingRow label="自动保存" desc="切换文件时自动保存修改" right={
-                  <ToggleButton on={preferences.autoSave} onClick={() => savePreferences({ autoSave: !preferences.autoSave })} />
-                } />
                 <SettingRow label="对话历史编辑" desc="开启后支持编辑消息、拖动排序和批量删除" right={
                   <ToggleButton on={preferences.chatHistoryEditMode} onClick={() => savePreferences({ chatHistoryEditMode: !preferences.chatHistoryEditMode })} />
                 } />

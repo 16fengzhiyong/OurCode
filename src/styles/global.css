@@ -257,11 +257,29 @@ body.app-dragging .drag-region * {
 /* Editable surfaces always show a text (I-beam) cursor so hovering reads as
    "you can type here". Monaco's own cursor class can be missing when the
    editor is assembled from parts (edcore), which left the plain arrow over the
-   code — and a pointer that was easy to lose on a dense text view. */
+   code — and a pointer that was easy to lose on a dense text view. Cover the
+   whole content surface (including the empty/no-model state via
+   .lines-content) so the I-beam shows over every theme, light included.
+
+   The system text cursor is WHITE in some Windows cursor schemes (and on some
+   GPU/driver combos), which made it vanish against the light theme's white
+   editor surface — you couldn't tell where the pointer was. Theme-aware custom
+   I-beam cursors fix that regardless of the machine's cursor scheme: a dark
+   I-beam with a white halo in light mode (visible over both the white
+   background and dark code), a light I-beam with a dark halo in dark mode.
+   The `text` fallback keeps native behavior if a custom cursor ever fails. */
 .monaco-editor .view-lines,
 .monaco-editor .view-lines .view-line,
+.monaco-editor .lines-content,
 textarea[data-ai-input] {
-  cursor: text;
+  cursor: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNMTAgM0gxNFY0LjVIMTIuNVYxOS41SDE0VjIxSDEwVjE5LjVIMTEuNVY0LjVIMTBaIiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxwYXRoIGQ9Ik0xMCAzSDE0VjQuNUgxMi41VjE5LjVIMTRWMjFIMTBWMTkuNUgxMS41VjQuNUgxMFoiIGZpbGw9IiMwZjE3MmEiLz48L3N2Zz4=") 12 12, text;
+}
+
+:root.dark .monaco-editor .view-lines,
+:root.dark .monaco-editor .view-lines .view-line,
+:root.dark .monaco-editor .lines-content,
+:root.dark textarea[data-ai-input] {
+  cursor: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNMTAgM0gxNFY0LjVIMTIuNVYxOS41SDE0VjIxSDEwVjE5LjVIMTEuNVY0LjVIMTBaIiBmaWxsPSJub25lIiBzdHJva2U9IiMwZjE0MjAiIHN0cm9rZS13aWR0aD0iMyIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjxwYXRoIGQ9Ik0xMCAzSDE0VjQuNUgxMi41VjE5LjVIMTRWMjFIMTBWMTkuNUgxMS41VjQuNUgxMFoiIGZpbGw9IiNlMWUyZWIiLz48L3N2Zz4=") 12 12, text;
 }
 
 /* Animation classes */

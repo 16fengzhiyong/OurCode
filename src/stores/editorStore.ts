@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { monaco, ensureLanguageService } from '@/editor/monacoSetup'
 import { useRecentFilesStore } from '@/stores/recentFilesStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useUnsavedStore } from '@/stores/unsavedStore'
 import { OpenFile, UserPreferences, DEFAULT_PREFERENCES, LANGUAGE_MAP } from '@/types'
 import {
   getFileContent,
@@ -42,11 +43,14 @@ export const READONLY_PREVIEW_CHARS = 500 * 1024 // ≈ 500 KB / a few thousand 
 // single synchronous pass in the main process.
 const STREAMED_SAVE_THRESHOLD = 4 * 1024 * 1024
 
-// Paths with an in-flight save. Autosave fires every second and a large
-// streamed save runs for many seconds, so without this set each tick would
-// start another concurrent save of the same file (markDirty(false) only runs
-// when the first save finishes). Guarded in saveFile.
+// Paths with an in-flight save. A large streamed save runs for many seconds,
+// so without this set each overlapping saveFile call would start another
+// concurrent save of the same file (markDirty(false) only runs when the first
+// save finishes). Guarded in saveFile.
 const savingFiles = new Set<string>()
+
+/** Display name of a file path (last segment). */
+const fileNameOf = (path: string): string => path.split(/[/\\]/).pop() || path
 
 // ── Hot exit (crash-safe unsaved buffers) ──────────────────────────────────
 // Dirty buffers are mirrored to <userData>/backups a beat after the last edit
@@ -176,11 +180,23 @@ interface EditorState {
   openFile: (path: string, panelId?: string) => Promise<void>
   closeFile: (path: string, panelId?: string) => void
   closeFileGlobally: (path: string) => void
+  /** Close a file, prompting to save when it's dirty. `panelId` scopes the
+   *  close to one panel; omit to close the file everywhere. Returns true when
+   *  the file was (or is now) closed — false when the user cancelled or the
+   *  save failed. */
+  closeFileWithConfirm: (path: string, panelId?: string) => Promise<boolean>
+  /** Close a panel and all its tabs — clean files close immediately, dirty
+   *  ones prompt one at a time. Returns true when the panel was closed. */
+  closePanelWithConfirm: (panelId: string) => Promise<boolean>
   setActiveFile: (path: string, panelId?: string) => void
   newFile: () => string
   reorderTabs: (fromIndex: number, toIndex: number, panelId?: string) => void
   moveTabToPanel: (path: string, fromPanelId: string, toPanelId: string, insertIndex?: number) => void
-  saveFile: (path: string) => Promise<void>
+  /** Save a file to disk. Resolves with the path that was saved — the original
+   *  path for a normal save, the new path after an untitled Save As, or null
+   *  when nothing was written (Save As cancelled, save failed, already saving,
+   *  file not found). */
+  saveFile: (path: string) => Promise<string | null>
   saveAll: () => Promise<void>
   markDirty: (path: string, isDirty?: boolean) => void
   setFileEncoding: (path: string, encoding: string) => void
@@ -686,6 +702,56 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     void clearHotExitBackup(path)
   },
 
+  /** Close a file, asking the user when it has unsaved changes. `panelId`
+   *  scopes the close to one panel (the tab leaves that panel, the file stays
+   *  open elsewhere); omit it to close the file everywhere. Save is attempted
+   *  first for dirty files; a cancelled Save As or a failed save keeps the
+   *  file open so the edits are never lost. Returns whether the file was
+   *  closed. */
+  closeFileWithConfirm: async (path, panelId) => {
+    const file = get().openFiles.find((f) => f.path === path)
+    if (!file) return true
+    if (!file.isDirty) {
+      if (panelId) get().closeFile(path, panelId)
+      else get().closeFileGlobally(path)
+      return true
+    }
+
+    const choice = await useUnsavedStore.getState().ask(fileNameOf(file.path))
+    if (choice === 'cancel') return false
+    if (choice === 'save') {
+      const savedPath = await get().saveFile(path).catch(() => null)
+      if (!savedPath) return false // Save As cancelled / write failed → keep open
+      if (panelId) get().closeFile(savedPath, panelId)
+      else get().closeFileGlobally(savedPath)
+      return true
+    }
+    if (panelId) get().closeFile(path, panelId)
+    else get().closeFileGlobally(path)
+    return true
+  },
+
+  /** Close a panel and every tab in it. Clean files close immediately; dirty
+   *  ones prompt one at a time. A single 'cancel' aborts the whole panel
+   *  close, keeping the remaining tabs (and the panel) open. Files that are
+   *  also open in another panel only lose their tab here. */
+  closePanelWithConfirm: async (panelId) => {
+    const s = get()
+    if (s.panelOrder.length <= 1) return false
+    const panel = s.panels[panelId]
+    if (!panel) return true
+
+    for (const path of [...panel.tabOrder]) {
+      // Re-check each iteration: earlier prompts may have closed tabs
+      const shared = Object.values(get().panels).some((p) => p.id !== panelId && p.tabOrder.includes(path))
+      const closed = await get().closeFileWithConfirm(path, shared ? panelId : undefined)
+      if (!closed) return false
+    }
+    // All tabs are gone (or were never there) — drop the empty panel
+    get().closePanel(panelId)
+    return true
+  },
+
   setActiveFile: (path, panelId) => {
     get().closeDiff()
     set((s) => {
@@ -779,15 +845,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   saveFile: async (path) => {
-    // Guard against overlapping saves. Autosave fires every second, and a
-    // large streamed save takes many seconds — without this guard each tick
-    // would start another concurrent save of the same file, piling up until
-    // the main process is saturated encoding/writing gigabytes.
-    if (savingFiles.has(path)) return
+    // Guard against overlapping saves — a large streamed save takes many
+    // seconds, and without this set each overlapping call would start another
+    // concurrent save of the same file, piling up until the main process is
+    // saturated encoding/writing gigabytes.
+    if (savingFiles.has(path)) return null
     savingFiles.add(path)
     try {
       const file = get().openFiles.find((f) => f.path === path)
-      if (!file) return
+      if (!file) return null
 
       // If the file is still streaming in, wait for it to finish first
       const pendingLoad = waitForLoad(path)
@@ -798,7 +864,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         // Untitled buffers are small; reading the live model text is cheap here
         const content = getFileContent(path, file.content)
         const newPath = await window.electronAPI.saveFile()
-        if (!newPath) return
+        if (!newPath) return null
         await window.electronAPI.writeFile(newPath, content, file.encoding, file.hasBom)
         // Re-register the live model under the real path (and store the saved text
         // as the initial copy) so the migrated tab keeps its content
@@ -826,16 +892,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           return { ...next, ...syncDerivedState(next) }
         })
         void clearHotExitBackup(path)
-        return
+        return newPath
       }
 
-      if (!file.isDirty) return
+      if (!file.isDirty) return path
 
       const model = getModel(path)
       // Large models are streamed to disk in bounded chunks. Reading the whole
       // document (`getFileContent` → `model.getValue()`) is only done for small
-      // files — on a multi-hundred-MB model it copies the entire buffer, and
-      // autosave would trigger that copy every second while typing.
+      // files — on a multi-hundred-MB model it copies the entire buffer on every
+      // save.
       if (model && model.getValueLength() > STREAMED_SAVE_THRESHOLD) {
         await streamSaveModel(path, model, file.encoding, file.hasBom)
       } else {
@@ -846,6 +912,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       get().markDirty(path, false)
       void clearHotExitBackup(path)
+      return path
     } catch (error) {
       console.error('Failed to save file:', error)
       throw error

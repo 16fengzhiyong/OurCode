@@ -13,6 +13,7 @@ import CommandPalette from '../CommandPalette/CommandPalette'
 import QuickOpen from '../Sidebar/QuickOpen'
 import ContextMenu from '../Common/ContextMenu'
 import NotificationToasts from '../Common/NotificationToasts'
+import UnsavedDialog from '../Common/UnsavedDialog'
 import PluginMarketplace from '../Plugin/PluginMarketplace'
 import SkillRegistryModal from '../Skills/SkillRegistryModal'
 import ProblemsPanel from '../Editor/ProblemsPanel'
@@ -58,7 +59,6 @@ export default function MainLayout() {
   const currentProjectPath = useChatStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.projectPath ?? null)
 
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1400)
-  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   // Use refs for values accessed in the keyboard handler to avoid stale closures
   const isCommandPaletteOpenRef = useRef(isCommandPaletteOpen)
@@ -172,24 +172,6 @@ export default function MainLayout() {
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, []) // No deps — reads live store state
 
-  // Auto-save timer — subscribes to the preference so toggling Auto Save in
-  // Settings takes effect immediately (previously the effect ran once on mount
-  // and the toggle only applied after a restart).
-  const autoSave = useEditorStore((s) => s.preferences.autoSave)
-  const autoSaveInterval = useEditorStore((s) => s.preferences.autoSaveInterval)
-  useEffect(() => {
-    if (!autoSave) {
-      if (autoSaveTimerRef.current) { clearInterval(autoSaveTimerRef.current); autoSaveTimerRef.current = null }
-      return
-    }
-    autoSaveTimerRef.current = setInterval(() => {
-      useEditorStore.getState().openFiles.filter((f) => f.isDirty).forEach((f) => {
-        useEditorStore.getState().saveFile(f.path).catch(console.error)
-      })
-    }, autoSaveInterval)
-    return () => { if (autoSaveTimerRef.current) clearInterval(autoSaveTimerRef.current) }
-  }, [autoSave, autoSaveInterval])
-
   const effectiveSidebarWidth = isCompact ? Math.min(sidebarWidth, 200) : sidebarWidth
 
   // Resizable panel drag handler
@@ -242,7 +224,12 @@ export default function MainLayout() {
           <div className={`flex-1 h-full min-h-0 flex ${isNarrow ? 'flex-col' : ''} overflow-hidden`}>
             {isEditorVisible && (
               <>
-                <div className={`flex-1 h-full min-w-0 min-h-0 overflow-hidden flex rounded-xl glass-chrome ${splitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}>
+                {/* glass-flat (no backdrop-filter) instead of glass-chrome: on
+                    some Windows GPUs the OS cursor fails to composite over
+                    backdrop-filter regions, leaving the pointer invisible over
+                    the editor. The editor's content is opaque, so the blur
+                    behind it was invisible anyway. */}
+                <div className={`flex-1 h-full min-w-0 min-h-0 overflow-hidden flex rounded-xl glass-flat ${splitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}>
                   {panelOrder.map((pid, index) => (
                     <div key={pid} className="flex-1 h-full min-w-0 min-h-0 overflow-hidden flex flex-col" style={panelOrder.length > 1 && splitRatios[index - 1] ? { flex: `0 0 ${splitRatios[index - 1] * 100}%` } : undefined}>
                       <TabBar panelId={pid} />
@@ -318,6 +305,7 @@ export default function MainLayout() {
       <SkillRegistryModal />
       {isMemoryManagerOpen && <MemoryModal onClose={closeMemoryManager} currentProjectPath={currentProjectPath} />}
       <NotificationToasts />
+      <UnsavedDialog />
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useChatStore, sessionLastUserActivity } from '@/stores/chatStore'
+import { useChatStore, sessionLastUserActivity, isGhostSession } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
 import { getLocale } from '@/i18n'
 import { useSessionMenu } from './sessionMenu'
@@ -25,6 +25,12 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
 
+  // 从未用过的空会话（新建后没发消息）不进列表——首条消息发出后才出现。
+  const visibleSessions = useMemo(
+    () => sessions.filter((s) => !isGhostSession(s)),
+    [sessions],
+  )
+
   // Sessions waiting on the user (question / tool approval / batch approval /
   // plan approval) — bubble icon next to the title (same signal as the left
   // project list).
@@ -39,7 +45,7 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
 
   // Filter sessions based on search query, archive status, and pin sorting
   const filteredSessions = useMemo(() => {
-    let list = sessions
+    let list = visibleSessions
 
     // Hide archived unless toggle is on
     if (!showArchived) {
@@ -65,7 +71,7 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
       if (a.pinnedAt && b.pinnedAt) return b.pinnedAt - a.pinnedAt
       return sessionLastUserActivity(b) - sessionLastUserActivity(a)
     })
-  }, [sessions, searchQuery, showArchived])
+  }, [visibleSessions, searchQuery, showArchived])
 
   const handleContextMenu = (e: React.MouseEvent, sessionId: string) => {
     e.preventDefault()
@@ -137,7 +143,7 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-xs font-semibold text-nova-text-secondary">{t('chat.sessionList')}</span>
           <span className="text-[9px] px-1.5 py-px rounded-full bg-nova-accent/12 text-nova-accent font-medium shrink-0">
-            {sessions.length}
+            {visibleSessions.length}
           </span>
         </div>
         <div className="flex items-center gap-1">

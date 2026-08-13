@@ -353,6 +353,11 @@ export const useUIStore = create<UIState>((set, get) => ({
     const { themeColor } = get()
     document.documentElement.classList.toggle('dark', resolved === 'dark' || (resolved === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches))
     applyThemeColor(themeColor)
+    // Keep the state in sync with the DOM: initTheme is the ONLY startup path,
+    // and Monaco's theme (and the editor's cursor/caret colors) follow this
+    // state. Without this a persisted dark preference left the workbench dark
+    // while the editor stayed light (white) until the user re-picked a theme.
+    if (resolved !== get().theme) set({ theme: resolved })
   },
 
   setThemeColor: (color) => {
