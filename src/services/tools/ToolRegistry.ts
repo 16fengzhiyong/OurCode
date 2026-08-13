@@ -73,19 +73,23 @@ export function createToolRegistry(): Tool[] {
     },
     {
       name: 'search_in_files',
-      description: 'Search for text content within files. Returns matching lines with file paths and line numbers.',
+      description:
+        'Search for text content within files. Returns matching lines with file paths and line numbers. ' +
+        'query 默认按字面文本（大小写不敏感）搜索；搜索带括号/点号等特殊字符的模式时，' +
+        '要么不转义直接传原文，要么设置 regex=true 并按正则转义后传入。',
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Directory to search in' },
-          query: { type: 'string', description: 'Text or regex to search for' },
+          query: { type: 'string', description: 'Text to search for (literal substring by default)' },
+          regex: { type: 'boolean', description: 'Treat query as a regular expression instead of literal text (default false)' },
           filePattern: { type: 'string', description: 'Optional file pattern filter (e.g. "*.ts,*.tsx")' },
         },
         required: ['path', 'query'],
       },
       execute: async (args) => {
         const { searchInFiles } = await import('@/services/tools/helpers')
-        return searchInFiles(args.path, args.query, args.filePattern)
+        return searchInFiles(args.path, args.query, args.filePattern, !!args.regex)
       },
     },
 
@@ -162,18 +166,20 @@ export function createToolRegistry(): Tool[] {
       description:
         'Execute a shell command in the given directory. Returns stdout/stderr. ' +
         '注意：① 有专用工具时不要用它——文件/搜索用 read_file/search_in_files，git 用 git_status/git_diff/git_log/git_add/git_commit/git_split_commit（本工具需要审批，会打断流程）；' +
-        '② Windows 环境没有 grep/&& 等 Unix 命令，需要搜索用 search_in_files，需要连续执行分多次调用。',
+        '② Windows 环境是 PowerShell（没有 grep/&& 等 Unix 命令），赋值用 $env:NAME=... 而不是 set NAME=...，需要搜索用 search_in_files，需要连续执行分多次调用；' +
+        '③ 命令默认 30 秒超时会被中断——构建/测试/安装等长命令必须设置 timeoutMs（如 120000），若仍超时说明它确实需要更长时间，不要重复执行同一命令。',
       parameters: {
         type: 'object',
         properties: {
           command: { type: 'string', description: 'The shell command to execute' },
           cwd: { type: 'string', description: 'Working directory (optional, defaults to project root)' },
+          timeoutMs: { type: 'number', description: 'Timeout in milliseconds (optional, default 30000; build/test commands should set e.g. 120000)' },
         },
         required: ['command'],
       },
       execute: async (args) => {
         const { runCommand } = await import('@/services/tools/helpers')
-        return runCommand(args.command, args.cwd)
+        return runCommand(args.command, args.cwd, args.timeoutMs)
       },
       requiresApproval: true,
     },

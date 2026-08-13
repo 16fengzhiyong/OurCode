@@ -151,7 +151,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   gitExecRaw: (cwd: string, args: string[], input?: string) => ipcRenderer.invoke(IPC_CHANNELS.GIT_EXEC_RAW, cwd, args, input),
 
   // Shell
-  shellExec: (command: string, cwd?: string) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_EXEC, command, cwd),
+  shellExec: (command: string, cwd?: string, options?: { timeoutMs?: number }) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_EXEC, command, cwd, options),
 
   // Web fetch (web_search / read_url tools)
   webFetch: (url: string, options?: { timeoutMs?: number; maxBytes?: number }) =>

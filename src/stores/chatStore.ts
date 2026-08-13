@@ -417,6 +417,7 @@ const AGENT_MODE_INSTRUCTION = `
 - 用搜索/读取工具理解代码库后直接动手实现，不要为规划而规划；需要多步推进的任务用 manage_todo 维护任务列表，让用户看到进度。
 - 完成修改后用项目现有的测试 / lint / typecheck 脚本验证（存在的话）。
 - 有专用工具时禁止用 run_command 绕过：git 操作一律用 git_status / git_diff / git_add / git_commit / git_push / git_split_commit，文件操作一律用 read_file / write_file / edit_file / search_in_files。禁止为一次性的 git 操作编写或调试脚本。
+- 用 run_command 时记住：Windows 上是 PowerShell，赋值用 $env:NAME=... 而不是 set NAME=...，没有 &&（连续执行分多次调用）。构建/测试/类型检查等长命令默认 30 秒超时会被中断——调用时要设 timeoutMs（如 120000）。若命令仍返回 [超时]，说明它需要更长时间，直接用更大的 timeoutMs 重试一次或换一种验证方式（如只构建相关模块），不要通过加内存参数、换 shell、重装依赖等方式反复折腾同一命令。
 - 提交前先 git_status + git_diff 确认改动范围；按功能拆分提交时用 git_add 逐组暂存 + git_commit，或 git_split_commit 一次完成分组提交；commit message 遵循仓库风格（feat:/fix:/refactor: 前缀）。
 - 工具结果可能被系统压缩清理：重要的信息（文件内容、命令输出、关键结论）及时写入你的可见回复，不要假设之后还能读到原始工具结果。
 - 修改文件时用 edit_file 尽量精确，不要破坏无关代码。
@@ -485,6 +486,11 @@ const MAX_PARALLEL_SUBAGENTS = 3
 /** 同一批 tool_calls 中普通工具的并发上限（Claude Code / opencode 风格：
  *  无依赖的独立工具调用在同一轮并行执行，如 git_status + git_diff）。 */
 const MAX_PARALLEL_TOOLS = 6
+
+// 命令连续失败熔断阈值：同一 run_command 连续失败/超时达到此数即停下提问。
+// 防的是 agent 把超时误判成环境问题后无限换姿势自救（曾见 build 超时被当成
+// 构建环境坏了，反复加内存/重装依赖/换 shell 调试 6 分钟）。每个 run 只问一次。
+const COMMAND_FAIL_BREAK_ROUNDS = 2
 
 /** Agent 会话默认编辑模式——与 Claude Code 默认一致：直接动手，但改文件前
  *  先征求用户确认。计划模式（plan）改为用户主动选择，不再作为默认。 */
@@ -2528,6 +2534,11 @@ async function runAgentLoop(
   // Context-overflow fallback: the provider rejected a request because the
   // history outgrew the model — compact and retry once per run (never loop).
   let overflowCompactionAttempted = false
+  // 命令连续失败熔断状态：累计同一 run_command 的连续失败/超时，达到
+  // COMMAND_FAIL_BREAK_ROUNDS 时停下提问（详见该常量注释）。每个 run 只问一次。
+  let consecutiveCommandFailures = 0
+  let lastFailedCommand = ''
+  let commandFailBreakAsked = false
 
   while (iterationsLeft-- > 0) {
       if (abortController.signal.aborted) break
@@ -2907,6 +2918,13 @@ async function runAgentLoop(
       const finalizeToolResult = (tc: ToolCall, result: ToolResult): void => {
         useChatStore.getState().setTraceStatus(sessionId, tc.id, result.isError ? 'error' : 'success')
         touchActivity() // tool finished — the agent is working, not idle
+        // 命令连续失败计数：run_command 失败/超时以 "Error:" 开头的文本返回，
+        // ToolExecutor 未必置 isError —— 两种都算，供循环末尾的熔断使用。
+        if (tc.name === 'run_command') {
+          const failed = result.isError || String(result.result).startsWith('Error:')
+          consecutiveCommandFailures = failed ? consecutiveCommandFailures + 1 : 0
+          if (failed) lastFailedCommand = String(tc.arguments?.command || '')
+        }
         // Append the result inline to the assistant message for display
         chatStore.appendToolResult(sessionId, assistantMsgId, result)
         recordToolMessage(tc.id, result.result)
@@ -3139,6 +3157,51 @@ async function runAgentLoop(
 
       // Plan submitted — pause the loop until the user approves
       if (planSubmitted) break
+
+      // ── 命令连续失败熔断 ──────────────────────────────────────────────
+      // 同一 run_command 连续失败/超时达到阈值：停下弹提问让用户决定，而不是
+      // 让 agent 无限原样重试或换姿势自救。targetMode 自主运行不打断；每个
+      // run 只问一次；60s 无人应答按「跳过验证继续」兜底（与 flail 一致）。
+      if (consecutiveCommandFailures >= COMMAND_FAIL_BREAK_ROUNDS && !commandFailBreakAsked && !targetMode) {
+        consecutiveCommandFailures = 0
+        commandFailBreakAsked = true
+        const question =
+          `run_command 已连续 ${COMMAND_FAIL_BREAK_ROUNDS} 次执行失败或超时` +
+          (lastFailedCommand ? `（最近一次：${lastFailedCommand.slice(0, 80)}）` : '') +
+          `。继续原样重试大概率再次失败，请选择如何继续：`
+        const options = ['跳过验证，直接完成剩余工作', '加大超时后重试一次', '停止']
+        touchActivity() // waiting on the user ≠ model silence
+        const answer = await new Promise<string>((resolve) => {
+          if (_questionResolves.has(sessionId)) { _questionResolves.get(sessionId)!('（用户取消了上一次提问）'); _questionResolves.delete(sessionId) }
+          _questionResolves.set(sessionId, resolve)
+          const onSession = useChatStore.getState().activeSessionId === sessionId
+          useChatStore.setState({
+            pendingQuestion: { sessionId, id: `cmdbreak-${Date.now()}`, question, options },
+            questionGate: {
+              ...useChatStore.getState().questionGate,
+              [sessionId]: onSession ? 'auto' : 'confirm',
+            },
+          })
+          setTimeout(() => {
+            if (_questionResolves.get(sessionId) === resolve) {
+              _questionResolves.delete(sessionId)
+              resolve('跳过验证，直接完成剩余工作')
+            }
+          }, 60000)
+        })
+        let note = ''
+        if (answer.includes('停止')) {
+          note = '\n（用户选择停止）'
+          abortController.abort()
+        } else if (answer.includes('加大超时')) {
+          note = '\n（用户选择加大超时后重试一次：请用 run_command 的 timeoutMs 参数重跑已失败的命令，如 timeoutMs=120000）'
+        } else {
+          note = '\n（用户选择跳过验证：请直接完成剩余工作，不要重复执行已失败的命令）'
+        }
+        messages.push({ role: 'user', content: `用户回答: ${answer}${note}` })
+        chatStore.addMessage(sessionId, { role: 'user', content: `用户回答: ${answer}${note}` })
+        clearStream()
+      }
 
       // Reset streaming state for next iteration
       set((s) => ({

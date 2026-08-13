@@ -101,7 +101,7 @@ export interface ElectronAPI {
   gitExecRaw: (cwd: string, args: string[], input?: string) => Promise<{ success: boolean; output: string; error?: string }>
 
   // Shell
-  shellExec: (command: string, cwd?: string) => Promise<{ success: boolean; output: string; error?: string }>
+  shellExec: (command: string, cwd?: string, options?: { timeoutMs?: number }) => Promise<{ success: boolean; output: string; error?: string }>
 
   // Web fetch (web_search / read_url tools)
   webFetch: (url: string, options?: { timeoutMs?: number; maxBytes?: number }) => Promise<{

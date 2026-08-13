@@ -105,10 +105,11 @@ export async function searchFiles(rootPath: string, pattern: string): Promise<st
   return results.filter((p) => !isIgnoredPath(p)).slice(0, 50).join('\n')
 }
 
-/** Search text content in files */
-export async function searchInFiles(rootPath: string, query: string, filePattern?: string): Promise<string> {
+/** Search text content in files (literal substring by default; regex when useRegex) */
+export async function searchInFiles(rootPath: string, query: string, filePattern?: string, useRegex = false): Promise<string> {
   await ensureIgnoreLoaded()
   const options: any = { caseSensitive: false }
+  if (useRegex) options.regex = true
   if (filePattern) options.filePattern = filePattern
   const results: any[] = await window.electronAPI.searchInFiles(rootPath, query, options)
   if (!results || results.length === 0) return 'No matches found'
@@ -145,10 +146,12 @@ export async function deleteFileOrDir(path: string): Promise<string> {
 }
 
 /** Run a shell command */
-export async function runCommand(command: string, cwd?: string): Promise<string> {
+/** Run a shell command. timeoutMs 可选（默认主进程 30s）——构建/测试等长命令
+ *  传更大值（如 120000），避免被默认超时中断后误判成命令失败。 */
+export async function runCommand(command: string, cwd?: string, timeoutMs?: number): Promise<string> {
   const rootPath = workspaceRoot()
   const workDir = cwd || rootPath
-  const result = await window.electronAPI.shellExec(command, workDir)
+  const result = await window.electronAPI.shellExec(command, workDir, { timeoutMs })
   if (result.success) {
     return result.output
   }

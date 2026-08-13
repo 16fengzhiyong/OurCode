@@ -1457,7 +1457,7 @@ function registerIpcHandlers(): void {
   })
 
   // Shell exec handler (for run_command tool)
-  ipcMain.handle('shell:exec', async (_event, command: string, cwd?: string) => {
+  ipcMain.handle('shell:exec', async (_event, command: string, cwd?: string, options?: { timeoutMs?: number }) => {
     return new Promise((resolve) => {
       try {
         if (cwd) assertPathAllowed(cwd)
@@ -1465,13 +1465,25 @@ function registerIpcHandlers(): void {
         resolve({ success: false, output: '', error: error.message })
         return
       }
-      exec(command, {        cwd: cwd || undefined,
-        timeout: 30000,
+      // 默认 30s 超时，允许 run_command 的 timeoutMs 覆盖（构建/测试等长命令
+      // 传更大值）；上限 10 分钟防失控。
+      const timeoutMs = Math.max(1000, Math.min(Math.floor(options?.timeoutMs || 30000), 600_000))
+      exec(command, {
+        cwd: cwd || undefined,
+        timeout: timeoutMs,
         maxBuffer: 5 * 1024 * 1024,
         shell: process.platform === 'win32' ? 'powershell.exe' : 'bash',
       }, (error: any, stdout: string, stderr: string) => {
         if (error) {
-          resolve({ success: false, output: stdout || '', error: stderr || error.message })
+          // exec 超时会把子进程杀掉并置 killed=true（signal='SIGTERM'）。超时
+          // 必须明确标注 [超时]——否则 agent 无法区分「命令超时」与「命令本身
+          // 失败」，会把超时误判成环境/参数问题，陷入反复换姿势重试（曾见
+          // build 超时被当成构建环境坏了，多烧 6 分钟调试）。
+          const timedOut = error.killed === true || error.signal === 'SIGTERM'
+          const msg = timedOut
+            ? `[超时] 命令执行超过 ${Math.round(timeoutMs / 1000)} 秒被终止。若是构建/测试/安装等长命令，请在 run_command 的 timeoutMs 参数中加大超时（如 120000），或改用异步方式等待，不要重复执行同一命令。`
+            : (stderr || error.message)
+          resolve({ success: false, output: stdout || '', error: msg })
         } else {
           resolve({ success: true, output: stdout.trim() })
         }
