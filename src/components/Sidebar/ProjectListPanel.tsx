@@ -96,6 +96,7 @@ export default function ProjectListPanel() {
   const reorderProjects = useUIStore((s) => s.reorderProjects)
   const removeProject = useUIStore((s) => s.removeProject)
   const showContextMenu = useUIStore((s) => s.showContextMenu)
+  const rollActiveSessionAwayFrom = useChatStore((s) => s.rollActiveSessionAwayFrom)
   const sessions = useChatStore((s) => s.sessions)
   const runningSessionIds = useChatStore((s) => s.runningSessionIds)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
@@ -288,6 +289,16 @@ export default function ProjectListPanel() {
     enterProject(projectPath)
   }
 
+  /** Remove a project from the list, then roll the active conversation away
+   *  from it: if the currently open chat was bound to the removed project, the
+   *  selection moves to the most recently used conversation of another project
+   *  (or the chat clears when no other project has conversations). The removed
+   *  project's sessions stay stored and come back when it's re-opened. */
+  const handleRemoveProject = (projectPath: string) => {
+    removeProject(projectPath)
+    rollActiveSessionAwayFrom(projectPath)
+  }
+
   /** Project-card context menu (right-click or hover ⋯): open the project,
    *  start a chat in it, or remove it from the list. Removing only hides the
    *  project — its sessions stay bound and reappear when it's re-opened. */
@@ -298,7 +309,7 @@ export default function ProjectListPanel() {
       { label: t('project.open'), icon: '📂', action: () => handleEnterProject(projectPath) },
       { label: t('chat.newChat'), icon: '💬', action: () => handleNewSessionForProject(projectPath) },
       { separator: true, label: '' },
-      { label: t('project.removeFromList'), icon: '🗑️', action: () => removeProject(projectPath) },
+      { label: t('project.removeFromList'), icon: '🗑️', action: () => handleRemoveProject(projectPath) },
     ])
   }
 

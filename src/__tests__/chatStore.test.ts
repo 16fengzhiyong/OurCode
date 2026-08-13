@@ -1141,3 +1141,122 @@ describe('chatStore session user-activity sort anchor', () => {
     }
   })
 })
+
+describe('chatStore rollActiveSessionAwayFrom (removed project fall-through)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useChatStore.setState({
+      ...initialState,
+      sessions: [],
+      activeSessionId: null,
+      undoStack: [],
+      queuedMessagesBySession: {},
+    })
+    useUIStore.setState((s) => ({ ...s, removedProjects: [] }))
+  })
+
+  /** Seed N sessions bound to projects, with explicit activity anchors. Each
+   *  gets a message so it's a real conversation (ghosts are skipped). */
+  const seedSessions = (entries: Array<{ id: string; projectPath: string; lastUserMessageAt: number }>) => {
+    for (const e of entries) {
+      makeSession(e.id)
+      addUser(e.id, 'hi')
+    }
+    useChatStore.setState((st) => ({
+      activeSessionId: entries[0]?.id ?? null,
+      sessions: st.sessions.map((s) => {
+        const e = entries.find((x) => x.id === s.id)!
+        return { ...s, projectPath: e.projectPath, lastUserMessageAt: e.lastUserMessageAt }
+      }),
+    }))
+  }
+
+  it('rolls the active conversation to the most recently used other-project session', () => {
+    seedSessions([
+      { id: 'a1', projectPath: '/proj-a', lastUserMessageAt: 100 },
+      { id: 'b1', projectPath: '/proj-b', lastUserMessageAt: 300 },
+      { id: 'c1', projectPath: '/proj-c', lastUserMessageAt: 400 },
+    ])
+    // Active = a1, the removed project's conversation
+    useChatStore.getState().rollActiveSessionAwayFrom('/proj-a')
+    expect(useChatStore.getState().activeSessionId).toBe('c1')
+  })
+
+  it('does nothing when the active conversation belongs to another project', () => {
+    seedSessions([
+      { id: 'a1', projectPath: '/proj-a', lastUserMessageAt: 100 },
+      { id: 'b1', projectPath: '/proj-b', lastUserMessageAt: 300 },
+    ])
+    // Remove proj-b while proj-a's conversation is active → untouched
+    useChatStore.getState().rollActiveSessionAwayFrom('/proj-b')
+    expect(useChatStore.getState().activeSessionId).toBe('a1')
+  })
+
+  it('never rolls onto sessions of previously removed projects (no silent resurrection)', () => {
+    seedSessions([
+      { id: 'a1', projectPath: '/proj-a', lastUserMessageAt: 100 },
+      { id: 'x1', projectPath: '/proj-x', lastUserMessageAt: 300 },
+    ])
+    // proj-x was removed earlier — rolling off proj-a must skip it
+    useUIStore.setState((s) => ({ ...s, removedProjects: ['/proj-x'] }))
+    useChatStore.getState().rollActiveSessionAwayFrom('/proj-a')
+    expect(useChatStore.getState().activeSessionId).toBeNull()
+  })
+
+  it('clears the selection (and the persisted pointer) when no other project has conversations', () => {
+    seedSessions([
+      { id: 'a1', projectPath: '/proj-a', lastUserMessageAt: 100 },
+      { id: 'a2', projectPath: '/proj-a', lastUserMessageAt: 200 },
+    ])
+    localStorage.setItem('lastActiveSessionId', 'a1')
+    useChatStore.getState().rollActiveSessionAwayFrom('/proj-a')
+    expect(useChatStore.getState().activeSessionId).toBeNull()
+    // A restart must not bring the removed project's conversation back as active
+    expect(localStorage.getItem('lastActiveSessionId')).toBeNull()
+  })
+
+  it('loadSessions skips sessions of removed projects when restoring the active one', async () => {
+    const legacy = (id: string, projectPath: string) => ({
+      id,
+      title: id,
+      configGroupId: 'cfg-1',
+      model: '',
+      modelParams: {},
+      messages: [{ id: `${id}-m`, role: 'user', content: 'hi', createdAt: 100, sortOrder: 0 }],
+      createdAt: 100,
+      updatedAt: 100,
+      projectPath,
+      lastUserMessageAt: 100,
+    })
+    ;(mockApi.getSessions as any).mockResolvedValueOnce([legacy('a1', '/proj-a'), legacy('b1', '/proj-b')])
+    useUIStore.setState((s) => ({ ...s, removedProjects: ['/proj-a'] }))
+    // The persisted pointer targets the removed project's session
+    localStorage.setItem('lastActiveSessionId', 'a1')
+
+    await useChatStore.getState().loadSessions()
+
+    expect(useChatStore.getState().activeSessionId).toBe('b1')
+  })
+
+  it('loadSessions keeps the selection empty when only removed projects have sessions', async () => {
+    const legacy = (id: string, projectPath: string) => ({
+      id,
+      title: id,
+      configGroupId: 'cfg-1',
+      model: '',
+      modelParams: {},
+      messages: [{ id: `${id}-m`, role: 'user', content: 'hi', createdAt: 100, sortOrder: 0 }],
+      createdAt: 100,
+      updatedAt: 100,
+      projectPath,
+      lastUserMessageAt: 100,
+    })
+    ;(mockApi.getSessions as any).mockResolvedValueOnce([legacy('a1', '/proj-a')])
+    useUIStore.setState((s) => ({ ...s, removedProjects: ['/proj-a'] }))
+    localStorage.setItem('lastActiveSessionId', 'a1')
+
+    await useChatStore.getState().loadSessions()
+
+    expect(useChatStore.getState().activeSessionId).toBeNull()
+  })
+})

@@ -109,7 +109,9 @@ interface UIState {
   setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage' | 'skills') => void
   setRootPath: (path: string | null) => void
   /** Remove a project from the list ("从列表中移除") — its sessions stay bound
-   *  and reappear when the project is re-opened. */
+   *  and reappear when the project is re-opened. Callers must ALSO roll the
+   *  active conversation away from it (chatStore.rollActiveSessionAwayFrom) so
+   *  the app doesn't keep "sitting in" the removed project. */
   removeProject: (path: string) => void
 
   toggleChat: () => void

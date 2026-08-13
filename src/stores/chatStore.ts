@@ -669,6 +669,12 @@ interface ChatState {
   renameSession: (sessionId: string, title: string) => void
   setActiveSession: (sessionId: string) => void
   getActiveSession: () => ChatSession | undefined
+  /** After a project is removed from the list ("从列表中移除"), the active
+   *  conversation must not stay bound to it — roll the selection over to the
+   *  most recently used conversation of another (non-removed) project, or
+   *  clear the selection when no such conversation exists. The removed
+   *  project's sessions stay stored and come back when it's re-opened. */
+  rollActiveSessionAwayFrom: (projectPath: string) => void
 
   // Agent mode (chat / agent) + plan approval
   setAgentMode: (sessionId: string, mode: 'chat' | 'agent') => void
@@ -1364,17 +1370,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ sessions: normalized })
       // Restore the last active session across restarts (only on the first load)
       if (sessions.length > 0 && !get().activeSessionId) {
+        // Sessions of projects removed from the list ("从列表中移除") must not
+        // restore as active — that would reopen a conversation of a project the
+        // user deliberately hid, and the fallback below could otherwise pick it
+        // when the last-active pointer is gone.
+        const removed = new Set(useUIStore.getState().removedProjects)
+        const candidates = sessions.filter((s) => !removed.has(s.projectPath ?? ''))
         const lastId = localStorage.getItem(LAST_SESSION_KEY)
-        const restored = sessions.find((s) => s.id === lastId)
-        const target = restored || sessions[0]
-        set({ activeSessionId: target.id })
-        // Sync the provider group (header badge / model pill / status bar) to
-        // the restored session's OWN group — the chat loop always resolves the
-        // model from session.configGroupId, so without this the model display
-        // can show nothing (or the wrong default) right after startup while a
-        // model is actually in use.
-        if (target.configGroupId) {
-          useConfigStore.getState().setActiveConfigGroup(target.configGroupId)
+        const restored = candidates.find((s) => s.id === lastId)
+        const target = restored || candidates[0]
+        if (target) {
+          set({ activeSessionId: target.id })
+          // Sync the provider group (header badge / model pill / status bar) to
+          // the restored session's OWN group — the chat loop always resolves the
+          // model from session.configGroupId, so without this the model display
+          // can show nothing (or the wrong default) right after startup while a
+          // model is actually in use.
+          if (target.configGroupId) {
+            useConfigStore.getState().setActiveConfigGroup(target.configGroupId)
+          }
         }
       }
     } catch (error) {
@@ -1455,6 +1469,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
     window.electronAPI.checkpointDelete(sessionId)
     // Drop the executor's per-session read-tracking (read-before-write guard)
     toolExecutor.forgetSession(sessionId)
+  },
+
+  rollActiveSessionAwayFrom: (projectPath) => {
+    const { sessions, activeSessionId } = get()
+    const active = sessions.find((s) => s.id === activeSessionId)
+    if (!active || active.projectPath !== projectPath) return
+    // Prefer the most recently used conversation of ANOTHER project that is
+    // still in the list — rolling onto a removed project's session would
+    // silently resurrect that project (setActiveSession re-opens its path).
+    const removed = new Set(useUIStore.getState().removedProjects)
+    // Never-used ghost chats are not real conversations — skip them too.
+    const fallback = sessions
+      .filter((s) => !isGhostSession(s) && s.projectPath && s.projectPath !== projectPath && !removed.has(s.projectPath))
+      .sort((a, b) => sessionLastUserActivity(b) - sessionLastUserActivity(a))[0]
+    if (fallback) {
+      get().setActiveSession(fallback.id)
+    } else {
+      // No other project's conversation to roll to — clear the selection (the
+      // chat panel shows its empty state). The removed project's sessions stay
+      // stored and come back when the project is re-opened.
+      localStorage.removeItem(LAST_SESSION_KEY)
+      set({ activeSessionId: null, checkpoints: [] })
+    }
   },
 
   renameSession: (sessionId, title) => {
