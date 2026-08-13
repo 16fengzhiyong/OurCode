@@ -32,6 +32,12 @@ interface UIState {
   /** Last time each recent project was opened (ms epoch) — lets the project
    *  list show a real "last opened" time instead of a synthetic one. */
   recentProjectTimes: Record<string, number>
+  /** Projects the user removed from the project list ("从列表中移除"). Their
+   *  sessions stay bound to them, so without this flag the memo in
+   *  ProjectListPanel would resurrect them as session-only entries; re-opening
+   *  the project (setRootPath / enterProject) clears the flag and the project
+   *  — with all its history — comes back. */
+  removedProjects: string[]
 
   // Chat Panel
   isChatVisible: boolean
@@ -102,7 +108,9 @@ interface UIState {
   setSidebarWidth: (width: number) => void
   setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage' | 'skills') => void
   setRootPath: (path: string | null) => void
-  removeRecentProject: (path: string) => void
+  /** Remove a project from the list ("从列表中移除") — its sessions stay bound
+   *  and reappear when the project is re-opened. */
+  removeProject: (path: string) => void
 
   toggleChat: () => void
   setChatWidth: (width: number) => void
@@ -179,6 +187,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   rootPath: null,
   recentProjects: (() => { try { return JSON.parse(localStorage.getItem('recentProjects') || '[]') } catch { return [] } })(),
   recentProjectTimes: (() => { try { return JSON.parse(localStorage.getItem('recentProjectTimes') || '{}') } catch { return {} } })(),
+  removedProjects: (() => { try { return JSON.parse(localStorage.getItem('removedProjects') || '[]') } catch { return [] } })(),
 
   // Chat Panel — wider default since the AI panel is the primary interface
   isChatVisible: true,
@@ -267,11 +276,17 @@ export const useUIStore = create<UIState>((set, get) => ({
         // "last opened" time.
         const times = { ...s.recentProjectTimes, [path]: Date.now() }
         localStorage.setItem('recentProjectTimes', JSON.stringify(times))
-        return { recentProjects: updated, recentProjectTimes: times }
+        // (Re)opening a previously removed project brings it — and the sessions
+        // still bound to it — back into the project list.
+        const removed = s.removedProjects.filter((p) => p !== path)
+        if (removed.length !== s.removedProjects.length) {
+          localStorage.setItem('removedProjects', JSON.stringify(removed))
+        }
+        return { recentProjects: updated, recentProjectTimes: times, removedProjects: removed }
       })
     }
   },
-  removeRecentProject: (path) => {
+  removeProject: (path) => {
     set((s) => {
       const updated = s.recentProjects.filter((p) => p !== path)
       localStorage.setItem('recentProjects', JSON.stringify(updated))
@@ -279,10 +294,26 @@ export const useUIStore = create<UIState>((set, get) => ({
       const times = { ...s.recentProjectTimes }
       delete times[path]
       localStorage.setItem('recentProjectTimes', JSON.stringify(times))
+      // Drop from the user's drag-pinned order as well
+      const order = s.projectOrder ? s.projectOrder.filter((p) => p !== path) : null
+      if (order) localStorage.setItem('projectOrder', JSON.stringify(order))
+      // Remember the removal — sessions still bound to the project must not
+      // resurrect it in the list; re-opening it (setRootPath/enterProject)
+      // clears the flag and the history comes back.
+      const removed = s.removedProjects.includes(path)
+        ? s.removedProjects
+        : [...s.removedProjects, path]
+      localStorage.setItem('removedProjects', JSON.stringify(removed))
       // If removing the current project, clear rootPath too
       const newRoot = s.rootPath === path ? null : s.rootPath
-      return { recentProjects: updated, recentProjectTimes: times, rootPath: newRoot }
+      return { recentProjects: updated, recentProjectTimes: times, projectOrder: order, removedProjects: removed, rootPath: newRoot }
     })
+    // If the removed project was being viewed in the file-tree, exit back to
+    // the project list (the tree view would otherwise show a removed folder).
+    const st = get()
+    if (st.projectListView === 'tree' && st.activeProjectPath === path) {
+      st.backToProjectList()
+    }
   },
   /** Persist the user's drag-pinned project order. The list never re-sorts on
    *  its own afterwards — only newly opened projects (unknown to the pinned
@@ -367,7 +398,15 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
 
   enterProject: (path) => {
-    set({ projectListView: 'tree', activeProjectPath: path, rootPath: path })
+    set((s) => {
+      // Entering a removed project (e.g. from a session in the chat panel)
+      // re-adds it to the list together with its history.
+      const removed = s.removedProjects.filter((p) => p !== path)
+      if (removed.length !== s.removedProjects.length) {
+        localStorage.setItem('removedProjects', JSON.stringify(removed))
+      }
+      return { projectListView: 'tree', activeProjectPath: path, rootPath: path, removedProjects: removed }
+    })
     localStorage.setItem(LAST_PROJECT_KEY, JSON.stringify({ path, view: 'tree' }))
     // Belt-and-suspenders for the allowlist (see setRootPath).
     window.electronAPI?.authorize?.(path)

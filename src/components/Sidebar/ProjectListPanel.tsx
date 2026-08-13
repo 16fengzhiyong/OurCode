@@ -86,6 +86,7 @@ export default function ProjectListPanel() {
   const setRootPath = useUIStore((s) => s.setRootPath)
   const recentProjects = useUIStore((s) => s.recentProjects)
   const recentProjectTimes = useUIStore((s) => s.recentProjectTimes)
+  const removedProjects = useUIStore((s) => s.removedProjects)
   const projectListView = useUIStore((s) => s.projectListView)
   const activeProjectPath = useUIStore((s) => s.activeProjectPath)
   const enterProject = useUIStore((s) => s.enterProject)
@@ -93,6 +94,8 @@ export default function ProjectListPanel() {
   const setActiveSidebarTab = useUIStore((s) => s.setActiveSidebarTab)
   const projectOrder = useUIStore((s) => s.projectOrder)
   const reorderProjects = useUIStore((s) => s.reorderProjects)
+  const removeProject = useUIStore((s) => s.removeProject)
+  const showContextMenu = useUIStore((s) => s.showContextMenu)
   const sessions = useChatStore((s) => s.sessions)
   const runningSessionIds = useChatStore((s) => s.runningSessionIds)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
@@ -188,11 +191,16 @@ export default function ProjectListPanel() {
     }
     sessionOnly.sort((a, b) => b.firstAdded - a.firstAdded)
 
+    // Projects the user explicitly removed ("从列表中移除") stay hidden even
+    // though their sessions are still bound to them — those sessions are not
+    // orphans, they come back together with the project when it's re-opened.
+    const removed = new Set(removedProjects)
+
     return [
       ...Array.from(map.entries()).map(([path, info]) => ({ ...info, path })),
       ...sessionOnly,
-    ]
-  }, [recentProjects, recentProjectTimes, sessions])
+    ].filter((p) => !removed.has(p.path))
+  }, [recentProjects, recentProjectTimes, sessions, removedProjects])
 
   // User-pinned order (drag). When set, the pinned order wins; projects that
   // are new to it (opened after the pin) go to the TOP — newly added projects
@@ -278,6 +286,20 @@ export default function ProjectListPanel() {
   const handleEnterProject = (projectPath: string) => {
     setRootPath(projectPath)
     enterProject(projectPath)
+  }
+
+  /** Project-card context menu (right-click or hover ⋯): open the project,
+   *  start a chat in it, or remove it from the list. Removing only hides the
+   *  project — its sessions stay bound and reappear when it's re-opened. */
+  const handleProjectMenu = (e: React.MouseEvent, projectPath: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    showContextMenu(e.clientX, e.clientY, [
+      { label: t('project.open'), icon: '📂', action: () => handleEnterProject(projectPath) },
+      { label: t('chat.newChat'), icon: '💬', action: () => handleNewSessionForProject(projectPath) },
+      { separator: true, label: '' },
+      { label: t('project.removeFromList'), icon: '🗑️', action: () => removeProject(projectPath) },
+    ])
   }
 
   /** "新建对话" on a project list item: the new conversation is bound to that
@@ -456,6 +478,7 @@ export default function ProjectListPanel() {
                   e.dataTransfer.setData('text/plain', project.path)
                 }}
                 onDragEnd={() => { setDragPath(null); setOverPath(null) }}
+                onContextMenu={(e) => handleProjectMenu(e, project.path)}
                 className={`group flex items-start gap-3 rounded-[24px] p-3 cursor-pointer transition-all border ${
                   dragPath === project.path
                     ? 'opacity-40'
@@ -507,6 +530,19 @@ export default function ProjectListPanel() {
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                     <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+                {/* Hover ⋯ — project menu (打开项目 / 新建对话 / 从列表中移除) */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleProjectMenu(e, project.path) }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  className="p-1 rounded-full text-slate-400 dark:text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors opacity-0 group-hover:opacity-100 shrink-0 self-center"
+                  title={t('chat.moreActions')}
+                >
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="5" r="1.6" />
+                    <circle cx="12" cy="12" r="1.6" />
+                    <circle cx="12" cy="19" r="1.6" />
                   </svg>
                 </button>
               </div>

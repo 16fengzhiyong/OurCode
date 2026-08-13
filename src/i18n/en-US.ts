@@ -85,6 +85,10 @@ export const enUS: Record<TranslationKey, string> = {
   'common.enabled': 'Enable',
   'common.disabled': 'Disable',
 
+  // ── Project list ────────────────────────────────────────────────────────
+  'project.open': 'Open project',
+  'project.removeFromList': 'Remove from list',
+
   // ── Layout ─────────────────────────────────────────────────────────────
   'layout.menubar': 'Main Menu',
   'layout.minimize': 'Minimize',

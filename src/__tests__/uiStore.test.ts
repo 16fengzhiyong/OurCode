@@ -179,6 +179,64 @@ describe('setRootPath', () => {
   })
 })
 
+describe('removeProject', () => {
+  const setup = () => {
+    vi.stubGlobal('window', { electronAPI: { authorize: vi.fn(async () => {}) } })
+    useUIStore.getState().setRootPath('A')
+    useUIStore.getState().setRootPath('B')
+    useUIStore.getState().reorderProjects(['B', 'A'])
+  }
+
+  it('removes the project from recent list, open-times and pinned order', () => {
+    setup()
+    useUIStore.getState().removeProject('A')
+
+    const s = useUIStore.getState()
+    expect(s.recentProjects).toEqual(['B'])
+    expect(s.recentProjectTimes['A']).toBeUndefined()
+    expect(s.projectOrder).toEqual(['B'])
+    expect(s.removedProjects).toContain('A')
+  })
+
+  it('re-opening a removed project brings it back to the list', () => {
+    setup()
+    useUIStore.getState().setRootPath('A')
+    useUIStore.getState().removeProject('A')
+    expect(useUIStore.getState().recentProjects).not.toContain('A')
+    expect(useUIStore.getState().removedProjects).toContain('A')
+
+    // Re-opening the same path re-adds it to recentProjects…
+    useUIStore.getState().setRootPath('A')
+    // …and clears the removed flag so it shows in the list again.
+    expect(useUIStore.getState().recentProjects).toContain('A')
+    expect(useUIStore.getState().removedProjects).not.toContain('A')
+  })
+
+  it('exits the file-tree view when the viewed project is removed', () => {
+    setup()
+    useUIStore.getState().enterProject('A')
+    expect(useUIStore.getState().projectListView).toBe('tree')
+    expect(useUIStore.getState().activeProjectPath).toBe('A')
+
+    useUIStore.getState().removeProject('A')
+
+    const s = useUIStore.getState()
+    expect(s.projectListView).toBe('list')
+    expect(s.activeProjectPath).toBeNull()
+    expect(s.rootPath).toBeNull()
+  })
+
+  it('clears the removed flag when the project is re-entered', () => {
+    setup()
+    useUIStore.getState().removeProject('B')
+    expect(useUIStore.getState().removedProjects).toContain('B')
+
+    useUIStore.getState().enterProject('B')
+
+    expect(useUIStore.getState().removedProjects).not.toContain('B')
+  })
+})
+
 describe('skillsRevision', () => {
   it('bumpSkillsRevision increments monotonically', () => {
     expect(useUIStore.getState().skillsRevision).toBe(0)

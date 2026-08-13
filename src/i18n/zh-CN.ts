@@ -82,6 +82,10 @@ export const zhCN = {
   'common.enabled': '启用',
   'common.disabled': '禁用',
 
+  // ── 项目列表 ────────────────────────────────────────────────────────────
+  'project.open': '打开项目',
+  'project.removeFromList': '从列表中移除',
+
   // ── 顶栏 / 布局 ────────────────────────────────────────────────────────
   'layout.menubar': '主菜单',
   'layout.minimize': '最小化',
