@@ -2974,7 +2974,7 @@ async function runAgentLoop(
         if (abortController.signal.aborted) break
         touchActivity() // tool phase counts as activity, not model silence
 
-        // Live execution trace entry (AgentRunPanel)
+        // Execution trace entry (live tool-call status)
         useChatStore.getState().appendTrace(sessionId, {
           id: uuidv4(),
           toolCallId: tc.id,

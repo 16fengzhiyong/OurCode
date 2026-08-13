@@ -9,16 +9,8 @@ import { TodoPanel } from './AgentPanel'
 import WaveLogo from './WaveLogo'
 import projectLogo from '@/assets/ourcode-logo.png'
 import { useI18n } from '@/i18n/useI18n'
+import { lookupModelMetadata } from '@/types'
 import type { ChatMessage as ChatMessageType } from '@/types'
-
-// Common model context windows (in tokens)
-const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-  'gpt-4o': 128000, 'gpt-4o-mini': 128000, 'gpt-4-turbo': 128000, 'gpt-3.5-turbo': 16385,
-  'claude-3-opus': 200000, 'claude-3-sonnet': 200000, 'claude-3-haiku': 200000,
-  'deepseek-chat': 200000, 'deepseek-coder': 200000, 'deepseek-reasoner': 200000,
-  'deepseek-v4': 200000,
-  'gemini-1.5-pro': 2000000, 'gemini-1.5-flash': 1000000,
-}
 
 export default function ChatMessages() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -87,14 +79,10 @@ export default function ChatMessages() {
   const tokenWarning = useMemo(() => {
     if (!activeSession) return null
     const totalTokens = estimateContextTokens(activeSession)
-    const modelId = activeSession.model || ''
-    // 精确 → 去掉 provider 前缀（a/b 形式）→ 前缀两段（deepseek-v4-flash → deepseek-v4）
-    const ctxId = modelId.split('/').pop() || ''
-    const contextWindow =
-      MODEL_CONTEXT_WINDOWS[modelId]
-      || MODEL_CONTEXT_WINDOWS[ctxId]
-      || MODEL_CONTEXT_WINDOWS[ctxId.split('-').slice(0, 2).join('-')]
-      || 128000
+    // 权威的上下文窗口来自 shared/constants 的 MODEL_METADATA（内部做前缀匹配），
+    // 去掉 provider 前缀（a/b 形式）后查询；未收录的模型回退 128K。
+    const modelId = (activeSession.model || '').split('/').pop() || ''
+    const contextWindow = lookupModelMetadata(modelId)?.contextWindow || 128000
     const usage = totalTokens / contextWindow
     if (usage > 0.9) return { level: 'critical' as const, percent: Math.round(usage * 100), totalTokens, contextWindow }
     if (usage > 0.7) return { level: 'warning' as const, percent: Math.round(usage * 100), totalTokens, contextWindow }
@@ -509,13 +497,13 @@ export default function ChatMessages() {
             {idleSeconds >= 60 && (
               <div
                 className="flex items-center gap-1 text-nova-text-muted font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border mb-1.5 w-fit"
-                title="模型已长时间没有输出数据，仍在等待响应"
+                title={t('chat.idleWarning')}
               >
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                   <circle cx="12" cy="12" r="10" />
                   <polyline points="12 6 12 12 16 14" />
                 </svg>
-                已 {Math.floor(idleSeconds / 60)} 分 {idleSeconds % 60} 秒无响应
+                {t('chat.idleCount', { minutes: Math.floor(idleSeconds / 60), seconds: idleSeconds % 60 })}
               </div>
             )}
             {/* Thinking streams collapsed — the "思考中…" pulse line shows the
@@ -524,7 +512,7 @@ export default function ChatMessages() {
                 AgentProcessBlock below. */}
             {stream?.thinking && <ThinkingSection thinking={stream.thinking} streaming />}
             {stream?.content ? (
-              <div className={`text-sm text-nova-text-primary ${lastTurnIsAssistant ? 'rounded-xl bg-nova-surface border border-nova-border px-4 py-3' : ''}`}>
+              <div className="text-sm text-nova-text-primary leading-relaxed rounded-xl bg-nova-surface border border-nova-border px-4 py-3">
                 <StreamingMarkdown content={stream.content} />
                 <span className="animate-pulse-dot text-nova-accent">▋</span>
               </div>

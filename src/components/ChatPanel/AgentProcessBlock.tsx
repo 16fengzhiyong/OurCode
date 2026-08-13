@@ -125,6 +125,9 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
 
       {isExpanded && (
         <div className="px-1 pb-1.5 pt-2 border-t border-nova-border/50 flex flex-col gap-2">
+          {/* 左侧时间线连接线：把「思考 → 文字 → 工具 → …」的交替过程串成一条
+              有序序列，呼应参考设计里的步骤连接线，顺序一目了然。 */}
+          <div className="ml-1 pl-2.5 border-l-2 border-nova-accent/20 flex flex-col gap-2">
           {rounds.map((round, ri) => (
             <Fragment key={round.id}>
               {ri > 0 && <div className="h-px bg-nova-border/30" aria-hidden />}
@@ -155,6 +158,7 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
               </div>
             </Fragment>
           ))}
+          </div>
           {/* Bottom collapse action — long process blocks can fold back up
               without hunting for the tiny header chevron */}
           <button

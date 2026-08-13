@@ -506,6 +506,8 @@ export const zhCN = {
   'chat.contextLabel': '上下文',
   'chat.contextOpenFiles': '+{count} 个打开文件',
   'chat.analyzing': '正在根据代码库分析…',
+  'chat.idleWarning': '模型已长时间没有输出数据，仍在等待响应',
+  'chat.idleCount': '已 {minutes} 分 {seconds} 秒无响应',
   'chat.toolStatReads': '已读 {n}',
   'chat.toolStatEdits': '已改 {n}',
   'chat.toolStatCommands': '命令 {n}',

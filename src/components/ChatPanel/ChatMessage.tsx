@@ -158,10 +158,10 @@ function TokenUsagePopover({ run, model, placement = 'below' }: { run: AgentRun;
           toolbar button sits at the message bottom, so it opens upward) */}
       <div className={`absolute left-1/2 -translate-x-1/2 w-0 h-0 border-l-[6px] border-r-[6px] ${
         placement === 'above'
-          ? '-bottom-[5px] border-t-[6px] border-t-white/90 border-b-transparent'
-          : '-top-[5px] border-b-[6px] border-b-white/90 border-t-transparent'
+          ? '-bottom-[5px] border-t-[6px] border-t-white/90 dark:border-t-[#1b2130] border-b-transparent'
+          : '-top-[5px] border-b-[6px] border-b-white/90 dark:border-b-[#1b2130] border-t-transparent'
       }`} />
-      <div className="bg-white/90 backdrop-blur-xl border border-glass-border rounded-xl shadow-[0_8px_40px_rgba(15,23,42,0.08)] p-5 flex flex-col gap-4">
+      <div className="bg-white/90 dark:bg-[#1b2130]/95 backdrop-blur-xl border border-glass-border dark:border-white/10 rounded-xl shadow-[0_8px_40px_rgba(15,23,42,0.08)] dark:shadow-[0_8px_40px_rgba(0,0,0,0.4)] p-5 flex flex-col gap-4">
         {/* Title row */}
         <div className="flex justify-between items-center">
           <span className="text-[13px] font-extrabold text-nova-text-primary">{t('chat.usage.title')}</span>
@@ -265,6 +265,7 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   const [isRemembering, setIsRemembering] = useState(false)
   const [previewMemory, setPreviewMemory] = useState<{ content: string; projectPath: string } | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
+  const [usagePlacement, setUsagePlacement] = useState<'above' | 'below'>('above')
   const usageRef = useRef<HTMLSpanElement>(null)
   // Live elapsed clock — ticks once a second while this run is active so the
   // header can show how long the session has been running ("运行中 12s").
@@ -434,7 +435,7 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
 
   // Tool result messages — no longer rendered as separate messages.
   // Tool results are now displayed inline within the corresponding assistant
-  // message's ToolCallBlock (via the toolResults prop).
+  // message's ToolStepRow (via the toolResults prop).
   // Legacy tool messages from older sessions are filtered out in ChatMessages.tsx.
   if (isTool) return null
 
@@ -680,7 +681,17 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                     {isAssistant && run && !isSessionRunning && (
                       <span className="relative inline-flex" ref={usageRef}>
                         <button
-                          onClick={() => setUsageOpen((v) => !v)}
+                          onClick={() => {
+                            const nextOpen = !usageOpen
+                            // Auto-flip: the popover lives inside the scroll
+                            // container; when the badge sits near the top of the
+                            // viewport the "above" popover would be clipped, so
+                            // open downward instead.
+                            if (nextOpen && usageRef.current) {
+                              setUsagePlacement(usageRef.current.getBoundingClientRect().top < 340 ? 'below' : 'above')
+                            }
+                            setUsageOpen(nextOpen)
+                          }}
                           title={usageOpen ? t('chat.usage.hint') : t('chat.usage.viewHint')}
                           className="flex items-center gap-1 font-mono text-[10px] px-2 py-1 rounded-md bg-nova-hover border border-nova-border text-nova-text-muted hover:border-nova-accent/40 hover:text-nova-text-primary transition-colors cursor-pointer"
                         >
@@ -690,7 +701,7 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                           </svg>
                           {formatTokens(runTokens)} {t('statusBar.tokens')}
                         </button>
-                        {usageOpen && run && <TokenUsagePopover run={run} model={session?.model} placement="above" />}
+                        {usageOpen && run && <TokenUsagePopover run={run} model={session?.model} placement={usagePlacement} />}
                       </span>
                     )}
                   </div>

@@ -509,6 +509,8 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.contextLabel': 'Context',
   'chat.contextOpenFiles': '+{count} more open',
   'chat.analyzing': 'Analyzing the codebase…',
+  'chat.idleWarning': 'The model has not produced output for a while; still waiting for a response.',
+  'chat.idleCount': 'No response for {minutes}m {seconds}s',
   'chat.toolStatReads': 'Read {n}',
   'chat.toolStatEdits': 'Edited {n}',
   'chat.toolStatCommands': '{n} cmds',
