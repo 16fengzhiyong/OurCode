@@ -22,6 +22,7 @@
  */
 import type { ToolDefinition } from '@/services/tools/types'
 import { isSkillEnabled } from '@/services/skills/skillRegistry'
+import { BUILTIN_SKILLS } from '@/services/skills/builtinSkills'
 import { useUIStore } from '@/stores/uiStore'
 
 /** Platform whose directory a skill was found in (import sources only). */
@@ -45,6 +46,10 @@ export interface SkillInfo {
   /** Full raw file content (frontmatter + body) */
   content: string
   mtime: number
+  /** Built-in skills ship with the IDE — always enabled and never fully
+   *  deletable (the built-in copy is a fallback that resurfaces when any
+   *  same-named on-disk override is removed). */
+  builtin?: boolean
 }
 
 /** A skill found in another platform's directory — a candidate for import
@@ -273,9 +278,33 @@ function dedupSkills(skills: SkillInfo[], projectOverGlobal: boolean): SkillInfo
       seen.set(key, s)
       continue
     }
+    // Built-in skills are a fallback: an on-disk skill of the same name wins,
+    // so a user can "override" a built-in by installing/importing a same-named
+    // skill; deleting that override restores the built-in.
+    if (prev.builtin && !s.builtin) {
+      seen.set(key, s)
+      continue
+    }
+    if (s.builtin && !prev.builtin) continue
     if (projectOverGlobal && prev.source === 'global' && s.source === 'project') seen.set(key, s)
   }
   return [...seen.values()]
+}
+
+/** Built-in fallback skills — injected into every discovery result so they
+ *  are always present and enabled. An on-disk skill of the same name overrides
+ *  a built-in (see dedupSkills); deleting that override restores the built-in. */
+function builtinSkills(): SkillInfo[] {
+  return BUILTIN_SKILLS.map((b) => ({
+    name: b.name,
+    description: b.description,
+    source: 'global' as const,
+    projectPath: undefined,
+    path: `__builtin__/${b.name}`,
+    content: b.content,
+    mtime: 0,
+    builtin: true,
+  }))
 }
 
 /**
@@ -324,7 +353,7 @@ async function cachedDiscover(
 
   const skills = await parseDirs(dirs, includeDisabled)
   for (const s of skills) s.mtime = newest
-  const result = dedupSkills(skills, projectOverGlobal)
+  const result = dedupSkills([...builtinSkills(), ...skills], projectOverGlobal)
   _cache = { key: cacheKey, mtime: cacheMtime, fileKey, skills: result }
   return result
 }

@@ -3,6 +3,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
 import { listAllSkills, listImportableSkills, getGlobalRoot, getWorkspaceRoot, SKILL_ORIGIN_LABELS, type SkillInfo, type ImportableSkill, type SkillOrigin } from '@/services/skills/skillManager'
+import { isBuiltinSkillName } from '@/services/skills/builtinSkills'
 import {
   isSkillEnabled,
   setSkillEnabled,
@@ -36,6 +37,8 @@ async function configRootFor(s: SkillInfo): Promise<string> {
  *  dropped .ourcode/skills entries are never deleted — uninstall there would
  *  only remove the config record. */
 const isRegistryManaged = (s: LocalSkillRow): boolean => {
+  // Built-in skills are protected and never deletable.
+  if (s.builtin) return false
   const parts = s.path.split(/[/\\]/)
   return parts.at(-2) === 'skills' && parts.at(-3) !== '.ourcode'
 }
@@ -73,6 +76,13 @@ export default function SkillRegistryModal() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmUninstall, setConfirmUninstall] = useState<LocalSkillRow | null>(null)
+  // Same-name override confirmation: installing/importing a skill whose name
+  // already exists (built-in or installed) must be explicitly confirmed first.
+  const [confirmOverride, setConfirmOverride] = useState<{
+    name: string
+    builtin: boolean
+    action: () => void
+  } | null>(null)
   // Synchronous in-flight guard: `busy` state updates are async, so rapid
   // double-clicks on the same toggle/button would run the action twice before
   // the state lands (toggle flips twice = no-op). A ref keeps the check
@@ -206,15 +216,46 @@ export default function SkillRegistryModal() {
     return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)
   })
 
-  const statusOf = (remote: RegistrySkillInfo) =>
-    compareRegistryEntry(localByName.get(remote.name), remote)
+  const statusOf = (remote: RegistrySkillInfo) => {
+    const local = localByName.get(remote.name)
+    // A built-in fallback has no on-disk copy — offer an "install" (override)
+    // rather than "installed", so the user can replace the default.
+    if (local?.builtin) return 'install'
+    return compareRegistryEntry(local, remote)
+  }
 
-  /** Whether an import candidate already exists in the current target dir
-   *  (sync — local rows carry their configRoot). */
-  const existsInTarget = (s: ImportableSkill): boolean =>
+  /** Install a registry skill, asking for confirmation when its name already
+   *  exists (built-in fallback or an installed skill). */
+  const installOrConfirm = (r: RegistrySkillInfo) => {
+    const existing = localByName.get(r.name)
+    if (existing) {
+      setConfirmOverride({
+        name: r.name,
+        builtin: existing.builtin === true,
+        action: () => void run(r.name, async () => {
+          const root = await targetRoot()
+          if (!root) throw new Error('未选择安装目标')
+          await installSkill(r.name, root, r)
+        }),
+      })
+      return
+    }
+    void run(r.name, async () => {
+      const root = await targetRoot()
+      if (!root) throw new Error('未选择安装目标')
+      await installSkill(r.name, root, r)
+    })
+  }
+
+  /** Whether a skill name already exists in the current target dir (sync —
+   *  local rows carry their configRoot). */
+  const nameExistsInTarget = (name: string): boolean =>
     installTarget === 'project'
-      ? localSkills.some((l) => l.configRoot === projectRoot && l.name === s.name)
-      : localSkills.some((l) => l.source === 'global' && l.name === s.name)
+      ? localSkills.some((l) => l.configRoot === projectRoot && l.name === name)
+      : localSkills.some((l) => l.source === 'global' && l.name === name)
+
+  /** Whether an import candidate already exists in the current target dir. */
+  const existsInTarget = (s: ImportableSkill): boolean => nameExistsInTarget(s.name)
 
   const toggleImport = (key: string) => {
     setSelectedImports((prev) => {
@@ -226,22 +267,37 @@ export default function SkillRegistryModal() {
   }
 
   /** Copy every selected candidate into the target's own `skills/` dir. */
+  const doImport = async () => {
+    const root = await targetRoot()
+    if (!root) throw new Error(t('skillRegistry.workspaceRequired'))
+    for (const key of selectedImports) {
+      const sep = key.indexOf(':')
+      const origin = key.slice(0, sep) as SkillOrigin
+      const name = key.slice(sep + 1)
+      const src = importSkills.find((s) => `${s.origin}:${s.name}` === key)
+      if (!src) continue
+      const ok = await importSkill(name, root, src.path, origin)
+      if (!ok) throw new Error(t('skillRegistry.importFailed', { name }))
+    }
+    setSelectedImports(new Set())
+  }
+
+  /** Import after confirming any same-name collisions (built-in fallback or a
+   *  skill already present in the target). */
   const importSelected = () => {
     if (selectedImports.size === 0) return
-    void run('import', async () => {
-      const root = await targetRoot()
-      if (!root) throw new Error(t('skillRegistry.workspaceRequired'))
-      for (const key of selectedImports) {
-        const sep = key.indexOf(':')
-        const origin = key.slice(0, sep) as SkillOrigin
-        const name = key.slice(sep + 1)
-        const src = importSkills.find((s) => `${s.origin}:${s.name}` === key)
-        if (!src) continue
-        const ok = await importSkill(name, root, src.path, origin)
-        if (!ok) throw new Error(t('skillRegistry.importFailed', { name }))
-      }
-      setSelectedImports(new Set())
-    })
+    const conflictNames = [...selectedImports]
+      .map((key) => key.slice(key.indexOf(':') + 1))
+      .filter((name) => nameExistsInTarget(name))
+    if (conflictNames.length > 0) {
+      setConfirmOverride({
+        name: conflictNames.join(', '),
+        builtin: conflictNames.some((n) => localByName.get(n)?.builtin === true),
+        action: () => void run('import', doImport),
+      })
+      return
+    }
+    void run('import', doImport)
   }
 
   /** Install target switcher — shared by the registry and import tabs. */
@@ -395,6 +451,14 @@ export default function SkillRegistryModal() {
                         >
                           {s.source === 'global' ? t('skillRegistry.globalTag') : s.projectPath?.split(/[/\\]/).pop() || t('skillRegistry.projectTag')}
                         </span>
+                        {s.builtin && (
+                          <span
+                            className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-[var(--accent)]/15 text-[var(--accent)]"
+                            title={t('skillRegistry.builtinProtected')}
+                          >
+                            {t('skillRegistry.builtinTag')}
+                          </span>
+                        )}
                         {s.importedFrom && (
                           <span
                             className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-nova-bg border border-nova-border text-nova-text-muted"
@@ -408,17 +472,18 @@ export default function SkillRegistryModal() {
                         {s.description || s.path}
                       </p>
                     </div>
-                    {/* Toggle switch (设计稿) */}
+                    {/* Toggle switch (设计稿) — built-in skill names are always on. */}
                     <button
                       onClick={() => run(s.name, async () => {
                         if (!s.configRoot) throw new Error('无法确定该技能的配置位置')
                         await setSkillEnabled(s.name, !s.enabled, s.configRoot)
                       })}
-                      disabled={busy === s.name}
+                      disabled={busy === s.name || isBuiltinSkillName(s.name)}
                       aria-label={`${s.enabled ? t('skillRegistry.disable') : t('skillRegistry.enable')} ${s.name}`}
+                      title={isBuiltinSkillName(s.name) ? t('skillRegistry.builtinProtected') : undefined}
                       className={`relative shrink-0 w-10 h-6 rounded-full transition-colors disabled:opacity-40 ${
                         s.enabled ? 'bg-[#22c55e]' : 'bg-slate-300 dark:bg-slate-600'
-                      }`}
+                      } ${isBuiltinSkillName(s.name) ? 'cursor-not-allowed' : ''}`}
                     >
                       <span
                         className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${
@@ -598,11 +663,7 @@ export default function SkillRegistryModal() {
                           <p className="text-xs text-nova-text-muted mt-0.5 truncate">{r.description}</p>
                         </div>
                         <button
-                          onClick={() => run(r.name, async () => {
-                            const root = await targetRoot()
-                            if (!root) throw new Error('未选择安装目标')
-                            await installSkill(r.name, root, r)
-                          })}
+                          onClick={() => installOrConfirm(r)}
                           disabled={busy === r.name}
                           className={`shrink-0 px-3 py-1.5 text-xs font-bold rounded-full transition-all disabled:opacity-40 ${
                             status === 'installed'
@@ -668,6 +729,40 @@ export default function SkillRegistryModal() {
                 className="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >
                 {t('skillRegistry.uninstall')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Same-name override confirmation */}
+      {confirmOverride && (
+        <div role="dialog" aria-modal="true" aria-label={t('skillRegistry.overrideConfirm')} className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60" onClick={() => setConfirmOverride(null)}>
+          <div className="glass-modal rounded-2xl p-6 w-[440px]" style={{ boxShadow: 'var(--shadow-xl)' }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-nova-text-primary mb-2">
+              {t('skillRegistry.overrideConfirm')}
+            </h3>
+            <p className="text-xs text-nova-text-muted mb-6">
+              {confirmOverride.builtin
+                ? t('skillRegistry.overrideBuiltinDesc', { name: confirmOverride.name })
+                : t('skillRegistry.overrideDesc', { name: confirmOverride.name })}
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setConfirmOverride(null)}
+                className="px-4 py-2 text-sm text-nova-text-muted hover:text-nova-text-primary transition-colors"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={() => {
+                  const action = confirmOverride.action
+                  setConfirmOverride(null)
+                  action()
+                }}
+                className="px-4 py-2 text-sm font-medium bg-[var(--accent)] text-white rounded-lg hover:opacity-90 transition-all"
+              >
+                {t('skillRegistry.overrideConfirmAction')}
               </button>
             </div>
           </div>

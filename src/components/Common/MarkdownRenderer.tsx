@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 import DOMPurify from 'dompurify'
-import 'highlight.js/styles/github-dark.css'
+// Light code-block syntax (极简纯净版): chat code blocks are now light panels
+// in light mode; the dark theme restores github-dark colors via the
+// `:root.dark .code-block .hljs-*` rules in global.css.
+import 'highlight.js/styles/github.css'
 import { t, getLocale } from '@/i18n'
 
 interface MarkdownRendererProps {
@@ -22,7 +25,8 @@ renderer.code = function (...args: any[]) {
   const highlighted = hljs.highlight(text, { language }).value
   // NOTE: no inline onclick here — blocked by CSP and an injection vector.
   // Copy is handled via event delegation in the container (see useEffect below).
-  return `<div class="code-block"><div class="code-header"><span class="code-lang">${language}</span><button class="copy-btn" data-copy>${t('common.copy')}</button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`
+  // mockup「代码块」头部：语言徽章 + 纯图标复制按钮（content_copy）。
+  return `<div class="code-block"><div class="code-header"><span class="code-lang">${language}</span><button class="copy-btn" data-copy title="${t('common.copy')}" aria-label="${t('common.copy')}"><span class="material-symbols-outlined" aria-hidden="true">content_copy</span></button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`
 }
 
 marked.use({

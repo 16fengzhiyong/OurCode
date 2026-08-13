@@ -69,9 +69,9 @@ describe('parseSkillFrontmatter', () => {
 describe('listSkills (own dirs only)', () => {
   it('discovers skills from our own workspace dirs and parses metadata', async () => {
     const skills = await listSkills(true, root)
-    expect(skills).toHaveLength(1)
-    const design = skills[0]
-    expect(design.name).toBe('design')
+    // Own-dir "design" skill + the always-present built-in "skill-creator".
+    expect(skills.map((s) => s.name).sort()).toEqual(['design', 'skill-creator'])
+    const design = skills.find((s) => s.name === 'design')!
     expect(design.description).toBe('设计系统规范')
     expect(design.source).toBe('project')
     expect(design.projectPath).toBe(root)
@@ -140,7 +140,7 @@ describe('global vs project skills', () => {
 
   it('listSkills: a project skill shadows the same-named global skill', async () => {
     const skills = await listSkills(true, root)
-    expect(skills.map((s) => s.name).sort()).toEqual(['base', 'design'])
+    expect(skills.map((s) => s.name).sort()).toEqual(['base', 'design', 'skill-creator'])
     const design = skills.find((s) => s.name === 'design')!
     expect(design.source).toBe('project')
     expect(design.projectPath).toBe(root)
@@ -157,7 +157,7 @@ describe('global vs project skills', () => {
     expect(design).toHaveLength(2)
     expect(design.some((s) => s.source === 'global')).toBe(true)
     expect(design.some((s) => s.source === 'project' && s.projectPath === root)).toBe(true)
-    expect(skills.map((s) => s.name).sort()).toEqual(['base', 'design', 'design'])
+    expect(skills.map((s) => s.name).sort()).toEqual(['base', 'design', 'design', 'skill-creator'])
   })
 })
 
@@ -193,7 +193,7 @@ describe('external platform dirs: import sources, never auto-discovered', () => 
 
   it('listSkills ignores other platforms\' skills entirely', async () => {
     const skills = await listSkills(true, root)
-    expect(skills.map((s) => s.name)).toEqual(['design'])
+    expect(skills.map((s) => s.name)).toEqual(['design', 'skill-creator'])
     expect(skills[0].origin).toBeUndefined() // SkillInfo carries no platform field
   })
 
@@ -246,6 +246,55 @@ describe('listImportableSkills (global scope — home dirs)', () => {
 
   it('home-dir skills are not discovered as usable skills', async () => {
     const skills = await listSkills(true, root)
-    expect(skills).toHaveLength(0)
+    // Only the built-in skill remains — home-dir skills are import sources only.
+    expect(skills.map((s) => s.name)).toEqual(['skill-creator'])
+    expect(skills[0].builtin).toBe(true)
+  })
+})
+
+describe('built-in skills', () => {
+  // Built-in skills are a fallback: always present and enabled, but a
+  // same-named on-disk skill overrides them (deleting it restores the built-in).
+  const diskFiles: Record<string, string> = {
+    'C:/workspace/.ourcode/skills/skill-creator/SKILL.md': '---\nname: skill-creator\ndescription: 用户自建的同名技能\n---\n# 用户版本\n自定义覆盖',
+    'C:/workspace/.ourcode/skills/design/SKILL.md': '---\nname: design\ndescription: 设计系统规范\n---\n# Design\n项目技能',
+  }
+
+  const stubWithDiskSkills = (names: string[]) => {
+    vi.stubGlobal('window', {
+      electronAPI: {
+        listDir: async (dir: string) => {
+          if (dir === `${root}/.ourcode/skills`) {
+            return names.map((n) => ({ name: n, isDirectory: true, isHidden: false }))
+          }
+          return []
+        },
+        readFile: async (path: string) => ({ content: diskFiles[path] || '', encoding: 'utf-8' }),
+        stat: async () => ({ size: 1, isFile: true, isDirectory: false, createdAt: 1, modifiedAt: 1000 }),
+        getPath: async (name: string) => (name === 'home' ? 'C:/Users/tester' : 'C:/userData'),
+      },
+    })
+    useUIStore.setState({ recentProjects: [root] })
+  }
+
+  it('appears as a builtin fallback when no on-disk skill shares its name', async () => {
+    stubWithDiskSkills(['design'])
+    const skills = await listSkills(true, root)
+    const builtin = skills.find((s) => s.name === 'skill-creator')!
+    expect(builtin).toBeTruthy()
+    expect(builtin.builtin).toBe(true)
+    expect(builtin.source).toBe('global')
+    // The built-in body is the shipped skill-creator.
+    expect(builtin.content).toContain('技能创建器')
+  })
+
+  it('is overridden by a same-named on-disk skill (built-in is a fallback)', async () => {
+    stubWithDiskSkills(['skill-creator', 'design'])
+    const skills = await listSkills(true, root)
+    const creators = skills.filter((s) => s.name === 'skill-creator')
+    expect(creators).toHaveLength(1)
+    expect(creators[0].builtin).toBeFalsy()
+    // The on-disk override wins over the built-in fallback.
+    expect(creators[0].content).toContain('用户版本')
   })
 })

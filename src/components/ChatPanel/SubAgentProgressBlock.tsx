@@ -51,7 +51,7 @@ export default function SubAgentProgressBlock({ toolCallId }: { toolCallId: stri
   const working = isRunning && progress.thinking === '' && progress.steps.length === 0
 
   return (
-    <div className="ml-2.5 pl-2.5 border-l-2 border-nova-accent/25 flex flex-col gap-1.5 py-0.5">
+    <div className="ml-2.5 pl-2.5 border-l-2 border-nova-border/70 flex flex-col gap-1.5 py-0.5">
       {/* 头部：角色名 + 状态 + 统计 */}
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="material-symbols-outlined text-[14px] leading-none text-nova-accent shrink-0" aria-hidden>

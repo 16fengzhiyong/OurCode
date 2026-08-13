@@ -600,7 +600,7 @@ export default function ChatInput() {
             <button
               onClick={() => { useEditorStore.getState().openFile(activeFilePath) }}
               title={activeFilePath}
-              className="inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full bg-nova-card/60 border border-nova-border/60 hover:border-nova-accent/40 hover:bg-nova-hover/60 transition-colors max-w-[200px]"
+              className="inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full bg-nova-surface border border-nova-border/60 hover:border-nova-accent/40 hover:bg-nova-hover/60 transition-colors max-w-[200px]"
             >
               <span className="material-symbols-outlined text-[12px] leading-none text-nova-accent shrink-0" aria-hidden>description</span>
               <span className="font-mono text-[11px] text-nova-text-primary truncate">{activeFilePath.split(/[/\\]/).pop()}</span>
@@ -741,14 +741,7 @@ export default function ChatInput() {
           </div>
         )}
 
-        <div
-          className="overflow-hidden transition-colors focus-within:border-[#3B82F6]"
-          style={{
-            background: 'var(--bg)',
-            border: '1px solid var(--border-strong)',
-            borderRadius: 8,
-          }}
-        >
+        <div className="chat-input-box overflow-hidden">
           {/* Attachment / context buttons row (above textarea) */}
           <div className="flex gap-0.5 px-2 pt-2">
             <button

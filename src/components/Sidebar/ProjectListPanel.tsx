@@ -4,6 +4,7 @@ import { useChatStore, sessionLastUserActivity } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import FileTree from './FileTree'
 import { useI18n } from '@/i18n/useI18n'
+import { useSessionMenu } from '@/components/ChatPanel/sessionMenu'
 
 /** Project icon tiles — gradient backgrounds cycling per project (Stitch:
  *  brand blue-violet / sunset orange / green), each with a symbol. */
@@ -101,6 +102,9 @@ export default function ProjectListPanel() {
   const setActiveSession = useChatStore((s) => s.setActiveSession)
   const createSession = useChatStore((s) => s.createSession)
   const t = useI18n()
+  // Same per-session actions as the chat session sidebar (置顶 / 重命名 /
+  // 导出 / 归档 / 删除) — conversations here must be deletable too.
+  const { openSessionMenu } = useSessionMenu()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [showMoreSessions, setShowMoreSessions] = useState<Set<string>>(new Set())
@@ -301,6 +305,9 @@ export default function ProjectListPanel() {
 
   const handleSessionClick = (sessionId: string) => {
     setActiveSession(sessionId)
+    // Session rows stopPropagation on click, so the context menu's document
+    // click-listener never fires — close an open menu explicitly.
+    useUIStore.getState().hideContextMenu()
     // Switch to chat panel
     const ui = useUIStore.getState()
     if (!ui.isChatVisible) ui.toggleChat()
@@ -509,7 +516,7 @@ export default function ProjectListPanel() {
                     return (
                       <div
                         key={session.id}
-                        className={`flex items-center gap-2 p-2 rounded-[16px] cursor-pointer transition-colors ${
+                        className={`group flex items-center gap-2 p-2 rounded-[16px] cursor-pointer transition-colors ${
                           isActive
                             ? 'bg-white/40 dark:bg-white/10 border border-accent-20'
                             : 'hover:bg-white/40 dark:hover:bg-white/10'
@@ -518,6 +525,11 @@ export default function ProjectListPanel() {
                           e.stopPropagation()
                           handleSessionClick(session.id)
                         }}
+                        // A double-click must not bubble to the project card's
+                        // dblclick (which opens the project) — same guard the
+                        // card's own "新建对话" button uses.
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        onContextMenu={(e) => openSessionMenu(e, session)}
                         title={`${session.title} · ${session.messages.length} 条消息`}
                       >
                         <SessionStatusDot
@@ -538,6 +550,20 @@ export default function ProjectListPanel() {
                         <span className={`text-[10px] font-mono shrink-0 ${isActive ? 'text-primary/70' : 'text-slate-400 dark:text-nova-text-muted'}`}>
                           {formatTime(sessionLastUserActivity(session))}
                         </span>
+                        {/* Hover ⋯ — same session menu as the chat sidebar
+                            (rename / export / archive / pin / delete) */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openSessionMenu(e, session) }}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          className="p-1 rounded-full text-slate-400 dark:text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                          title={t('chat.moreActions')}
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="12" cy="5" r="1.6" />
+                            <circle cx="12" cy="12" r="1.6" />
+                            <circle cx="12" cy="19" r="1.6" />
+                          </svg>
+                        </button>
                       </div>
                     )
                   })}
@@ -582,12 +608,13 @@ export default function ProjectListPanel() {
                   return (
                     <div
                       key={session.id}
-                      className={`flex items-center gap-3 p-2.5 rounded-[24px] cursor-pointer transition-colors border ${
+                      className={`group flex items-center gap-3 p-2.5 rounded-[24px] cursor-pointer transition-colors border ${
                         isActive
                           ? 'bg-white/40 dark:bg-white/10 border-accent-20'
                           : 'border-transparent hover:bg-white/50 dark:hover:bg-white/10 hover:border-glass-border'
                       }`}
                       onClick={() => handleSessionClick(session.id)}
+                      onContextMenu={(e) => openSessionMenu(e, session)}
                       title={`${session.title} · ${session.messages.length} 条消息`}
                     >
                       <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/10 flex items-center justify-center text-nova-text-muted shrink-0">
@@ -606,6 +633,19 @@ export default function ProjectListPanel() {
                           <TileIcon name="pin" size={12} />
                         </span>
                       )}
+                      {/* Hover ⋯ — same session menu as the chat sidebar
+                          (rename / export / archive / pin / delete) */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openSessionMenu(e, session) }}
+                        className="p-1 rounded-full text-slate-400 dark:text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                        title={t('chat.moreActions')}
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                          <circle cx="12" cy="5" r="1.6" />
+                          <circle cx="12" cy="12" r="1.6" />
+                          <circle cx="12" cy="19" r="1.6" />
+                        </svg>
+                      </button>
                     </div>
                   )
                 })}

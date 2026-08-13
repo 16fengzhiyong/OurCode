@@ -16,37 +16,27 @@ const STATUS_LABEL_KEY: Record<TodoItem['status'], TranslationKey> = {
   failed: 'agent.failed',
 }
 
-/** Todo icon per status — gradient variant (spin for in-progress) */
+/** Todo icon per status — mockup「极简纯净版」Material 图标（进行中旋转），
+ *  仅 in_progress 用 accent 强调，完成/待办保持中性灰。 */
 function TodoStatusIcon({ status }: { status: TodoItem['status'] }) {
   if (status === 'completed') {
     return (
-      <svg className="w-[15px] h-[15px] mt-0.5 shrink-0 text-[var(--green,#16a34a)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-        <polyline points="22 4 12 14.01 9 11.01" />
-      </svg>
+      <span className="material-symbols-outlined text-[16px] leading-none text-nova-text-muted shrink-0" aria-hidden>check</span>
     )
   }
   if (status === 'failed') {
     return (
-      <svg className="w-[15px] h-[15px] mt-0.5 shrink-0 text-[var(--red,#dc2626)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-        <circle cx="12" cy="12" r="10" />
-        <line x1="15" y1="9" x2="9" y2="15" />
-        <line x1="9" y1="9" x2="15" y2="15" />
-      </svg>
+      <span className="material-symbols-outlined text-[16px] leading-none text-[var(--red,#dc2626)] shrink-0" aria-hidden>close</span>
     )
   }
   if (status === 'in_progress') {
     return (
-      <svg className="w-[15px] h-[15px] mt-0.5 shrink-0 animate-spin-slow text-[var(--accent,#0058bc)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-      </svg>
+      <span className="material-symbols-outlined text-[16px] leading-none animate-spin-slow text-nova-accent shrink-0" aria-hidden>progress_activity</span>
     )
   }
   // pending
   return (
-    <svg className="w-[15px] h-[15px] mt-0.5 shrink-0 text-[var(--text-muted,#64748b)] opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="10" />
-    </svg>
+    <span className="material-symbols-outlined text-[16px] leading-none text-nova-text-muted opacity-60 shrink-0" aria-hidden>radio_button_unchecked</span>
   )
 }
 
@@ -58,44 +48,38 @@ export function TodoPanel({ sessionId }: { sessionId: string }) {
   if (todos.length === 0) return null
 
   return (
-    <div className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden shrink-0 relative">
-      {/* Gradient accent bar (vibrant gradient variant) */}
-      <div className="absolute top-0 left-0 w-16 h-1 todo-gradient-bar" />
-      <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-        <svg className="w-4 h-4 text-nova-accent shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10" opacity=".35" />
-          <path d="M8.5 12.4l2.4 2.4 4.8-5" />
-        </svg>
-        <span className="text-[13px] font-bold text-nova-text-primary">{t('agent.todoList')}</span>
-        <span className="text-[10px] font-semibold text-nova-accent bg-accent-10 px-2 py-0.5 rounded-full ml-auto shrink-0">
-          {t('agent.doneCount', { done: todos.filter((x) => x.status === 'completed').length, total: todos.length })}
-        </span>
-      </div>
-      <div className="px-3 pb-3 space-y-0.5 max-h-40 overflow-y-auto">
-        {todos.map((todo) => (
-          <div
-            key={todo.id}
-            className="flex items-start gap-2.5 px-1.5 py-1 rounded-md hover:bg-accent-5 transition-colors"
-          >
-            <TodoStatusIcon status={todo.status} />
-            <span
-              className={`text-[13px] min-w-0 leading-snug ${
+    /* mockup「任务清单」：minimal-panel 卡片 + checklist 图标 + 状态行 */
+    <div className="minimal-panel relative">
+      <div className="p-4">
+        <div className="flex items-center gap-2 mb-3 text-nova-text-primary">
+          <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden>checklist</span>
+          <h3 className="text-sm font-semibold">{t('agent.todoList')}</h3>
+          <span className="ml-auto text-[10px] font-medium text-nova-text-muted shrink-0">
+            {t('agent.doneCount', { done: todos.filter((x) => x.status === 'completed').length, total: todos.length })}
+          </span>
+        </div>
+        <div className="flex flex-col gap-1 max-h-40 overflow-y-auto text-[13px]">
+          {todos.map((todo) => (
+            <div
+              key={todo.id}
+              className={`flex items-center gap-2.5 px-1.5 py-1 rounded-md hover:bg-nova-hover transition-colors ${
                 todo.status === 'completed'
-                  ? 'line-through opacity-70 text-nova-text-muted'
+                  ? 'text-nova-text-muted line-through opacity-70'
                   : todo.status === 'pending'
-                    ? 'opacity-60 text-nova-text-secondary'
+                    ? 'text-nova-text-muted'
                     : todo.status === 'in_progress'
-                      ? 'font-medium text-nova-text-primary'
+                      ? 'text-nova-text-primary font-medium'
                       : 'text-nova-text-primary'
               }`}
             >
-              {todo.content}
-            </span>
-            <span className="ml-auto text-[10px] shrink-0 opacity-70 pt-0.5 text-nova-text-muted">
-              {t(STATUS_LABEL_KEY[todo.status])}
-            </span>
-          </div>
-        ))}
+              <TodoStatusIcon status={todo.status} />
+              <span className="min-w-0 flex-1 leading-snug">{todo.content}</span>
+              <span className="text-[10px] shrink-0 opacity-70 text-nova-text-muted">
+                {t(STATUS_LABEL_KEY[todo.status])}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -158,9 +142,9 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
     return (
       <div className="rounded-xl border border-green-500/30 bg-green-500/5 overflow-hidden shrink-0">
         <div className="flex items-center gap-2 px-3 py-2 border-b border-green-500/20">
-          <span className="text-xs">✅</span>
-          <span className="text-xs font-medium text-green-400">{title}</span>
-          <span className="ml-auto text-[10px] text-green-400/80">{t('agent.planApproved')}</span>
+          <span className="material-symbols-outlined text-[15px] leading-none text-[var(--green,#16a34a)]" aria-hidden>check_circle</span>
+          <span className="text-xs font-medium text-nova-text-primary">{title}</span>
+          <span className="ml-auto text-[10px] text-nova-text-muted">{t('agent.planApproved')}</span>
         </div>
         <div className="px-3 py-2">{renderSteps()}</div>
       </div>
@@ -172,7 +156,7 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
     return (
       <div className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden shrink-0 opacity-85">
         <div className="flex items-center gap-2 px-3 py-2 border-b border-nova-border">
-          <span className="text-xs">🗑️</span>
+          <span className="material-symbols-outlined text-[15px] leading-none text-nova-text-muted" aria-hidden>cancel</span>
           <span className="text-xs font-medium text-nova-text-muted">{title}</span>
           <span className="ml-auto text-[10px] text-nova-text-muted">{t('agent.planCanceled')}</span>
         </div>
@@ -182,8 +166,7 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
             <button
               onClick={() => approvePlan(sessionId)}
               disabled={isRunning}
-              className="px-4 py-1.5 text-xs text-white rounded-lg disabled:opacity-40 hover:opacity-90 transition-opacity"
-              style={{ background: 'var(--grad-brand)' }}
+              className="px-4 py-1.5 text-xs font-medium text-white rounded-md btn-plan-approve disabled:opacity-40 hover:opacity-90 transition-opacity"
             >
               {t('agent.reapprovePlan')}
             </button>
@@ -194,50 +177,49 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
   }
 
   // pending_approval — the interactive approve / modify card
-  // (Stitch: 高保真玻璃拟态版 — gradient border, 批准执行 primary pill,
-  //  修改计划 ghost pill)
+  // (mockup「计划批准」: minimal-panel + 左侧深色竖条 + assignment 图标 +
+  //  深色「批准执行」主按钮 / 白底「修改计划」ghost 按钮)
+  // 左侧竖条用内联样式：.minimal-panel 的 border 简写（文件序靠后）会覆盖
+  // Tailwind 的 border-l-* 工具类，内联样式才能稳定生效。
   return (
-    <div className="rounded-xl p-[1px] bg-gradient-to-br from-blue-500/30 via-purple-400/20 to-transparent shadow-[0_8px_32px_rgba(0,88,188,0.08)] shrink-0">
-      <div className="bg-nova-surface backdrop-blur-xl rounded-xl">
-        <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
-          <span className="text-base leading-none">📋</span>
-          <span className="text-[13px] font-bold text-nova-text-primary">{title}</span>
-          <span className="ml-auto text-[10px] text-nova-text-muted">{t('agent.awaitingApproval')}</span>
-        </div>
-        <div className="px-4 pb-3.5">
-          {renderSteps()}
-          <label className="flex items-center gap-2 mt-3 text-[11px] text-nova-text-muted cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={autoApprove}
-              onChange={(e) => setAutoApprove(e.target.checked)}
-              className="accent-nova-accent w-3.5 h-3.5"
-            />
-            {t('agent.autoApproveAfterPlan')}
-          </label>
-          <div className="flex items-center gap-2 mt-2">
-            <button
-              onClick={() => approvePlan(sessionId, { autoApprove })}
-              disabled={isRunning}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold text-white rounded-full shadow-md disabled:opacity-40 hover:scale-[1.02] hover:opacity-90 transition-all duration-300"
-              style={{ background: 'var(--accent, #0058bc)' }}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              {t('agent.approveAndRun')}
-            </button>
-            <button
-              onClick={() => dismissPlan(sessionId)}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold text-nova-text-secondary rounded-full border border-nova-border bg-white/60 dark:bg-white/10 hover:bg-white/90 dark:hover:bg-white/15 transition-all duration-300"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
-              {t('agent.modifyPlan')}
-            </button>
-          </div>
+    <div className="minimal-panel shrink-0" style={{ borderLeft: '2px solid var(--text-primary)' }}>
+      <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
+        <span className="material-symbols-outlined text-[18px] leading-none text-nova-text-primary" aria-hidden>assignment</span>
+        <span className="text-[13px] font-semibold text-nova-text-primary">{title}</span>
+        <span className="ml-auto text-[10px] text-nova-text-muted">{t('agent.awaitingApproval')}</span>
+      </div>
+      <div className="px-4 pb-3.5">
+        {renderSteps()}
+        <label className="flex items-center gap-2 mt-3 text-[11px] text-nova-text-muted cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={autoApprove}
+            onChange={(e) => setAutoApprove(e.target.checked)}
+            className="accent-nova-accent w-3.5 h-3.5"
+          />
+          {t('agent.autoApproveAfterPlan')}
+        </label>
+        <div className="flex items-center gap-2 mt-2">
+          <button
+            onClick={() => approvePlan(sessionId, { autoApprove })}
+            disabled={isRunning}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-white rounded-md btn-plan-approve disabled:opacity-40 hover:opacity-90 transition-opacity"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            {t('agent.approveAndRun')}
+          </button>
+          <button
+            onClick={() => dismissPlan(sessionId)}
+            className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-nova-text-secondary rounded-md border border-nova-border bg-nova-surface hover:bg-nova-hover transition-colors"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+            {t('agent.modifyPlan')}
+          </button>
         </div>
       </div>
     </div>

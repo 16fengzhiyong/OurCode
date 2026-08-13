@@ -68,15 +68,18 @@ describe('skill-derived slash commands', () => {
 
   it('derives one /name command per discovered skill', async () => {
     const cmds = await getSkillSlashCommands(root)
-    expect(cmds).toHaveLength(1)
-    const [cmd] = cmds
-    expect(cmd.id).toBe('skill-code-review')
-    expect(cmd.name).toBe('code-review')
-    expect(cmd.description).toContain('代码审查')
+    // code-review (on disk) + skill-creator (built-in).
+    expect(cmds).toHaveLength(2)
+    const codeReview = cmds.find((c) => c.id === 'skill-code-review')!
+    expect(codeReview.name).toBe('code-review')
+    expect(codeReview.description).toContain('代码审查')
+    const creator = cmds.find((c) => c.id === 'skill-skill-creator')!
+    expect(creator.name).toBe('skill-creator')
   })
 
   it('skill templates instruct loading skill__<name> before acting', async () => {
-    const [cmd] = await getSkillSlashCommands(root)
+    const cmds = await getSkillSlashCommands(root)
+    const cmd = cmds.find((c) => c.id === 'skill-code-review')!
     const prompt = buildSlashPrompt(cmd, { selection: '', file: '/a/b.ts', language: 'ts' })
     expect(prompt).toContain('skill__code-review')
     expect(prompt).not.toContain('{{selection}}')
@@ -85,10 +88,11 @@ describe('skill-derived slash commands', () => {
 
   it('getAllSlashCommands merges static and skill commands without duplication', async () => {
     const all = await getAllSlashCommands(root)
-    expect(all.length).toBe(SLASH_COMMANDS.length + 1)
+    expect(all.length).toBe(SLASH_COMMANDS.length + 2)
     const ids = new Set(all.map((c) => c.id))
     expect(ids.size).toBe(all.length)
     expect(ids.has('skill-code-review')).toBe(true)
+    expect(ids.has('skill-skill-creator')).toBe(true)
     expect(ids.has('explain')).toBe(true)
   })
 })

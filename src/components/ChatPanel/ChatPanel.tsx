@@ -132,8 +132,15 @@ export default function ChatPanel() {
   const activeModel = activeSession?.model || sessionConfigGroup?.defaultModel || ''
 
   // Agent mode operates on the workspace, so it needs a project folder open.
+  // The agent loop resolves the workspace from the ACTIVE SESSION's projectPath
+  // first (getWorkspaceRoot → getCurrentProjectPath), so a session bound to a
+  // project can run agent mode even when the file tree isn't mounted — count
+  // that binding here, or restored agent sessions would degrade to chat mode
+  // whenever the tree hasn't re-opened yet.
   const hasProject = Boolean(
-    rootPath || document.getElementById('file-tree-root')?.getAttribute('data-root-path')
+    rootPath ||
+      document.getElementById('file-tree-root')?.getAttribute('data-root-path') ||
+      activeSession?.projectPath
   )
   // Without a selected project only chat is allowed — never display agent as
   // active (or let the user switch to it) when there is no workspace open.
@@ -165,7 +172,7 @@ export default function ChatPanel() {
   }, [effectiveAgentMode, targetMode, refreshTargetModeStatus])
 
   return (
-    <div className="h-full flex bg-transparent">
+    <div className="h-full flex bg-transparent chat-accent">
       {/* Session sidebar (collapsible) */}
       {isChatSessionListOpen && (
         <ChatSidebar onClose={() => setChatSessionListOpen(false)} />
@@ -177,7 +184,7 @@ export default function ChatPanel() {
       {/* Workflows */}
       {showWorkflows && <WorkflowModal onClose={() => setShowWorkflows(false)} />}
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 bg-nova-surface">
         {/* Chat header */}
         <div className="px-3 py-2 shrink-0">
           <div className="flex items-center justify-between gap-2">
@@ -349,36 +356,25 @@ export default function ChatPanel() {
                   </div>
                 )}
                 <div className="flex items-center gap-1.5">
-                  {/* Target-mode pill: oval toggle, green + pulsing while on */}
-                  <button
-                    onClick={() => {
-                      if (!targetMode) {
-                        // Target mode runs on top of agent mode — switch first
-                        // (needs a project; otherwise bail with a hint)
-                        if (!hasProject) {
-                          useUIStore.getState().showNotification(t('chat.agentNeedsProject'), 'warning')
-                          return
-                        }
-                        if (effectiveAgentMode !== 'agent') {
-                          setAgentMode(activeSession.id, 'agent')
-                        }
-                        setTargetMode(activeSession.id, true)
-                      } else {
-                        setTargetMode(activeSession.id, false)
-                      }
-                    }}
-                    className={`px-3 py-1 text-xs rounded-full border transition-all select-none whitespace-nowrap ${
-                      targetMode
-                        ? 'text-green-500 border-green-500/40 bg-green-500/10'
-                        : 'text-nova-text-muted border-nova-border hover:text-nova-text-primary hover:border-nova-accent/50'
-                    }`}
-                    title={t('chat.targetModeHint')}
-                  >
-                    {targetMode ? t('chat.targetModeOn') : t('chat.targetModeOff')}
-                    {targetMode && statusBadge(targetModeStatus) && (
-                      <span className="ml-1 text-green-300 font-medium">{statusBadge(targetModeStatus)}</span>
-                    )}
-                  </button>
+                  {/* Target-mode pill: only offered in agent mode — conversation
+                      mode has no target mode, so the pill stays hidden there.
+                      Oval toggle, green + pulsing while on. */}
+                  {effectiveAgentMode === 'agent' && (
+                    <button
+                      onClick={() => setTargetMode(activeSession.id, !targetMode)}
+                      className={`px-3 py-1 text-xs rounded-full border transition-all select-none whitespace-nowrap ${
+                        targetMode
+                          ? 'text-green-500 border-green-500/40 bg-green-500/10'
+                          : 'text-nova-text-muted border-nova-border hover:text-nova-text-primary hover:border-nova-accent/50'
+                      }`}
+                      title={t('chat.targetModeHint')}
+                    >
+                      {targetMode ? t('chat.targetModeOn') : t('chat.targetModeOff')}
+                      {targetMode && statusBadge(targetModeStatus) && (
+                        <span className="ml-1 text-green-300 font-medium">{statusBadge(targetModeStatus)}</span>
+                      )}
+                    </button>
+                  )}
                   {effectiveAgentMode === 'agent' && (
                     <select
                       value={projectEditMode}

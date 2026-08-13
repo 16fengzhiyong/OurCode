@@ -15,21 +15,6 @@ export interface ToolStepRowProps {
   suspended?: boolean
 }
 
-/**
- * Material Symbols Outlined 图标（Stitch「全工具增强版」设计）——
- * 每个工具类型一个符号名；设计稿未覆盖的工具按同类语义映射。
- */
-const TOOL_ICONS: Record<string, string> = {
-  read_file: 'description', read_multiple_files: 'collections_bookmark', list_directory: 'folder', get_directory_tree: 'account_tree',
-  search_files: 'search', search_in_files: 'search', write_file: 'save',
-  edit_file: 'edit', multi_edit_file: 'content_cut', create_directory: 'create_new_folder', delete_file: 'delete',
-  run_command: 'terminal', manage_todo: 'task_alt', submit_plan: 'assignment',
-  ask_user_question: 'help', web_search: 'language', read_url: 'link',
-  run_subagent: 'smart_toy', send_message: 'forum',
-  git_status: 'info', git_diff: 'difference', git_log: 'history', git_branch: 'call_split',
-  git_add: 'add_box', git_push: 'publish', git_commit: 'commit', git_init: 'rocket_launch',
-}
-
 const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
   read_file: 'tool.readFile', read_multiple_files: 'tool.readMultipleFiles', list_directory: 'tool.listDirectory', get_directory_tree: 'tool.getDirectoryTree',
   search_files: 'tool.searchFiles', search_in_files: 'tool.searchInFiles', write_file: 'tool.writeFile',
@@ -88,21 +73,23 @@ export default function ToolStepRow({ toolCall, result, rejected, suspended = fa
   const [expanded, setExpanded] = useState(false)
   const t = useI18n()
 
-  const icon = TOOL_ICONS[toolCall.name] || (toolCall.name.startsWith('mcp__') ? 'extension' : 'bolt')
   const labelKey = TOOL_LABEL_KEYS[toolCall.name]
   const key = extractKey(toolCall)
   const isPending = !result && !rejected && !suspended
   const isError = !!result?.isError || !!rejected
 
+  // mockup「极简纯净版」工具 chip（对齐 code.html #5 Tool Calls）：
+  // [状态图标] 工具名(mono 13px) 路径(12px 截断 100px)，白底 + #e2e8f0 细边框；
+  // 仅 pending 用 accent 蓝（sync 旋转 + 浅蓝底），完成/失败保持中性灰。
   const pillCls = expanded
     ? 'border-nova-accent/40 bg-nova-hover'
     : isPending
-      ? 'border-nova-accent/30 bg-nova-accent/5'
-      : 'border-nova-border/60 bg-nova-card/60 hover:bg-nova-hover/60'
+      ? 'border-[#e2e8f0] bg-primary-container/50 hover:border-nova-accent/30'
+      : 'border-[#e2e8f0] bg-white dark:bg-nova-surface dark:border-white/10 hover:border-[#cbd5e1] dark:hover:border-white/20'
 
   return (
     <div className="flex flex-col gap-1">
-      {/* The pill row */}
+      {/* The chip row */}
       <button
         onClick={() => setExpanded(!expanded)}
         title={
@@ -111,34 +98,31 @@ export default function ToolStepRow({ toolCall, result, rejected, suspended = fa
           : rejected ? t('tool.rejected')
           : result?.result ? summarizeResult(result.result) : undefined
         }
-        className={`inline-flex items-center gap-1.5 pl-2.5 pr-2 py-1.5 rounded-full border transition-colors select-none text-left max-w-full ${pillCls}`}
+        className={`inline-flex items-center gap-2 px-3 py-1 rounded-md border transition-colors select-none text-left max-w-full ${pillCls}`}
       >
-        <span className="material-symbols-outlined text-[14px] leading-none text-nova-text-secondary shrink-0" aria-hidden>
-          {icon}
-        </span>
-        <span className="font-mono text-[11.5px] text-nova-text-primary shrink-0">
-          {labelKey ? t(labelKey) : toolCall.name}
-        </span>
-        {key && (
-          <span className="font-mono text-[11px] text-nova-text-secondary bg-nova-hover px-1.5 py-0.5 rounded truncate max-w-[150px]">
-            “{key}”
-          </span>
-        )}
-        <span className="w-px h-3 bg-nova-border/60 mx-0.5 shrink-0" aria-hidden />
-        {/* Status */}
+        {/* 状态图标在前（mockup：check / sync 旋转 / close），中性灰，
+            仅 pending 用 accent */}
         {suspended ? (
           <span className="text-nova-text-muted text-[12px] leading-none shrink-0">–</span>
         ) : isPending ? (
           <span className="material-symbols-outlined text-[14px] leading-none text-nova-accent animate-spin-slow shrink-0" aria-hidden>
-            progress_activity
+            sync
           </span>
         ) : isError ? (
-          <span className="material-symbols-outlined text-[14px] leading-none text-error shrink-0" aria-hidden>
+          <span className="material-symbols-outlined text-[14px] leading-none text-nova-text-muted shrink-0" aria-hidden>
             close
           </span>
         ) : (
-          <span className="material-symbols-outlined text-[14px] leading-none text-success shrink-0" aria-hidden>
+          <span className="material-symbols-outlined text-[14px] leading-none text-nova-text-muted shrink-0" aria-hidden>
             check
+          </span>
+        )}
+        <span className={`font-mono text-[13px] shrink-0 ${isPending ? 'text-nova-text-primary' : 'text-nova-text-muted'}`}>
+          {labelKey ? t(labelKey) : toolCall.name}
+        </span>
+        {key && (
+          <span className="text-[12px] text-nova-text-muted truncate max-w-[100px]">
+            {key}
           </span>
         )}
         {/* Chevron — 展开/收起 */}

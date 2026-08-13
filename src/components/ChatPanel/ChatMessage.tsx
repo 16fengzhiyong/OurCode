@@ -10,7 +10,6 @@ import ThinkingSection from './ThinkingSection'
 import ToolStepRow from './ToolStepRow'
 import AgentProcessBlock from './AgentProcessBlock'
 import { PlanCard } from './AgentPanel'
-import WaveLogo from './WaveLogo'
 import ErrorCard from './ErrorCard'
 import MemoryPreviewModal from './MemoryPreviewModal'
 import FileChip from './FileChip'
@@ -468,18 +467,15 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
       </div>
     </div>
   ) : (
-    /* 最终回答 —— 扁平卡片（去玻璃半透明）：纯 surface + 细边框，安静地
-       承载正文；内容为空时退回无卡片排版，避免渲染一个空的占位框。 */
-    <div className={message.content
-      ? 'rounded-xl bg-nova-surface border border-nova-border px-4 py-3 text-sm leading-relaxed'
-      : 'text-sm leading-relaxed'}
-    >
+    /* 最终回答 —— 极简纯净版：正文浮空渲染在画布上（无卡片包裹），对齐设计稿
+       「AI Markdown Content」；内容为空时渲染空容器，避免占位框。 */
+    <div className="text-sm leading-relaxed">
       <MarkdownRenderer content={message.content} />
     </div>
   )
 
   return (
-    <div className={`group animate-fade-in ${isUser ? 'flex justify-end' : 'flex gap-2.5'} ${hideMeta && !isUser ? 'pl-[46px]' : ''}`}>
+    <div className={`group animate-fade-in ${isUser ? 'flex justify-end' : ''}`}>
       {/* Memory review/edit preview — shown after the AI condenses the chat */}
       {previewMemory && (
         <MemoryPreviewModal
@@ -502,26 +498,14 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
         </label>
       )}
 
-      {/* Assistant avatar — flat neutral container + accent wave mark (the
-          gradient + violet glow was decorative chrome; hidden on turn
-          continuation messages so the grouped turn reads as one bubble) */}
-      {!isUser && !hideMeta && (
-        <div
-          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5 text-nova-accent bg-nova-surface border border-nova-border"
-        >
-          <WaveLogo size={16} color="currentColor" />
-        </div>
-      )}
-
       {/* Content column */}
-      <div className={`min-w-0 ${isUser ? 'max-w-[80%]' : 'flex-1'}`}>
-        {/* Assistant meta header — minimal (mainstream): name + pulsing dot +
-            live status with a live elapsed-seconds counter (ticking each
-            second while the run is active); tokens live in the hover toolbar;
-            done runs leave it clean. */}
+      <div className={`min-w-0 ${isUser ? 'max-w-[85%]' : 'flex-1'}`}>
+        {/* Assistant meta header — mockup「极简纯净版」: 名字 semibold + 脉冲点
+            + 实时运行时长（mono，每秒跳动）；完成后的 run 尾部追加 token 用量
+            （细竖线分隔，mono 小字）；tokens 也可在 hover 工具栏查看明细。 */}
         {!isUser && !hideMeta && (
           <div className="flex items-center gap-1.5 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
-            <span className="font-bold text-nova-text-primary">OurCode AI</span>
+            <span className="font-semibold text-[13px] text-nova-text-primary">OurCode AI</span>
             {isLive && (
               <span className="flex items-center gap-1 text-nova-accent">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
@@ -543,6 +527,14 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                 {t('agent.runStatus.error')}
               </span>
             )}
+            {/* 完成的 run：头部行展示 token 用量（细竖线分隔，mono 小字）——
+                运行中/等待批准时不显示，避免跳动 */}
+            {run && !isLive && !isWaitingPlan && runTokens > 0 && (
+              <span className="flex items-center gap-1.5 font-mono text-[10px] text-nova-text-muted">
+                <span className="w-px h-3 bg-nova-border/60 shrink-0" aria-hidden />
+                {formatTokens(runTokens)} {t('statusBar.tokens')}
+              </span>
+            )}
           </div>
         )}
         {/* Structured LLM error → friendly error card (never raw JSON text) */}
@@ -554,7 +546,7 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
               /* User bubble — Stitch: white glass + electric-blue edge.
                   Attached files render as chips (from message.contextFiles);
                   pasted markdown links stay plain text. */
-              <div className="px-4 py-2.5 bubble-user" style={{ color: 'var(--text-primary)' }}>
+              <div className="px-4 py-3 bubble-user" style={{ color: 'var(--text-primary)' }}>
                 <UserMessageContent
                   content={message.content}
                   contextFiles={message.contextFiles || []}
@@ -595,20 +587,25 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                     {editedIndicator}
                     {contentBlock}
 
-                    {/* Tool step rows — 本轮正文之后的工具调用，按时间顺序交错在流中 */}
-                    {(message.toolCalls || []).map((tc) => {
-                      const result = message.toolResults?.find((r) => r.toolCallId === tc.id)
-                      const rejected = !!result?.isError && /用户拒绝/.test(result.result)
-                      return (
-                        <ToolStepRow
-                          key={tc.id}
-                          toolCall={tc}
-                          result={result}
-                          rejected={rejected}
-                          suspended={!result && !rejected && !isSessionRunning}
-                        />
-                      )
-                    })}
+                    {/* Tool step rows — 本轮正文之后的工具调用，按时间顺序交错在流中；
+                        多个调用并排换行（内容宽度 chip，对齐 code.html） */}
+                    {(message.toolCalls || []).length > 0 && (
+                      <div className="flex flex-wrap items-start gap-1.5">
+                        {(message.toolCalls || []).map((tc) => {
+                          const result = message.toolResults?.find((r) => r.toolCallId === tc.id)
+                          const rejected = !!result?.isError && /用户拒绝/.test(result.result)
+                          return (
+                            <ToolStepRow
+                              key={tc.id}
+                              toolCall={tc}
+                              result={result}
+                              rejected={rejected}
+                              suspended={!result && !rejected && !isSessionRunning}
+                            />
+                          )
+                        })}
+                      </div>
+                    )}
 
                     {/* Submitted plan — rendered inline after the submit_plan tool
                         row (approve/cancel, or the kept record) */}
@@ -621,7 +618,9 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                     隐藏（重新生成/记住/分支/复制/Token 都不出现）；会话无论以
                     何种方式结束（完成/停止/出错/轮数耗尽/等待批准）都会恢复显示。 */}
                 {!isEditing && !hideActions && !isSessionRunning && (
-                  <div className={`flex flex-wrap items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'justify-end' : 'justify-start'}`}>
+                  /* mockup「Action Bar」：hairline 顶部分隔线 + ghost 按钮，
+                     与正文隔开；hover 显现避免每屏 7 个动作的噪音。 */
+                  <div className={`flex flex-wrap items-center gap-1 mt-4 pt-3 border-t border-nova-border opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'justify-end' : 'justify-start'}`}>
                     {isExhausted && (
                       <GhostButton onClick={() => continueGeneration(sessionId)} title={t('chat.continueRun')} accent>
                         ▶ {t('chat.continueRun')}

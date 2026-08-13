@@ -34,6 +34,7 @@
  * works as for any registry-managed skill.
  */
 import type { SkillOrigin } from '@/services/skills/skillManager'
+import { isBuiltinSkillName } from '@/services/skills/builtinSkills'
 
 export interface SkillConfigEntry {
   enabled?: boolean
@@ -132,14 +133,18 @@ export async function readSkillConfig(root: string): Promise<SkillConfig> {
   return config
 }
 
-/** Whether a skill is enabled (defaults to true when not configured). */
+/** Whether a skill is enabled (defaults to true when not configured).
+ *  Built-in skills are always enabled — they can't be disabled. */
 export async function isSkillEnabled(name: string, root: string): Promise<boolean> {
+  if (isBuiltinSkillName(name)) return true
   const config = await readSkillConfig(root)
   return config.skills[name]?.enabled !== false
 }
 
-/** Persist the enabled flag (creating skills.json when absent). */
+/** Persist the enabled flag (creating skills.json when absent). Returns false
+ *  (no-op) for built-in skills, which cannot be disabled. */
 export async function setSkillEnabled(name: string, enabled: boolean, root: string): Promise<boolean> {
+  if (isBuiltinSkillName(name)) return false
   const config = await readSkillConfig(root)
   const entry = config.skills[name] || {}
   config.skills[name] = { ...entry, enabled }
@@ -286,7 +291,9 @@ export async function importSkill(name: string, root: string, sourcePath: string
   return writeFileSafe(`${root.replace(/[\\/]$/, '')}/skills.json`, JSON.stringify(config, null, 2) + '\n')
 }
 
-/** Remove a skill directory from the workspace. */
+/** Remove a skill directory from the workspace. For a built-in name this only
+ *  removes any on-disk override — the built-in copy itself has no directory,
+ *  so it resurfaces as the fallback once the override is deleted. */
 export async function uninstallSkill(name: string, root: string): Promise<boolean> {
   if (!isSafeSkillName(name)) return false
   const config = await readSkillConfig(root)

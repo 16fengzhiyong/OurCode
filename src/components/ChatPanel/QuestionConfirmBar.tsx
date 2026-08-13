@@ -23,7 +23,7 @@ export default function QuestionConfirmBar() {
   if (questionGate[activeSessionId] !== 'confirm') return null
 
   return (
-    <div className="shrink-0 px-3 py-2 border-t border-nova-accent/30 bg-nova-accent/10 backdrop-blur-xl flex items-center gap-2.5">
+    <div className="shrink-0 px-3 py-2 border-t border-nova-border bg-nova-surface flex items-center gap-2.5">
       <span className="text-sm shrink-0">💬</span>
       <span className="flex-1 text-xs text-nova-text-primary leading-relaxed min-w-0">
         {t('chat.questionConfirmTitle')}
@@ -31,7 +31,7 @@ export default function QuestionConfirmBar() {
       <button
         onClick={() => setQuestionGate(activeSessionId, 'auto')}
         className="px-3 py-1 text-xs text-white rounded-lg hover:opacity-90 transition-opacity shrink-0"
-        style={{ background: 'var(--grad-brand)' }}
+        style={{ background: 'var(--accent)' }}
       >
         {t('chat.questionConfirmAction')}
       </button>

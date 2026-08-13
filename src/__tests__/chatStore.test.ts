@@ -160,12 +160,25 @@ describe('chatStore message management', () => {
     expect(useChatStore.getState().getActiveSession()!.messages).toHaveLength(0)
   })
 
-  it('createSession sets it active and persists', () => {
+  it('createSession sets it active but does not persist an empty session', () => {
     makeSession()
     const s = useChatStore.getState().getActiveSession()!
     expect(s.configGroupId).toBe('cfg-1')
     expect(s.agentMode).toBe('chat')
+    // 空白会话不落盘（避免"新建对话"堆积一堆空白会话），首条消息后才会持久化。
+    expect(mockApi.saveSession).not.toHaveBeenCalled()
+  })
+
+  it('a session is persisted once it gets a message', () => {
+    makeSession()
+    // Send-flow equivalent: a user message triggers auto-title rename (and the
+    // agent loop's finally), both of which persist the session.
+    useChatStore.getState().addMessage('s1', { role: 'user', content: '帮我修一下登录页' })
+    useChatStore.getState().saveSession('s1')
     expect(mockApi.saveSession).toHaveBeenCalled()
+    const saved = mockApi.saveSession.mock.calls[0][0]
+    expect(saved.messages).toHaveLength(1)
+    expect(saved.messages[0].content).toBe('帮我修一下登录页')
   })
 
   it('updateSessionModel with a configGroupId rebinds the session to that group', () => {

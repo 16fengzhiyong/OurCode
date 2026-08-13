@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useChatStore, sessionLastUserActivity } from '@/stores/chatStore'
-import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
 import { getLocale } from '@/i18n'
+import { useSessionMenu } from './sessionMenu'
 
 interface ChatSidebarProps {
   onClose: () => void
@@ -18,14 +18,9 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
   const pendingApproval = useChatStore((s) => s.pendingApproval)
   const batchApproval = useChatStore((s) => s.batchApproval)
   const setActiveSession = useChatStore((s) => s.setActiveSession)
-  const deleteSession = useChatStore((s) => s.deleteSession)
-  const renameSession = useChatStore((s) => s.renameSession)
-  const exportSession = useChatStore((s) => s.exportSession)
   const importSession = useChatStore((s) => s.importSession)
-  const togglePin = useChatStore((s) => s.togglePin)
-  const toggleArchive = useChatStore((s) => s.toggleArchive)
+  const { openSessionMenu } = useSessionMenu()
 
-  const showContextMenu = useUIStore((s) => s.showContextMenu)
   const t = useI18n()
   const [searchQuery, setSearchQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
@@ -72,71 +67,12 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
     })
   }, [sessions, searchQuery, showArchived])
 
-  const handleDelete = (sessionId: string) => {    if (confirm(t('chat.deleteSessionConfirm'))) {
-      deleteSession(sessionId)
-    }
-  }
-
-  const handleRename = (sessionId: string) => {
-    const title = prompt(t('chat.renameSessionPrompt'))
-    if (title?.trim()) {
-      renameSession(sessionId, title.trim())
-    }
-  }
-
-  const handleExport = (sessionId: string) => {
-    const md = exportSession(sessionId, 'markdown')
-    const blob = new Blob([md], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${t('layout.chatFilePrefix')}-${Date.now()}.md`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const handleExportJson = (sessionId: string) => {
-    const json = exportSession(sessionId, 'json')
-    const blob = new Blob([json], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${t('layout.chatFilePrefix')}-${Date.now()}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  // Full per-session menu (design: 重命名 / 导出 Markdown / 导出 JSON /
-  // 归档 / 置顶 / 删除) — shared by the right-click menu and the hover ⋯
-  // button so both surfaces expose the same actions.
-  const buildSessionMenu = (session: {
-    id: string; pinnedAt?: number | null; archivedAt?: number | null
-  }) => [
-    {
-      label: session.pinnedAt ? t('chat.unpin') : t('chat.pin'),
-      icon: '📌',
-      action: () => togglePin(session.id),
-    },
-    { separator: true, label: '' },
-    { label: t('common.rename'), icon: '✏️', action: () => handleRename(session.id) },
-    { label: t('chat.exportMarkdown'), icon: '📄', action: () => handleExport(session.id) },
-    { label: t('chat.exportJson'), icon: '🧾', action: () => handleExportJson(session.id) },
-    { separator: true, label: '' },
-    {
-      label: session.archivedAt ? t('chat.unarchive') : t('chat.archive'),
-      icon: '📦',
-      action: () => toggleArchive(session.id),
-    },
-    { separator: true, label: '' },
-    { label: t('common.delete'), icon: '🗑️', action: () => handleDelete(session.id) },
-  ]
-
   const handleContextMenu = (e: React.MouseEvent, sessionId: string) => {
     e.preventDefault()
     e.stopPropagation()
     const session = sessions.find((s) => s.id === sessionId)
     if (!session) return
-    showContextMenu(e.clientX, e.clientY, buildSessionMenu(session))
+    openSessionMenu(e, session)
   }
 
   // Hover "⋯" — opens the same menu anchored at the button.
@@ -144,7 +80,7 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
     e.stopPropagation()
     const session = sessions.find((s) => s.id === sessionId)
     if (!session) return
-    showContextMenu(e.clientX, e.clientY, buildSessionMenu(session))
+    openSessionMenu(e, session)
   }
 
   const handleImport = () => {

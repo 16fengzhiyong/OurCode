@@ -3,6 +3,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
 import { listAllSkills, getGlobalRoot, SKILL_ORIGIN_LABELS, type SkillInfo, type SkillOrigin } from '@/services/skills/skillManager'
 import { isSkillEnabled, setSkillEnabled, readSkillConfig } from '@/services/skills/skillRegistry'
+import { isBuiltinSkillName } from '@/services/skills/builtinSkills'
 
 interface LocalSkillRow extends SkillInfo {
   enabled: boolean
@@ -201,6 +202,14 @@ export default function SkillPanel() {
                     >
                       {s.source === 'global' ? t('skillRegistry.globalTag') : s.projectPath?.split(/[/\\]/).pop() || t('skillRegistry.projectTag')}
                     </span>
+                    {s.builtin && (
+                      <span
+                        className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-[var(--accent)]/15 text-[var(--accent)]"
+                        title={t('skillRegistry.builtinProtected')}
+                      >
+                        {t('skillRegistry.builtinTag')}
+                      </span>
+                    )}
                     {s.importedFrom && (
                       <span
                         className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-nova-bg border border-nova-border text-nova-text-muted"
@@ -214,14 +223,16 @@ export default function SkillPanel() {
                     {s.description || s.path}
                   </p>
                 </div>
-                {/* Toggle */}
+                {/* Toggle — built-in skill names are always enabled (whether the
+                    row is the built-in fallback or an on-disk override). */}
                 <button
                   onClick={() => toggleSkill(s, s.enabled)}
-                  disabled={busy === s.name}
+                  disabled={busy === s.name || isBuiltinSkillName(s.name)}
                   aria-label={`${s.enabled ? t('skillRegistry.disable') : t('skillRegistry.enable')} ${s.name}`}
+                  title={isBuiltinSkillName(s.name) ? t('skillRegistry.builtinProtected') : undefined}
                   className={`relative shrink-0 w-8 h-5 rounded-full transition-colors disabled:opacity-40 ${
                     s.enabled ? 'bg-[#22c55e]' : 'bg-slate-300 dark:bg-slate-600'
-                  }`}
+                  } ${isBuiltinSkillName(s.name) ? 'cursor-not-allowed' : ''}`}
                   style={{ outline: 'none' }}
                 >
                   <span

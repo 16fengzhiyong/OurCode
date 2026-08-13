@@ -16,9 +16,8 @@ interface FileChipProps {
 }
 
 /**
- * Glass capsule chip for an attached file/folder (Stitch: OurCode Glass Light
- * — rgba(255,255,255,0.6) fill, hairline white border, 14px file icon +
- * 11px label, × close turning red on hover).
+ * Flat capsule chip for an attached file/folder (极简纯净版: solid surface +
+ * hairline border, 14px file icon + 11px label, × close turning red on hover).
  */
 function FileChip({ path, rootPath, removable, onRemove, onOpen, removeLabel }: FileChipProps) {
   const [isDir, setIsDir] = useState(false)
@@ -62,10 +61,9 @@ function FileChip({ path, rootPath, removable, onRemove, onOpen, removeLabel }: 
         clickable ? 'cursor-pointer hover:bg-nova-hover transition-colors' : ''
       }`}
       style={{
-        background: 'var(--bg-tabs)',
+        background: 'var(--surface)',
         border: '1px solid var(--border-strong)',
         color: 'var(--text-primary)',
-        boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
       }}
     >
       <span className="shrink-0 flex items-center" dangerouslySetInnerHTML={icon} />

@@ -6,7 +6,6 @@ import ThinkingSection from './ThinkingSection'
 import { StreamingMarkdown } from '../Common/MarkdownRenderer'
 import BranchTreeModal from './BranchTreeModal'
 import { TodoPanel } from './AgentPanel'
-import WaveLogo from './WaveLogo'
 import projectLogo from '@/assets/ourcode-logo.png'
 import { useI18n } from '@/i18n/useI18n'
 import { lookupModelMetadata } from '@/types'
@@ -294,7 +293,7 @@ export default function ChatMessages() {
           setShowScrollToBottom(!isNearBottomRef.current)
         }
       }}
-      className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4 relative"
+      className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-4 relative"
     >
       {/* Batch select toolbar — only in history-edit mode */}
       {editEnabled && visibleMessages.length > 0 && (
@@ -474,16 +473,11 @@ export default function ChatMessages() {
           streaming answer rendered in the same card, so a multi-round agent run
           reads as ONE bubble instead of two. */}
       {isThisSessionLoading && !isToolsExecuting && (
-        <div className={`flex gap-2.5 animate-fade-in ${lastTurnIsAssistant ? 'pl-[46px]' : ''}`}>
-          {!lastTurnIsAssistant && (
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 text-nova-accent bg-nova-surface border border-nova-border">
-              <WaveLogo size={16} color="currentColor" />
-            </div>
-          )}
-          <div className="flex-1 min-w-0">
+        <div className="animate-fade-in">
+          <div className="min-w-0">
             {!lastTurnIsAssistant && (
               <div className="flex items-center gap-2 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
-                <span className="font-bold text-nova-text-primary">OurCode AI</span>
+                <span className="font-semibold text-[13px] text-nova-text-primary">OurCode AI</span>
                 <span className="flex items-center gap-1 text-nova-accent">
                   <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
                   <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border">
@@ -512,7 +506,7 @@ export default function ChatMessages() {
                 AgentProcessBlock below. */}
             {stream?.thinking && <ThinkingSection thinking={stream.thinking} streaming />}
             {stream?.content ? (
-              <div className="text-sm text-nova-text-primary leading-relaxed rounded-xl bg-nova-surface border border-nova-border px-4 py-3">
+              <div className="text-sm text-nova-text-primary leading-relaxed">
                 <StreamingMarkdown content={stream.content} />
                 <span className="animate-pulse-dot text-nova-accent">▋</span>
               </div>

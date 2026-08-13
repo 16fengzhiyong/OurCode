@@ -326,3 +326,30 @@ describe('skillRegistry — global skills (root = <userData>)', () => {
     expect(JSON.parse(files[`${globalRoot}/skills.json`] || '{}').skills.deploy).toBeUndefined()
   })
 })
+
+describe('skillRegistry — built-in skills are always-enabled fallbacks', () => {
+  it('isSkillEnabled is always true, even when skills.json disables it', async () => {
+    const root = nextRoot()
+    const { mockApi } = makeMockApi(root, {
+      [`${root}/skills.json`]: JSON.stringify({ skills: { 'skill-creator': { enabled: false } } }),
+    })
+    stub(mockApi)
+    expect(await isSkillEnabled('skill-creator', root)).toBe(true)
+  })
+
+  it('setSkillEnabled is a no-op for built-in skills', async () => {
+    const root = nextRoot()
+    const { mockApi, writes } = makeMockApi(root)
+    stub(mockApi)
+    expect(await setSkillEnabled('skill-creator', false, root)).toBe(false)
+    expect(writes).toHaveLength(0)
+  })
+
+  it('uninstallSkill removes an on-disk override (restoring the built-in fallback)', async () => {
+    const root = nextRoot()
+    const { mockApi, deletions } = makeMockApi(root)
+    stub(mockApi)
+    expect(await uninstallSkill('skill-creator', root)).toBe(true)
+    expect(deletions).toContain(`${root}/skills/skill-creator`)
+  })
+})

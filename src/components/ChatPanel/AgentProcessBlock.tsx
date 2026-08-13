@@ -2,45 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import type { ChatMessage as ChatMessageType } from '@/types'
 import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
-import type { TranslationKey } from '@/i18n'
 import ToolStepRow from './ToolStepRow'
-
-/** 工具调用统计（收起头部摘要 chip 用）—— 按类别聚合，避免「已读 N 个文件」
- *  这种过程信息以几十行原文形式铺满对话流 */
-interface ToolStats {
-  reads: number
-  edits: number
-  commands: number
-  others: number
-}
-
-const TOOL_STAT_SETS = {
-  reads: new Set(['read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files']),
-  edits: new Set(['write_file', 'edit_file', 'create_directory', 'delete_file']),
-}
-
-function countToolStats(messages: ChatMessageType[]): ToolStats {
-  const stats: ToolStats = { reads: 0, edits: 0, commands: 0, others: 0 }
-  for (const m of messages) {
-    for (const tc of m.toolCalls || []) {
-      if (TOOL_STAT_SETS.reads.has(tc.name)) stats.reads++
-      else if (TOOL_STAT_SETS.edits.has(tc.name)) stats.edits++
-      else if (tc.name === 'run_command') stats.commands++
-      else stats.others++
-    }
-  }
-  return stats
-}
-
-/** 摘要文案：只列出非零类别（如「已读 24 · 改 3 · 命令 2」）；全为其他类别时回退总数 */
-function buildToolStats(t: (key: TranslationKey, vars?: Record<string, string | number>) => string, stats: ToolStats): string {
-  const segs: string[] = []
-  if (stats.reads > 0) segs.push(t('chat.toolStatReads', { n: stats.reads }))
-  if (stats.edits > 0) segs.push(t('chat.toolStatEdits', { n: stats.edits }))
-  if (stats.commands > 0) segs.push(t('chat.toolStatCommands', { n: stats.commands }))
-  if (segs.length === 0) segs.push(t('chat.toolStatTotal', { n: stats.reads + stats.edits + stats.commands + stats.others }))
-  return segs.join(' · ')
-}
 
 interface AgentProcessBlockProps {
   /** 同一气泡（turn）内全部 assistant 消息，按真实轮次顺序排列 */
@@ -52,9 +14,10 @@ interface AgentProcessBlockProps {
 
 /**
  * 统一「思考与执行过程」折叠块 —— 一个气泡（turn）内所有轮次的思考文本与
- * 工具调用按真实顺序交错渲染在同一个可折叠块里（思考 → 文字 → 工具 → 思考
- * → 文字 → 工具），最终回答的 markdown 正文由调用方渲染在块下方。
- * 收起时只留「💭 标题 + 首行预览」，展开后显示完整过程。
+ * 工具调用按真实顺序交错渲染（思考 → 文字 → 工具 → 思考 → 文字 → 工具），
+ * 最终回答的 markdown 正文由调用方渲染在块下方。
+ * 无大框：折叠时思考全部收进去；展开时正文 → 底部 hairline → 「收起」按钮。
+ * 工具调用为内容宽度的白色 chip，同一轮多个调用并排换行（对齐 code.html）。
  */
 export default function AgentProcessBlock({ messages, sessionId, defaultExpanded = false }: AgentProcessBlockProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded)
@@ -70,15 +33,6 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
   const hasProcess = messages.some((m) => m.thinking || (m.toolCalls?.length || 0) > 0)
   if (!hasProcess) return null
 
-  // 收起头部摘要：把「读了几十个文件」压缩成一行统计 chip
-  const toolStats = hasToolCalls ? countToolStats(messages) : { reads: 0, edits: 0, commands: 0, others: 0 }
-  const totalTools = toolStats.reads + toolStats.edits + toolStats.commands + toolStats.others
-
-  // 收起预览：优先第一条思考文本的首行；纯工具轮次则显示首个工具名。
-  const firstThinking = messages.find((m) => m.thinking)?.thinking || ''
-  const firstToolName = messages.find((m) => (m.toolCalls?.length || 0) > 0)?.toolCalls?.[0].name || ''
-  const collapsedPreview = firstThinking ? firstThinking.replace(/\s+/g, ' ').trim() : firstToolName
-
   // 需要显示在块内的轮次（最后一条消息的正文是最终回答，由调用方渲染在块下方）
   const rounds = messages
     .map((m, i) => ({
@@ -92,31 +46,23 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
     .filter((r) => r.thinking || r.midContent || r.toolCalls.length > 0)
 
   return (
-    <div className={`rounded-lg overflow-hidden border transition-colors ${
-      isExpanded ? 'border-nova-border/60 bg-nova-surface/40' : 'border-transparent'
-    }`}>
+    /* 思考与执行过程 —— 无大框：一行「图标 + 标题 + 箭头」折叠头；展开后
+       思考/正文/工具调用交错输出，底部 hairline + 收起按钮。 */
+    <div className="text-sm">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-1 py-1 text-left cursor-pointer select-none group"
+        className="w-full flex items-center justify-between gap-2 px-1.5 py-1 text-left cursor-pointer select-none group rounded-md hover:bg-nova-hover/60 transition-colors"
       >
-        <span className="flex items-center gap-1 text-nova-text-muted shrink-0">
-          <span className="text-[11px] font-medium">
+        <span className="flex items-center gap-1.5 min-w-0 text-nova-text-muted">
+          <span className="material-symbols-outlined text-[15px] leading-none shrink-0" aria-hidden>
+            psychology
+          </span>
+          <span className="text-[11px] uppercase tracking-[0.05em] font-semibold shrink-0">
             {hasToolCalls ? t('chat.thinkingProcess') : t('chat.thinkingTitle')}
           </span>
         </span>
-        {hasToolCalls && totalTools > 0 && (
-          <span className="shrink-0 font-mono text-[10px] text-nova-text-muted">
-            {buildToolStats(t, toolStats)}
-          </span>
-        )}
-        {!isExpanded && collapsedPreview && (
-          <span className="min-w-0 flex-1 truncate text-[12px] text-nova-text-muted leading-5">
-            {collapsedPreview}
-          </span>
-        )}
-        {isExpanded && <span className="flex-1" />}
         <span
-          className={`material-symbols-outlined text-[14px] leading-none text-nova-text-muted shrink-0 transition-transform duration-200 group-hover:text-nova-text-secondary ${isExpanded ? 'rotate-180' : ''}`}
+          className={`material-symbols-outlined text-[15px] leading-none text-nova-text-muted shrink-0 transition-transform duration-300 group-hover:text-nova-text-secondary ${isExpanded ? 'rotate-180' : ''}`}
           aria-hidden
         >
           expand_more
@@ -124,13 +70,10 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
       </button>
 
       {isExpanded && (
-        <div className="px-1 pb-1.5 pt-2 border-t border-nova-border/50 flex flex-col gap-2">
-          {/* 左侧时间线连接线：把「思考 → 文字 → 工具 → …」的交替过程串成一条
-              有序序列，呼应参考设计里的步骤连接线，顺序一目了然。 */}
-          <div className="ml-1 pl-2.5 border-l-2 border-nova-accent/20 flex flex-col gap-2">
+        <div className="px-1.5 pt-0.5">
           {rounds.map((round, ri) => (
             <Fragment key={round.id}>
-              {ri > 0 && <div className="h-px bg-nova-border/30" aria-hidden />}
+              {ri > 0 && <div className="my-2 h-px bg-nova-border/40" aria-hidden />}
               <div className="flex flex-col gap-1.5">
                 {round.thinking && (
                   <div className="text-[12.5px] leading-[1.65] text-nova-text-muted whitespace-pre-wrap">
@@ -142,32 +85,39 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
                     {round.midContent}
                   </div>
                 )}
-                {round.toolCalls.map((tc) => {
-                  const result = round.toolResults.find((r) => r.toolCallId === tc.id)
-                  const rejected = !!result?.isError && /用户拒绝/.test(result.result)
-                  return (
-                    <ToolStepRow
-                      key={tc.id}
-                      toolCall={tc}
-                      result={result}
-                      rejected={rejected}
-                      suspended={!result && !rejected && !isSessionRunning}
-                    />
-                  )
-                })}
+                {/* 同一轮的多个工具调用并排换行（内容宽度 chip），对齐
+                    code.html 的「Tool Calls」区 */}
+                {round.toolCalls.length > 0 && (
+                  <div className="flex flex-wrap items-start gap-1.5">
+                    {round.toolCalls.map((tc) => {
+                      const result = round.toolResults.find((r) => r.toolCallId === tc.id)
+                      const rejected = !!result?.isError && /用户拒绝/.test(result.result)
+                      return (
+                        <ToolStepRow
+                          key={tc.id}
+                          toolCall={tc}
+                          result={result}
+                          rejected={rejected}
+                          suspended={!result && !rejected && !isSessionRunning}
+                        />
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             </Fragment>
           ))}
+          {/* 底部 hairline + 收起按钮 —— 让用户知道上面是思考与执行过程 */}
+          <div className="mt-2 border-t border-nova-border" />
+          <div className="flex justify-center">
+            <button
+              onClick={() => setIsExpanded(false)}
+              className="mt-1.5 flex items-center gap-1 px-2.5 py-1 text-[11px] text-nova-text-muted hover:text-nova-text-secondary hover:bg-nova-hover rounded-md transition-colors select-none"
+            >
+              <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden>expand_less</span>
+              {t('chat.collapseProcess')}
+            </button>
           </div>
-          {/* Bottom collapse action — long process blocks can fold back up
-              without hunting for the tiny header chevron */}
-          <button
-            onClick={() => setIsExpanded(false)}
-            className="self-center flex items-center gap-1 px-2.5 py-1 text-[11px] text-nova-text-muted hover:text-nova-text-secondary hover:bg-nova-hover rounded-md transition-colors select-none shrink-0"
-          >
-            <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden>expand_less</span>
-            {t('chat.collapseProcess')}
-          </button>
         </div>
       )}
     </div>

@@ -1408,7 +1408,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }))
     localStorage.setItem(LAST_SESSION_KEY, id)
 
-    window.electronAPI.saveSession(session)
+    // 新会话先不落盘：创建即保存会让"新建对话"在磁盘上堆积一堆没有消息的
+    // 空白会话（重启后全部加载回来）。首条消息发出后才会持久化——发送流程
+    // 的 auto-title 重命名（renameSession）和 runAgentLoop 的 finally 都会
+    // 调用 saveSession；从未发过消息的空白会话随进程退出自然消失。
 
     return id
   },

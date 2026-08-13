@@ -27,36 +27,30 @@ export default function ThinkingSection({ thinking, defaultExpanded = false, str
 
   if (!thinking) return null
 
-  const collapsedPreview = thinking.replace(/\s+/g, ' ').trim()
-
   return (
-    <div className={`rounded-lg overflow-hidden border transition-colors ${
-      isExpanded ? 'border-nova-border/60 bg-nova-surface/40' : 'border-transparent'
-    }`}>
+    /* 思考区 —— 无大框：一行「图标 + 标题 + 箭头」折叠头；收起时思考全部
+       收进去；展开时正文 → 底部 hairline → 「收起」按钮，让用户知道上面
+       是什么。样式对齐 code.html 的 thinking 区。 */
+    <div className="text-sm">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-1 py-1 text-left cursor-pointer select-none group"
+        className="w-full flex items-center justify-between gap-2 px-1.5 py-1 text-left cursor-pointer select-none group rounded-md hover:bg-nova-hover/60 transition-colors"
       >
-        <span className="flex items-center gap-1 text-nova-text-muted shrink-0">
-          <span className="text-[11px] font-medium">{t('chat.thinkingTitle')}</span>
-        </span>
-        {!isExpanded && (streaming ? (
-          <span className="min-w-0 flex-1 flex items-center gap-1.5 text-[12px] text-nova-text-muted leading-5">
-            {t('chat.thinking')}…
-            <span className="inline-flex gap-0.5" aria-hidden>
+        <span className="flex items-center gap-1.5 min-w-0 text-nova-text-muted">
+          <span className="material-symbols-outlined text-[15px] leading-none shrink-0" aria-hidden>
+            psychology
+          </span>
+          <span className="text-[11px] uppercase tracking-[0.05em] font-semibold shrink-0">{t('chat.thinkingTitle')}</span>
+          {streaming && !isExpanded && (
+            <span className="inline-flex gap-0.5 shrink-0" aria-hidden>
               <span className="w-1 h-1 rounded-full animate-think-bounce" style={{ background: '#838485' }} />
               <span className="w-1 h-1 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.2s' }} />
               <span className="w-1 h-1 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.4s' }} />
             </span>
-          </span>
-        ) : collapsedPreview && (
-          <span className="min-w-0 flex-1 truncate text-[12px] text-nova-text-muted leading-5">
-            {collapsedPreview}
-          </span>
-        ))}
-        {isExpanded && <span className="flex-1" />}
+          )}
+        </span>
         <span
-          className={`material-symbols-outlined text-[14px] leading-none text-nova-text-muted shrink-0 transition-transform duration-200 group-hover:text-nova-text-secondary ${isExpanded ? 'rotate-180' : ''}`}
+          className={`material-symbols-outlined text-[15px] leading-none text-nova-text-muted shrink-0 transition-transform duration-300 group-hover:text-nova-text-secondary ${isExpanded ? 'rotate-180' : ''}`}
           aria-hidden
         >
           expand_more
@@ -64,19 +58,21 @@ export default function ThinkingSection({ thinking, defaultExpanded = false, str
       </button>
 
       {isExpanded && (
-        <div className="border-t border-nova-border/50 pt-2 px-1 pb-1.5 flex flex-col gap-1.5">
-          <div className="text-[12.5px] leading-[1.65] text-nova-text-muted whitespace-pre-wrap">
+        <div>
+          <div className="px-1.5 text-[12.5px] leading-[1.65] text-nova-text-muted whitespace-pre-wrap">
             {thinking}
           </div>
-          {/* Bottom collapse action — long thinking blocks can fold back up
-              without hunting for the tiny header chevron */}
-          <button
-            onClick={() => setIsExpanded(false)}
-            className="self-center flex items-center gap-1 px-2.5 py-1 text-[11px] text-nova-text-muted hover:text-nova-text-secondary hover:bg-nova-hover rounded-md transition-colors select-none shrink-0"
-          >
-            <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden>expand_less</span>
-            {t('chat.collapseProcess')}
-          </button>
+          {/* 底部 hairline + 收起按钮 */}
+          <div className="mt-2 border-t border-nova-border" />
+          <div className="flex justify-center">
+            <button
+              onClick={() => setIsExpanded(false)}
+              className="mt-1.5 flex items-center gap-1 px-2.5 py-1 text-[11px] text-nova-text-muted hover:text-nova-text-secondary hover:bg-nova-hover rounded-md transition-colors select-none"
+            >
+              <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden>expand_less</span>
+              {t('chat.collapseProcess')}
+            </button>
+          </div>
         </div>
       )}
     </div>
