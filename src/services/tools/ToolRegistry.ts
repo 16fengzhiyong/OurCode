@@ -80,12 +80,15 @@ export function createToolRegistry(): Tool[] {
     },
     {
       name: 'search_files',
-      description: 'Search for files by name pattern. Returns matching file paths.',
+      description:
+        'Search for files by name. Returns matching file paths. ' +
+        'To enumerate the files inside a directory, use list_directory (search_files finds files by name, it does not list a directory). ' +
+        'If it returns "No files found" twice for a path you know exists, switch to list_directory.',
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Directory to search in' },
-          pattern: { type: 'string', description: 'File name pattern (supports wildcards, e.g. "*.ts")' },
+          pattern: { type: 'string', description: 'File name to match: a glob (e.g. "*.ts", "test*.tsx") or a literal name fragment (e.g. "responseCache"). Case-insensitive.' },
         },
         required: ['path', 'pattern'],
       },
@@ -99,11 +102,12 @@ export function createToolRegistry(): Tool[] {
       description:
         'Search for text content within files. Returns matching lines with file paths and line numbers. ' +
         'query 默认按字面文本（大小写不敏感）搜索；搜索带括号/点号等特殊字符的模式时，' +
-        '要么不转义直接传原文，要么设置 regex=true 并按正则转义后传入。',
+        '要么不转义直接传原文，要么设置 regex=true 并按正则转义后传入。' +
+        'path 可以是目录，也可以是单个文件路径；要缩小范围请用 filePattern（如 "*.ts,*.tsx"），不要传文件路径来当目录。',
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: 'Directory to search in' },
+          path: { type: 'string', description: 'Directory to search in, or a single file path' },
           query: { type: 'string', description: 'Text to search for (literal substring by default)' },
           regex: { type: 'boolean', description: 'Treat query as a regular expression instead of literal text (default false)' },
           filePattern: { type: 'string', description: 'Optional file pattern filter (e.g. "*.ts,*.tsx")' },

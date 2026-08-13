@@ -311,11 +311,17 @@ function createNewWindow(): void {
 
 type SearchInFilesResult = Array<{ filePath: string; fileName: string; lineNumber: number; lineContent: string; matchStart: number; matchEnd: number }>
 
-/** 优先用随应用分发的 ripgrep；开发 / 未打包环境用 PATH 上的 rg。 */
+/** 优先用随应用分发的 ripgrep（打包后固定在 resources/tools/ripgrep/）；
+ *  开发 / 未打包环境先试仓库内置的对应平台/架构二进制，再退回 PATH 上的 rg。 */
 function resolveRgBinary(): string | null {
+  const rgName = process.platform === 'win32' ? 'rg.exe' : 'rg'
   if (app.isPackaged) {
-    const bundled = join(process.resourcesPath, 'tools', 'ripgrep', process.platform === 'win32' ? 'rg.exe' : 'rg')
+    const bundled = join(process.resourcesPath, 'tools', 'ripgrep', rgName)
     if (existsSync(bundled)) return bundled
+  } else {
+    const osDir = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'win' : 'linux'
+    const local = join(app.getAppPath(), 'tools', 'ripgrep', osDir, process.arch, rgName)
+    if (existsSync(local)) return local
   }
   return 'rg'
 }
@@ -398,9 +404,16 @@ function rgSearchFiles(dirPath: string, query: string, maxResults = 50): Promise
     if (!query) return resolve([])
     const args = ['--files', '--no-ignore']
     for (const d of DEFAULT_EXCLUDE_FOLDERS) args.push('-g', `!${d}`)
-    // 大小写不敏感 glob（--iglob），glob 特殊字符转义
-    const escaped = query.replace(/[\\*?[\]{}()!]/g, '\\$&')
-    args.push('--iglob', `*${escaped}*`, '--', dirPath)
+    // glob 元字符（* ? [] 等）→ 真 glob：rg 的 --iglob 按相对路径匹配且 `*`
+    // 不跨 `/`，故加 `**/` 前缀以匹配任意层级（与索引层 basename 匹配对齐）。
+    // 否则转义后按字面子串包裹 `*`（保持 @ 引用按片段命中的行为）。
+    const hasGlob = /[*?[\]{}()!]/.test(query)
+    if (hasGlob) {
+      args.push('--iglob', `**/${query}`, '--', dirPath)
+    } else {
+      const escaped = query.replace(/[\\*?[\]{}()!]/g, '\\$&')
+      args.push('--iglob', `*${escaped}*`, '--', dirPath)
+    }
     const results: string[] = []
     let done = false
     let buf = ''
@@ -511,6 +524,20 @@ async function nodeWalkSearchInFiles(
     } catch { /* skip inaccessible dirs */ }
   }
 
+  // dirPath 可能是单个文件（search_in_files 的 path 也接受文件）：直接搜该
+  // 文件，而不是当目录递归——listDir 对文件会失败并静默返回空，导致本应命中
+  // 的搜索变成 "No matches found"。
+  try {
+    const stat = await fileSystem.stat(dirPath)
+    if (stat.isFile) {
+      const fileName = dirPath.split(/[\\/]/).pop() || ''
+      if (stat.size <= SEARCH_MAX_FILE_BYTES && (!fileMatcher || fileMatcher(fileName))) {
+        await searchInFile(dirPath)
+      }
+      return results
+    }
+  } catch { /* stat 失败（路径不存在等）按目录处理，保持原有行为 */ }
+
   await walkDir(dirPath)
   return results
 }
@@ -522,6 +549,12 @@ async function nodeWalkSearchFiles(dirPath: string, query: string): Promise<stri
   const lowerQuery = (query || '').toLowerCase()
 
   if (!lowerQuery) return results
+
+  // glob 元字符 → 按文件名（basename）glob 匹配；否则字面子串（与索引层对齐）
+  const hasGlob = /[*?[\]{}()!]/.test(query)
+  const matcher = hasGlob ? picomatch(query, { dot: true }) : null
+  const nameHit = (name: string) =>
+    hasGlob ? matcher!(name) : name.toLowerCase().includes(lowerQuery)
 
   const walkDir = async (dir: string) => {
     if (results.length >= maxResults) return
@@ -535,14 +568,23 @@ async function nodeWalkSearchFiles(dirPath: string, query: string): Promise<stri
           if (DEFAULT_EXCLUDE_FOLDERS.includes(dirName)) continue
           await walkDir(entry.path)
         } else {
-          const fileName = entry.name || ''
-          if (fileName.toLowerCase().includes(lowerQuery)) {
+          if (nameHit(entry.name || '')) {
             results.push(entry.path)
           }
         }
       }
     } catch { /* skip inaccessible dirs */ }
   }
+
+  // 同上：dirPath 可能是单个文件，直接按文件名匹配
+  try {
+    const stat = await fileSystem.stat(dirPath)
+    if (stat.isFile) {
+      const fileName = dirPath.split(/[\\/]/).pop() || ''
+      if (nameHit(fileName)) results.push(dirPath)
+      return results
+    }
+  } catch { /* 按目录处理 */ }
 
   await walkDir(dirPath)
   return results
@@ -1003,7 +1045,9 @@ function registerIpcHandlers(): void {
     assertPathAllowed(dirPath)
     try {
       const fromIndex = await fileIndex.searchFiles(dirPath, query, 50)
-      if (fromIndex) return fromIndex
+      // 空数组不能短路：索引返回空可能只是它答不上（如部分 glob 语义），仍要
+      // 回退 rg/遍历以得到一致结果，否则 `*.ts` 这类查询会被静默吞掉。
+      if (fromIndex && fromIndex.length > 0) return fromIndex
     } catch { /* 索引异常走 rg/遍历 */ }
     const fromRg = await rgSearchFiles(dirPath, query, 50)
     if (fromRg) return fromRg

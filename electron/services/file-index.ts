@@ -33,6 +33,16 @@ const REBUILD_DEBOUNCE_MS = 400
 /** 同时保留的索引根数量上限（LRU 淘汰，防长会话里切项目把内存撑爆） */
 const MAX_ROOTS = 8
 
+/**
+ * 路径规范化：统一分隔符为 `/`、去尾分隔符、小写。Windows 下 `\` 与 `/`
+ * 混用且大小写不敏感，若 `files` 的 key 用 `entry.path.toLowerCase()` 而查询
+ * 用 `root.toLowerCase()`，分隔符不一致会导致单文件内容搜索 miss。所有以路径
+ * 作 Map key / 前缀比较的地方都必须过这个函数，保证存取口径一致。
+ */
+function normPath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
 export interface IndexedContentHit {
   filePath: string
   fileName: string
@@ -71,14 +81,13 @@ export class FileIndexService {
   constructor(private readonly fs: FileSystemService) {}
 
   private key(root: string): string {
-    // 尾部去分隔符 + 统一小写：Windows 路径大小写不敏感
-    return root.replace(/[\\/]+$/, '').toLowerCase()
+    return normPath(root)
   }
 
   private isUnder(root: string, p: string): boolean {
-    const r = root.replace(/[\\/]+$/, '').toLowerCase()
-    const path = p.toLowerCase()
-    return path === r || path.startsWith(r + '\\') || path.startsWith(r + '/')
+    const r = normPath(root)
+    const path = normPath(p)
+    return path === r || path.startsWith(r + '/')
   }
 
   /** 标记根已监听（fs:watch 时调用）并预热索引 */
@@ -133,7 +142,7 @@ export class FileIndexService {
         mtimeMs: entry.modifiedAt ?? 0,
         lines: null,
       }
-      files.set(entry.path.toLowerCase(), file)
+      files.set(normPath(entry.path), file)
       // 预算耗尽后不再读任何文件内容（清单仍完整）
       if (limited) return
       if (!SOURCE_EXTENSIONS_RE.test(entry.name)) return
@@ -197,55 +206,97 @@ export class FileIndexService {
       maxResults?: number
     } = {},
   ): Promise<IndexedContentHit[] | null> {
-    const idx = this.indexes.get(this.key(root))
-    if (!idx || !idx.listReady || !idx.contentReady || !idx.watched) return null
     // regex / wholeWord 语义不在内存索引里实现（交给 rg/遍历）
     if (opts.regex || opts.wholeWord) return null
     const maxResults = opts.maxResults ?? 500
     const lowerQuery = opts.caseSensitive ? query : query.toLowerCase()
     if (!lowerQuery) return []
-    idx.lastUsed = Date.now()
 
     // 与 Node 遍历版一致：filePattern 按 basename 匹配（picomatch）
     const matcher = opts.filePattern
       ? picomatch(opts.filePattern.split(',').map((s) => s.trim()).filter(Boolean))
       : null
-    const hits: IndexedContentHit[] = []
-    const qlen = lowerQuery.length
 
+    // root 可能是单个文件（search_in_files 的 path 支持文件）：从包含它的已
+    // 监听根索引里搜该文件；文件不在任何索引根下则返回 null 交给 rg/遍历。
+    const idx = this.indexes.get(this.key(root))
+    if (!idx) {
+      const host = this.hostIndexOf(root)
+      const file = host && host.watched && host.listReady ? host.files.get(normPath(root)) : undefined
+      if (host && file && file.lines) {
+        host.lastUsed = Date.now()
+        if (matcher && !matcher(basename(file.abs))) return []
+        return this.matchLines(file.abs, file.lines, opts.caseSensitive, lowerQuery, lowerQuery.length, maxResults)
+      }
+      return null
+    }
+    if (!idx.listReady || !idx.contentReady || !idx.watched) return null
+    idx.lastUsed = Date.now()
+
+    const hits: IndexedContentHit[] = []
     for (const file of idx.files.values()) {
       if (!file.lines) continue
       if (matcher && !matcher(basename(file.abs))) continue
-      const lines = file.lines
-      for (let i = 0; i < lines.length; i++) {
-        const raw = lines[i]
-        const hay = opts.caseSensitive ? raw : raw.toLowerCase()
-        const at = hay.indexOf(lowerQuery)
-        if (at === -1) continue
-        hits.push({
-          filePath: file.abs,
-          fileName: basename(file.abs),
-          lineNumber: i + 1,
-          lineContent: raw.trim(),
-          matchStart: at,
-          matchEnd: at + qlen,
-        })
-        if (hits.length >= maxResults) return hits
-      }
+      hits.push(...this.matchLines(file.abs, file.lines, opts.caseSensitive, lowerQuery, lowerQuery.length, maxResults - hits.length))
+      if (hits.length >= maxResults) break
     }
     return hits
+  }
+
+  /** 对单个文件的行数组做子串匹配（小写化口径与目录模式一致） */
+  private matchLines(
+    filePath: string,
+    lines: string[],
+    caseSensitive: boolean | undefined,
+    lowerQuery: string,
+    qlen: number,
+    maxResults: number,
+  ): IndexedContentHit[] {
+    const hits: IndexedContentHit[] = []
+    for (let i = 0; i < lines.length && hits.length < maxResults; i++) {
+      const raw = lines[i]
+      const hay = caseSensitive ? raw : raw.toLowerCase()
+      const at = hay.indexOf(lowerQuery)
+      if (at === -1) continue
+      hits.push({
+        filePath,
+        fileName: basename(filePath),
+        lineNumber: i + 1,
+        lineContent: raw.trim(),
+        matchStart: at,
+        matchEnd: at + qlen,
+      })
+    }
+    return hits
+  }
+
+  /** 找到包含指定路径（可能是文件）的索引根，用于单文件内容搜索 */
+  private hostIndexOf(p: string): RootIndex | undefined {
+    for (const idx of this.indexes.values()) {
+      if (this.isUnder(idx.root, p)) return idx
+    }
+    return undefined
   }
 
   /** 文件名搜索。同样只在已监听的根用内存清单，否则返回 null。 */
   async searchFiles(root: string, query: string, maxResults = 50): Promise<string[] | null> {
     const idx = this.indexes.get(this.key(root))
     if (!idx || !idx.listReady || !idx.watched) return null
-    const lower = query.toLowerCase()
-    if (!lower) return []
+    if (!query) return []
     idx.lastUsed = Date.now()
+
+    // `*`/`?`/`[]` 等 glob 元字符 → 按文件名（basename）做 glob 匹配（如 *.ts）；
+    // 否则按字面子串匹配完整路径（保持 @ 引用按目录名/文件名片段命中的行为）。
+    const hasGlob = /[*?[\]{}()!]/.test(query)
+    const matcher = hasGlob ? picomatch(query, { dot: true }) : null
+    const lower = query.toLowerCase()
+
     const results: string[] = []
     for (const file of idx.files.values()) {
-      if (file.abs.toLowerCase().includes(lower)) {
+      const hit = hasGlob
+        ? matcher!(basename(file.abs))
+        : file.abs.toLowerCase().includes(lower)
+      if (hit) {
         results.push(file.abs)
         if (results.length >= maxResults) break
       }
@@ -277,7 +328,7 @@ export class FileIndexService {
       stat = await this.fs.stat(path)
     } catch {
       // 文件被删除
-      idx.files.delete(path.toLowerCase())
+      idx.files.delete(normPath(path))
       return
     }
     if (stat.isDirectory) {
@@ -300,7 +351,7 @@ export class FileIndexService {
         entry.lines = null
       }
     }
-    idx.files.set(path.toLowerCase(), entry)
+    idx.files.set(normPath(path), entry)
   }
 
   private scheduleRebuild(idx: RootIndex): void {

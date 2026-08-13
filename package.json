@@ -80,6 +80,10 @@
       {
         "from": "mcp-servers",
         "to": "mcp-servers"
+      },
+      {
+        "from": "tools/ripgrep/${os}/${arch}",
+        "to": "tools/ripgrep"
       }
     ],
     "win": {

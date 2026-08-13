@@ -64,6 +64,27 @@ describe('FileIndexService', () => {
     expect(tsOnly!.every((h) => h.fileName !== 'README.md')).toBe(true)
   })
 
+  it('supports glob patterns in file-name search (search_files)', async () => {
+    const root = makeProject()
+    const idx = new FileIndexService(new FileSystemService())
+    idx.markWatched(root)
+    await idx.ensureIndex(root)
+
+    // glob 通配符：按 basename 匹配（此前三层都是字面子串，`*.ts` 永远空）
+    const ts = await idx.searchFiles(root, '*.ts')
+    expect(ts).toContain(join(root, 'src', 'app.ts'))
+    expect(ts!.every((p) => p.endsWith('.ts'))).toBe(true)
+
+    const js = await idx.searchFiles(root, '*.js')
+    expect(js).toContain(join(root, 'src', 'util.js'))
+    // node_modules 被排除，不应出现在结果里
+    expect(js!.some((p) => p.includes('node_modules'))).toBe(false)
+
+    // 字面子串仍按原名片段命中（@ 引用场景）
+    const byFragment = await idx.searchFiles(root, 'logo')
+    expect(byFragment).toContain(join(root, 'logo.png'))
+  })
+
   it('serves only watched roots; regex/wholeWord fall back to null', async () => {
     const root = makeProject()
     const idx = new FileIndexService(new FileSystemService())
@@ -101,6 +122,33 @@ describe('FileIndexService', () => {
     idx.onFileChanged(target)
     await new Promise((r) => setTimeout(r, 50))
     expect(await idx.searchContent(root, 'greet', {})).toHaveLength(0)
+  })
+
+  it('searches a single file path when root is a file (not a directory)', async () => {
+    const root = makeProject()
+    const idx = new FileIndexService(new FileSystemService())
+    idx.markWatched(root)
+    await idx.ensureIndex(root)
+
+    // search_in_files 的 path 传单个文件：应从包含它的监听根索引里命中该文件
+    const target = join(root, 'src', 'app.ts')
+    const hits = await idx.searchContent(target, 'greet', {})
+    expect(hits).not.toBeNull()
+    expect(hits!.every((h) => h.filePath === target)).toBe(true)
+    expect(hits![0].lineNumber).toBe(1)
+
+    // 正斜杠路径同样能命中：normPath 统一分隔符，Windows 下 `\`/`/` 混用不会 miss
+    const forwardSlash = target.replace(/\\/g, '/')
+    expect((await idx.searchContent(forwardSlash, 'greet', {}))!.length).toBeGreaterThan(0)
+
+    // 大小写不敏感 + filePattern 与目录模式口径一致
+    expect((await idx.searchContent(target, 'GREET', {}))!.length).toBeGreaterThan(0)
+    expect(await idx.searchContent(target, 'greet', { filePattern: '*.js' })).toEqual([])
+    // regex / wholeWord 仍交回 rg/遍历
+    expect(await idx.searchContent(target, 'greet', { wholeWord: true })).toBeNull()
+
+    // 不在任何索引根下的文件 → null（回退 rg/遍历），而不是空数组
+    expect(await idx.searchContent(join(root, '..', 'outside.ts'), 'greet', {})).toBeNull()
   })
 
   it('caps content budget with limited flag (huge contents)', async () => {
