@@ -160,6 +160,29 @@ describe('SubagentGuard — permission isolation', () => {
     expect(guard.checkCall('read_file', { path: 'D:/elsewhere/a.ts' })).toContain('超出')
   })
 
+  it('validates every path in read_multiple_files / multi_edit_file against allowedPaths', () => {
+    const guard = base({ tools: ['read_multiple_files', 'multi_edit_file', 'read_file'] })
+
+    expect(guard.checkCall('read_multiple_files', { paths: ['C:/workspace/src/a.ts', 'C:/workspace/tests/b.ts'] })).toBeNull()
+    expect(guard.checkCall('read_multiple_files', { paths: ['C:/workspace/src/a.ts', 'C:/workspace/outside/x.ts'] })).toContain('超出')
+
+    expect(guard.checkCall('multi_edit_file', {
+      edits: [{ path: 'C:/workspace/src/a.ts', oldText: 'x', newText: 'y' }],
+    })).toBeNull()
+    expect(guard.checkCall('multi_edit_file', {
+      edits: [
+        { path: 'C:/workspace/src/a.ts', oldText: 'x', newText: 'y' },
+        { path: 'C:/workspace/outside/x.ts', oldText: 'x', newText: 'y' },
+      ],
+    })).toContain('超出')
+  })
+
+  it('does not block batch tools with empty path arrays', () => {
+    const guard = base({ tools: ['read_multiple_files', 'multi_edit_file'] })
+    expect(guard.checkCall('read_multiple_files', { paths: [] })).toBeNull()
+    expect(guard.checkCall('multi_edit_file', { edits: [] })).toBeNull()
+  })
+
   it('scopes run_command cwd and blocks dangerous command fragments', () => {
     const guard = base()
     expect(guard.checkCall('run_command', { command: 'npm test', cwd: 'C:/workspace/src' })).toBeNull()

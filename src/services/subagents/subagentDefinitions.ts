@@ -345,6 +345,26 @@ export class SubagentGuard {
       }
     }
 
+    // Batch tools carry arrays of paths instead of a single `path`
+    // (read_multiple_files → paths[], multi_edit_file → edits[].path) — check
+    // every target the same way, so a path-restricted subagent can't escape
+    // its allowed roots through the array shape.
+    if (allowedRoots && allowedRoots.length > 0) {
+      const batchTargets = name === 'read_multiple_files'
+        ? (Array.isArray(args.paths) ? args.paths : []).map((p) => String(p))
+        : name === 'multi_edit_file'
+          ? (Array.isArray(args.edits) ? args.edits : []).map((e: any) => String(e?.path || '')).filter(Boolean)
+          : []
+      if (batchTargets.length > 0) {
+        const roots = allowedRoots.map((r) => resolveAllowedRoot(this.projectPath, r))
+        for (const p of batchTargets) {
+          if (!roots.some((root) => isPathWithin(root, p))) {
+            return `路径 "${p}" 超出子智能体「${this.def.name}」允许的目录范围: ${allowedRoots.join(', ')}。`
+          }
+        }
+      }
+    }
+
     // A subagent restricted to allowedPaths must not be able to run commands
     // outside them. When allowedPaths is set and run_command omits cwd, the
     // command would fall back to the whole project root — escaping the

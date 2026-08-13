@@ -85,4 +85,49 @@ describe('ToolExecutor read-before-write guard', () => {
     expect(res.isError).toBe(true)
     expect(res.result).toContain('File has not been read yet')
   })
+
+  it('blocks multi_edit_file when any target file was never read', async () => {
+    fs.set('C:/proj/other.ts', 'const b = 2\n')
+    const executor = new ToolExecutor()
+    const res = await call(executor, 'multi_edit_file', {
+      edits: [
+        { path: 'C:/proj/existing.ts', oldText: 'a', newText: 'X' },
+        { path: 'C:/proj/other.ts', oldText: 'b', newText: 'Y' },
+      ],
+    })
+    expect(res.isError).toBe(true)
+    expect(res.result).toContain('File has not been read yet')
+    expect(res.result).toContain('C:/proj/existing.ts')
+    // Nothing was touched
+    expect(fs.get('C:/proj/existing.ts')).toBe('const a = 1\n')
+    expect(fs.get('C:/proj/other.ts')).toBe('const b = 2\n')
+  })
+
+  it('allows multi_edit_file after read_multiple_files covered every target', async () => {
+    fs.set('C:/proj/other.ts', 'const b = 2\n')
+    const executor = new ToolExecutor()
+    const read = await call(executor, 'read_multiple_files', { paths: ['C:/proj/existing.ts', 'C:/proj/other.ts'] })
+    expect(read.isError).toBeFalsy()
+    expect(read.result).toContain('===== C:/proj/existing.ts =====')
+
+    const res = await call(executor, 'multi_edit_file', {
+      edits: [
+        { path: 'C:/proj/existing.ts', oldText: 'a', newText: 'X' },
+        { path: 'C:/proj/other.ts', oldText: 'b', newText: 'Y' },
+      ],
+    })
+    expect(res.isError).toBeFalsy()
+    expect(fs.get('C:/proj/existing.ts')).toBe('const X = 1\n')
+    expect(fs.get('C:/proj/other.ts')).toBe('const Y = 2\n')
+  })
+
+  it('marks paths read via read_multiple_files so write_file needs no separate read', async () => {
+    const executor = new ToolExecutor()
+    const read = await call(executor, 'read_multiple_files', { paths: ['C:/proj/existing.ts'] })
+    expect(read.isError).toBeFalsy()
+
+    const res = await call(executor, 'write_file', { path: 'C:/proj/existing.ts', content: 'const z = 9\n' })
+    expect(res.isError).toBeFalsy()
+    expect(fs.get('C:/proj/existing.ts')).toBe('const z = 9\n')
+  })
 })

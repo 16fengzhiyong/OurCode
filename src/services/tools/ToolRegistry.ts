@@ -24,6 +24,29 @@ export function createToolRegistry(): Tool[] {
       },
     },
     {
+      name: 'read_multiple_files',
+      description:
+        'Read several files at once, returning each one in a "===== path =====" section. ' +
+        'Each file is capped independently at 2000 lines / 50KB and the combined output is ' +
+        'capped too, so prefer this over repeated read_file calls when you need multiple ' +
+        'small files (configs, related sources) in one round-trip.',
+      parameters: {
+        type: 'object',
+        properties: {
+          paths: {
+            type: 'array',
+            description: 'Absolute paths of the files to read',
+            items: { type: 'string' },
+          },
+        },
+        required: ['paths'],
+      },
+      execute: async (args) => {
+        const { readMultipleFiles } = await import('@/services/tools/helpers')
+        return readMultipleFiles(Array.isArray(args.paths) ? args.paths.map(String) : [])
+      },
+    },
+    {
       name: 'list_directory',
       description: 'List files and directories in a given path. Shows file sizes and types.',
       parameters: {
@@ -113,19 +136,58 @@ export function createToolRegistry(): Tool[] {
     },
     {
       name: 'edit_file',
-      description: 'Edit a file by replacing a specific string with new content. The oldText must match exactly.',
+      description:
+        'Edit a file by replacing a specific string with new content. The oldText must match exactly ' +
+        '(replace the first occurrence by default; set replaceAll=true to replace every occurrence). ' +
+        'For edits touching several files in one round-trip, prefer multi_edit_file.',
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Absolute path to the file' },
           oldText: { type: 'string', description: 'Exact text to find and replace' },
           newText: { type: 'string', description: 'Replacement text' },
+          replaceAll: { type: 'boolean', description: 'Replace every occurrence of oldText instead of only the first (default false)' },
         },
         required: ['path', 'oldText', 'newText'],
       },
       execute: async (args) => {
         const { editFile } = await import('@/services/tools/helpers')
-        return editFile(args.path, args.oldText, args.newText)
+        return editFile(args.path, args.oldText, args.newText, !!args.replaceAll)
+      },
+      requiresApproval: true,
+    },
+    {
+      name: 'multi_edit_file',
+      description:
+        'Apply exact-text replacements across multiple files in one call. ' +
+        'Each edit is { path, oldText, newText, replaceAll? } (replaceAll replaces every ' +
+        'occurrence, default is the first one only). Validation is all-or-nothing: every ' +
+        'oldText must match exactly in its file, otherwise NOTHING is written and the ' +
+        'failing edits are listed so you can fix and retry. Use it for cross-file refactors ' +
+        'instead of a long sequence of edit_file calls.',
+      parameters: {
+        type: 'object',
+        properties: {
+          edits: {
+            type: 'array',
+            description: 'Ordered list of edits to apply. Files may appear multiple times; edits to the same file apply sequentially.',
+            items: {
+              type: 'object',
+              properties: {
+                path: { type: 'string', description: 'Absolute path to the file' },
+                oldText: { type: 'string', description: 'Exact text to find and replace' },
+                newText: { type: 'string', description: 'Replacement text' },
+                replaceAll: { type: 'boolean', description: 'Replace every occurrence of oldText instead of only the first (default false)' },
+              },
+              required: ['path', 'oldText', 'newText'],
+            },
+          },
+        },
+        required: ['edits'],
+      },
+      execute: async (args) => {
+        const { multiEditFile } = await import('@/services/tools/helpers')
+        return multiEditFile(Array.isArray(args.edits) ? args.edits : [])
       },
       requiresApproval: true,
     },
@@ -190,6 +252,8 @@ export function createToolRegistry(): Tool[] {
       description:
         'Maintain the session task list shown to the user. Call with the full updated list of todos. ' +
         'Each todo: { id (optional), content, status: "pending" | "in_progress" | "completed" | "failed" }. ' +
+        'At most ONE todo may be "in_progress" at a time — if multiple are sent, only the first ' +
+        'stays in_progress and the rest are demoted to pending. ' +
         'Use this at the start of a multi-step task and update it as steps progress.',
       parameters: {
         type: 'object',
@@ -242,12 +306,21 @@ export function createToolRegistry(): Tool[] {
       name: 'ask_user_question',
       description:
         'Ask the user a clarifying question with optional predefined choices. ' +
-        'Use this when the task is ambiguous and you need user input to proceed. The user\'s answer is returned.',
+        'Use this when the task is ambiguous and you need user input to proceed. The user\'s answer is returned. ' +
+        'Set multiSelect=true to let the user pick several options (the answer joins them with "；"). ' +
+        'Optionally pass preview, an array aligned with options, holding per-choice text ' +
+        '(e.g. ASCII mockups) to show under each choice.',
       parameters: {
         type: 'object',
         properties: {
           question: { type: 'string', description: 'The question to ask' },
           options: { type: 'array', items: { type: 'string' }, description: 'Optional predefined answer choices' },
+          multiSelect: { type: 'boolean', description: 'Allow selecting several options at once (default false)' },
+          preview: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional per-option preview text, aligned one-to-one with options (e.g. ASCII mockups to compare)',
+          },
         },
         required: ['question'],
       },
@@ -441,17 +514,20 @@ export function createToolRegistry(): Tool[] {
       name: 'read_url',
       description:
         'Fetch and read the text content of a URL (http/https). ' +
-        'Useful for reading documentation pages, API references or the web-search result pages.',
+        'Useful for reading documentation pages, API references or the web-search result pages. ' +
+        'Pass an optional prompt (a specific question) to have the page answered with an LLM ' +
+        'instead of returning the raw text; if extraction fails the raw text is returned instead.',
       parameters: {
         type: 'object',
         properties: {
           url: { type: 'string', description: 'The URL to fetch' },
+          prompt: { type: 'string', description: 'Optional specific question to answer from the page (LLM extraction)' },
         },
         required: ['url'],
       },
       execute: async (args) => {
         const { readUrl } = await import('@/services/tools/helpers')
-        return readUrl(args.url)
+        return readUrl(args.url, typeof args.prompt === 'string' && args.prompt.trim() ? args.prompt : undefined)
       },
     },
 

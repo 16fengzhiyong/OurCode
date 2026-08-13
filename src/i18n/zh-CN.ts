@@ -471,6 +471,8 @@ export const zhCN = {
   'chat.askNoInput': '（无输入）',
   'chat.askSkipped': '（用户跳过了此问题）',
   'chat.skip': '跳过',
+  'chat.askSubmitSelection': '提交选择',
+  'chat.askMultiSelectHint': '可多选',
   // 会话通知（右下角弹窗）
   'chat.sessionTaskDone': '会话「{title}」已完成',
   'chat.sessionTaskFailed': '会话「{title}」执行出错',
@@ -519,6 +521,7 @@ export const zhCN = {
   'agent.executePlan': '执行计划',
   'agent.awaitingApproval': '等待批准',
   'agent.approveAndRun': '✓ 同意并执行',
+  'agent.autoApproveAfterPlan': '批准后，执行阶段自动批准所有操作（不再逐个询问）',
   'agent.cancelPlan': '取消计划',
   'agent.modifyPlan': '修改计划',
 
@@ -607,6 +610,8 @@ export const zhCN = {
   'tool.askUserQuestion': '询问用户',
   'tool.webSearch': '网络搜索',
   'tool.readUrl': '读取网页',
+  'tool.readMultipleFiles': '批量读取',
+  'tool.multiEditFile': '批量编辑',
   'tool.params': '参数:',
   'tool.result': '结果:',
   'tool.todoCount': '{count} 项任务',

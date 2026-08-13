@@ -220,6 +220,11 @@ export interface UserQuestion {
   id: string
   question: string
   options?: string[]
+  /** When true the user may pick several options at once (single otherwise) */
+  multiSelect?: boolean
+  /** Optional per-option preview text (aligned with `options`) shown under
+   *  each choice — e.g. ASCII mockups the user can compare side by side. */
+  preview?: string[]
 }
 
 // Structured LLM error (rendered as a friendly error card instead of raw text)

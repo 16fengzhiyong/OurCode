@@ -10,17 +10,17 @@ interface ToolCallBlockProps {
 }
 
 const TOOL_ICONS: Record<string, string> = {
-  read_file: '📄', list_directory: '📁', get_directory_tree: '🌳',
+  read_file: '📄', read_multiple_files: '📚', list_directory: '📁', get_directory_tree: '🌳',
   search_files: '🔍', search_in_files: '🔎', write_file: '✏️',
-  edit_file: '🔧', create_directory: '📂', delete_file: '🗑️',
+  edit_file: '🔧', multi_edit_file: '✂️', create_directory: '📂', delete_file: '🗑️',
   run_command: '⚡', manage_todo: '✅', submit_plan: '📋',
   ask_user_question: '❓', web_search: '🌐', read_url: '🔗',
 }
 
 const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
-  read_file: 'tool.readFile', list_directory: 'tool.listDirectory', get_directory_tree: 'tool.getDirectoryTree',
+  read_file: 'tool.readFile', read_multiple_files: 'tool.readMultipleFiles', list_directory: 'tool.listDirectory', get_directory_tree: 'tool.getDirectoryTree',
   search_files: 'tool.searchFiles', search_in_files: 'tool.searchInFiles', write_file: 'tool.writeFile',
-  edit_file: 'tool.editFile', create_directory: 'tool.createDirectory', delete_file: 'tool.deleteFile',
+  edit_file: 'tool.editFile', multi_edit_file: 'tool.multiEditFile', create_directory: 'tool.createDirectory', delete_file: 'tool.deleteFile',
   run_command: 'tool.runCommand', manage_todo: 'tool.manageTodo', submit_plan: 'tool.submitPlan',
   ask_user_question: 'tool.askUserQuestion', web_search: 'tool.webSearch', read_url: 'tool.readUrl',
 }
@@ -36,6 +36,14 @@ function extractKey(tc: { name: string; arguments: Record<string, any> }): strin
     case 'create_directory':
     case 'delete_file':
       return tc.arguments.path?.split(/[/\\]/).pop() || tc.arguments.path || ''
+    case 'read_multiple_files': {
+      const paths = tc.arguments.paths?.length || 0
+      return `${paths} files`
+    }
+    case 'multi_edit_file': {
+      const edits = tc.arguments.edits?.length || 0
+      return `${edits} edits`
+    }
     case 'search_files': return tc.arguments.pattern || ''
     case 'search_in_files': return tc.arguments.query || ''
     case 'run_command': return tc.arguments.command?.slice(0, 50) || ''

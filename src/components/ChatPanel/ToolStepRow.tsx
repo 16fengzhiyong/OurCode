@@ -20,9 +20,9 @@ export interface ToolStepRowProps {
  * 每个工具类型一个符号名；设计稿未覆盖的工具按同类语义映射。
  */
 const TOOL_ICONS: Record<string, string> = {
-  read_file: 'description', list_directory: 'folder', get_directory_tree: 'account_tree',
+  read_file: 'description', read_multiple_files: 'collections_bookmark', list_directory: 'folder', get_directory_tree: 'account_tree',
   search_files: 'search', search_in_files: 'search', write_file: 'save',
-  edit_file: 'edit', create_directory: 'create_new_folder', delete_file: 'delete',
+  edit_file: 'edit', multi_edit_file: 'content_cut', create_directory: 'create_new_folder', delete_file: 'delete',
   run_command: 'terminal', manage_todo: 'task_alt', submit_plan: 'assignment',
   ask_user_question: 'help', web_search: 'language', read_url: 'link',
   run_subagent: 'smart_toy', send_message: 'forum',
@@ -31,9 +31,9 @@ const TOOL_ICONS: Record<string, string> = {
 }
 
 const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
-  read_file: 'tool.readFile', list_directory: 'tool.listDirectory', get_directory_tree: 'tool.getDirectoryTree',
+  read_file: 'tool.readFile', read_multiple_files: 'tool.readMultipleFiles', list_directory: 'tool.listDirectory', get_directory_tree: 'tool.getDirectoryTree',
   search_files: 'tool.searchFiles', search_in_files: 'tool.searchInFiles', write_file: 'tool.writeFile',
-  edit_file: 'tool.editFile', create_directory: 'tool.createDirectory', delete_file: 'tool.deleteFile',
+  edit_file: 'tool.editFile', multi_edit_file: 'tool.multiEditFile', create_directory: 'tool.createDirectory', delete_file: 'tool.deleteFile',
   run_command: 'tool.runCommand', manage_todo: 'tool.manageTodo', submit_plan: 'tool.submitPlan',
   ask_user_question: 'tool.askUserQuestion', web_search: 'tool.webSearch', read_url: 'tool.readUrl',
 }
@@ -49,6 +49,14 @@ function extractKey(tc: ToolStepRowProps['toolCall']): string {
     case 'create_directory':
     case 'delete_file':
       return tc.arguments.path?.split(/[/\\]/).pop() || tc.arguments.path || ''
+    case 'read_multiple_files': {
+      const paths = tc.arguments.paths?.length || 0
+      return `${paths} files`
+    }
+    case 'multi_edit_file': {
+      const edits = tc.arguments.edits?.length || 0
+      return `${edits} edits`
+    }
     case 'search_files': return tc.arguments.pattern || ''
     case 'search_in_files': return tc.arguments.query || ''
     case 'run_command': return tc.arguments.command?.slice(0, 50) || ''

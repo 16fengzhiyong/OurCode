@@ -28,7 +28,7 @@ export function configureToolOutput(limits: () => ToolOutputLimits): void {
 }
 
 /** File-write tools gated by the read-before-write guard below. */
-const READ_GUARD_TOOLS = new Set(['write_file', 'edit_file', 'delete_file'])
+const READ_GUARD_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'multi_edit_file'])
 
 /**
  * Native git tools built into the registry. When present they shadow the same
@@ -257,16 +257,23 @@ export class ToolExecutor {
     // a file the session has never read — the model can't know what it's
     // changing. Only existing files are gated (a brand-new file can't be read);
     // paths read via read_file (or created by a successful write) are known.
+    // multi_edit_file checks every target path in its edits array.
     // Only enforced when a session context exists — without one there's no
     // read-tracking to consult, so the write proceeds.
     if (READ_GUARD_TOOLS.has(toolCall.name) && ctx.sessionId) {
-      const targetPath = String(toolCall.arguments?.path || '')
-      if (targetPath && !this.hasReadFile(ctx.sessionId, targetPath) && await this.fileExists(targetPath)) {
-        return {
-          toolCallId: toolCall.id,
-          name: toolCall.name,
-          result: this.capResult(`Error: File has not been read yet. Read it first before writing to it.（文件尚未读取，请先调用 read_file 读取后再写入）: ${targetPath}`),
-          isError: true,
+      const targets = toolCall.name === 'multi_edit_file'
+        ? (Array.isArray(toolCall.arguments?.edits) ? toolCall.arguments.edits : [])
+            .map((e: any) => String(e?.path || '').trim())
+            .filter(Boolean)
+        : [String(toolCall.arguments?.path || '')]
+      for (const targetPath of targets) {
+        if (targetPath && !this.hasReadFile(ctx.sessionId, targetPath) && await this.fileExists(targetPath)) {
+          return {
+            toolCallId: toolCall.id,
+            name: toolCall.name,
+            result: this.capResult(`Error: File has not been read yet. Read it first before writing to it.（文件尚未读取，请先调用 read_file 读取后再写入）: ${targetPath}`),
+            isError: true,
+          }
         }
       }
     }
@@ -280,8 +287,14 @@ export class ToolExecutor {
       })
       // A successful read makes the path known; a successful write to a NEW
       // file does too (the model just authored it, so it may edit it next).
+      // read_multiple_files marks every path it attempted — files it couldn't
+      // read are edge cases (existed-but-unreadable) and losing the guard there
+      // is an acceptable trade-off for keeping the batch failure-isolated.
       if (toolCall.name === 'read_file' || toolCall.name === 'write_file') {
         this.markRead(ctx.sessionId, String(toolCall.arguments?.path || ''))
+      } else if (toolCall.name === 'read_multiple_files') {
+        const paths = Array.isArray(toolCall.arguments?.paths) ? toolCall.arguments.paths : []
+        for (const p of paths) this.markRead(ctx.sessionId, String(p || ''))
       }
       return {
         toolCallId: toolCall.id,
@@ -305,7 +318,16 @@ export class ToolExecutor {
       case 'write_file':
         return `Write to: ${args.path}\nContent length: ${(args.content || '').length} chars`
       case 'edit_file':
-        return `Edit: ${args.path}\nReplace: "${(args.oldText || '').slice(0, 100)}${(args.oldText || '').length > 100 ? '...' : ''}"\nWith: "${(args.newText || '').slice(0, 100)}${(args.newText || '').length > 100 ? '...' : ''}"`
+        return `Edit: ${args.path}\nReplace: "${(args.oldText || '').slice(0, 100)}${(args.oldText || '').length > 100 ? '...' : ''}"\nWith: "${(args.newText || '').slice(0, 100)}${(args.newText || '').length > 100 ? '...' : ''}"${args.replaceAll ? '\n(替换所有匹配项)' : ''}`
+      case 'read_multiple_files':
+        return `Read ${Array.isArray(args.paths) ? args.paths.length : 0} files:\n${(Array.isArray(args.paths) ? args.paths : []).map((p: any, i: number) => `${i + 1}. ${p}`).join('\n')}`
+      case 'multi_edit_file': {
+        const edits = Array.isArray(args.edits) ? args.edits : []
+        return `批量编辑 ${edits.length} 处:\n${edits
+          .map((e: any, i: number) => `${i + 1}. ${String(e?.path || '')} — replace "${String(e?.oldText || '').slice(0, 60)}${String(e?.oldText || '').length > 60 ? '…' : ''}"${e?.replaceAll ? ' (全部)' : ''}`)
+          .join('\n')
+          .slice(0, 1200)}`
+      }
       case 'create_directory':
         return `Create directory: ${args.path}`
       case 'delete_file':

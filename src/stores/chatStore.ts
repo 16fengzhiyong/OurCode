@@ -425,9 +425,9 @@ const AGENT_MODE_INSTRUCTION = `
 
 /** Map a tool name to its trace category (used for icon rendering) */
 function getToolKind(name: string): AgentToolKind {
-  if (['read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files'].includes(name)) return 'search'
+  if (['read_file', 'read_multiple_files', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files'].includes(name)) return 'search'
   if (['web_search', 'read_url'].includes(name)) return 'fetch'
-  if (['write_file', 'edit_file', 'create_directory', 'delete_file'].includes(name)) return 'edit'
+  if (['write_file', 'edit_file', 'multi_edit_file', 'create_directory', 'delete_file'].includes(name)) return 'edit'
   if (['run_command', 'git_split_commit'].includes(name)) return 'execute'
   if (name === 'submit_plan') return 'switch_mode'
   if (name === 'ask_user_question') return 'ask'
@@ -439,6 +439,14 @@ function summarizeToolCall(tc: ToolCall): string {
   const a = tc.arguments || {}
   if (['read_file', 'write_file', 'delete_file', 'list_directory', 'get_directory_tree', 'create_directory', 'edit_file'].includes(tc.name)) {
     return String(a.path || a.filePath || a.directory || '')
+  }
+  if (tc.name === 'read_multiple_files') {
+    const paths = Array.isArray(a.paths) ? a.paths.map(String) : []
+    return paths.length > 1 ? `${paths.length} files` : String(paths[0] || '')
+  }
+  if (tc.name === 'multi_edit_file') {
+    const edits = Array.isArray(a.edits) ? a.edits : []
+    return `${edits.length} edits`
   }
   if (tc.name === 'run_command') return String(a.command || a.cmd || '')
   if (['search_files', 'web_search'].includes(tc.name)) return String(a.query || '')
@@ -456,9 +464,30 @@ function summarizeToolCall(tc: ToolCall): string {
   return tc.name
 }
 
+/** Normalize raw manage_todo input into TodoItem[] — validates the status
+ *  enum and enforces at most one in_progress (the first one wins; the rest are
+ *  demoted to pending — never completed, so no work is misreported as done). */
+export function normalizeTodos(raw: unknown): TodoItem[] {
+  let seenInProgress = false
+  return (Array.isArray(raw) ? raw : [])
+    .map((t: any, i: number) => {
+      let status = (['pending', 'in_progress', 'completed', 'failed'].includes(t?.status) ? t?.status : 'pending') as TodoItem['status']
+      if (status === 'in_progress') {
+        if (seenInProgress) status = 'pending'
+        else seenInProgress = true
+      }
+      return {
+        id: t?.id || uuidv4(),
+        content: String(t?.content || ''),
+        status,
+        order: i,
+      }
+    })
+}
+
 // Tools allowed in plan mode (read-only + agent-control)
 const PLAN_TOOLS = new Set([
-  'read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files',
+  'read_file', 'read_multiple_files', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files',
   'web_search', 'read_url', 'manage_todo', 'submit_plan', 'ask_user_question', 'list_agents',
   // 原生只读 git 工具 — 计划模式也应能查看仓库状态（Claude Code 风格：
   // 提交前先 git_status / git_diff 探查，再提交计划）
@@ -466,7 +495,7 @@ const PLAN_TOOLS = new Set([
 ])
 
 // Write tools get a checkpoint snapshot before they run
-const CHECKPOINT_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory'])
+const CHECKPOINT_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory', 'multi_edit_file'])
 
 // 计划模式防空转 — 计划模式只暴露只读工具；当用户请求明显需要写操作/命令
 // （提交/推送/安装/执行…）而 agent 连续多轮纯只读探索（读文件/搜索）且不提交
@@ -474,7 +503,7 @@ const CHECKPOINT_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'cre
 // （参见那次「提交一下项目」会话：20 轮 / 38 次只读调用 / 1.1M token 没提交成）。
 const PLAN_MODE_FLAIL_ROUNDS = 5
 const FLAIL_READ_TOOLS = new Set([
-  'read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files', 'web_search', 'read_url',
+  'read_file', 'read_multiple_files', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files', 'web_search', 'read_url',
   // 只读 git 探索也算「空转」——否则 agent 可无限 git_status/git_diff 而
   // 不触发防空转（光看状态不提交/不计划 = 没有产出）
   'git_status', 'git_diff', 'git_log', 'git_branch',
@@ -580,7 +609,7 @@ interface ChatState {
   /** Per-project "always allow this tool" allowlist (projectPath → tool names) */
   toolAllowlist: Record<string, string[]>
   /** Pending batch-approval dialog (agent mode: first round with write tools) */
-  batchApproval: { sessionId: string; runId: string; tools: ToolCall[] } | null
+  batchApproval: { sessionId: string; runId: string; tools: ToolCall[]; previews: string[] } | null
 
   // Agent run actions
   startAgentRun: (sessionId: string, task: string, opts?: { resumeRunId?: string }) => void
@@ -638,7 +667,7 @@ interface ChatState {
   /** Current parsed target-mode status (.ourcode/targemode/implementationStatus.md) */
   targetModeStatus: TargetModeStatus | null
   refreshTargetModeStatus: () => Promise<void>
-  approvePlan: (sessionId: string) => Promise<void>
+  approvePlan: (sessionId: string, opts?: { autoApprove?: boolean }) => Promise<void>
   dismissPlan: (sessionId: string) => void
   setTodos: (sessionId: string, todos: TodoItem[]) => void
   continueGeneration: (sessionId: string) => Promise<void>
@@ -1536,7 +1565,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ targetModeStatus: await readStatus(session.projectPath || getWorkspaceRoot()) })
   },
 
-  approvePlan: async (sessionId) => {
+  approvePlan: async (sessionId, opts?: { autoApprove?: boolean }) => {
     const session = get().sessions.find((s) => s.id === sessionId)
     // 'canceled' plans can be re-approved — the plan stays on record after a
     // cancel, so the user can review/adjust and approve it again later.
@@ -1552,6 +1581,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const planText = formatPlanText(session.planContent)
     const isAgent = session.agentMode === 'agent'
     const activeRun = get().activeRuns[sessionId]
+    // Plan-approved auto-approval (allowedPrompts-style): when the user opted
+    // in on the plan card, the execution phase runs without per-tool dialogs —
+    // the same per-run flag target mode uses. It is cleared when the run ends
+    // (see the finally in runAgentLoop), so it never leaks into later runs.
+    if (opts?.autoApprove && isAgent) {
+      set((s) => ({ batchApprovedBySession: { ...s.batchApprovedBySession, [sessionId]: true } }))
+    }
     await runAgentLoop(sessionId, {
       // Agent-mode sessions keep executing in agent mode; the read-only
       // planning phase is lifted via planApproved. Tool approval follows the
@@ -2502,7 +2538,7 @@ async function runAgentLoop(
 
   // Whether a tool needs manual approval in this run. Order of exemptions:
   // project edit mode → per-run batch approval → persisted allowlist.
-  const FILE_EDIT_TOOLS = new Set(['write_file', 'edit_file'])
+  const FILE_EDIT_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit_file'])
   const needsApproval = (name: string): boolean => {
     let needs = toolExecutor.requiresApproval(name)
     if (agentMode === 'agent') {
@@ -2865,7 +2901,7 @@ async function runAgentLoop(
           const decision = await new Promise<'confirm' | 'all' | 'reject'>((resolve) => {
             if (_batchResolves.has(sessionId)) { _batchResolves.get(sessionId)!('reject'); _batchResolves.delete(sessionId) }
             _batchResolves.set(sessionId, resolve)
-            useChatStore.setState({ batchApproval: { sessionId, runId: runId || '', tools: batchTools } })
+            useChatStore.setState({ batchApproval: { sessionId, runId: runId || '', tools: batchTools, previews: batchTools.map((tc) => toolExecutor.getPreview(tc)) } })
             // Auto-reject if the user never responds (60s), so the agent loop
             // doesn't hang forever on a dangling batch dialog
             setTimeout(() => {
@@ -2950,13 +2986,7 @@ async function runAgentLoop(
 
         // ── manage_todo: update the visible todo list ──
         if (tc.name === 'manage_todo') {
-          const todos: TodoItem[] = (Array.isArray(tc.arguments.todos) ? tc.arguments.todos : [])
-            .map((t: any, i: number) => ({
-              id: t?.id || uuidv4(),
-              content: String(t?.content || ''),
-              status: (['pending', 'in_progress', 'completed', 'failed'].includes(t?.status) ? t?.status : 'pending') as TodoItem['status'],
-              order: i,
-            }))
+          const todos = normalizeTodos(tc.arguments.todos)
           chatStore.setTodos(sessionId, todos)
           const result = `任务列表已更新 (${todos.length} 项)`
           chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
@@ -3005,6 +3035,8 @@ async function runAgentLoop(
                 id: tc.id,
                 question: String(tc.arguments.question || '请确认'),
                 options: Array.isArray(tc.arguments.options) ? tc.arguments.options.map(String) : undefined,
+                multiSelect: tc.arguments.multiSelect === true,
+                preview: Array.isArray(tc.arguments.preview) ? tc.arguments.preview.map(String) : undefined,
               },
               questionGate: {
                 ...useChatStore.getState().questionGate,

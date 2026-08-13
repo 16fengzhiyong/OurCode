@@ -29,8 +29,8 @@ describe('ToolRegistry', () => {
 
   it('should mark write tools as requiring approval', () => {
     const tools = createToolRegistry()
-    const writeTools = ['write_file', 'edit_file', 'create_directory', 'delete_file', 'run_command']
-    const readTools = ['read_file', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files']
+    const writeTools = ['write_file', 'edit_file', 'multi_edit_file', 'create_directory', 'delete_file', 'run_command']
+    const readTools = ['read_file', 'read_multiple_files', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files']
 
     for (const name of writeTools) {
       const tool = tools.find((t) => t.name === name)
@@ -43,6 +43,18 @@ describe('ToolRegistry', () => {
       expect(tool).toBeTruthy()
       expect(tool!.requiresApproval).toBeFalsy()
     }
+  })
+
+  it('declares replaceAll on edit_file and per-edit replaceAll on multi_edit_file', () => {
+    const tools = createToolRegistry()
+    const edit = tools.find((t) => t.name === 'edit_file')!
+    expect(edit.parameters.properties).toHaveProperty('replaceAll')
+
+    const multi = tools.find((t) => t.name === 'multi_edit_file')!
+    expect(multi.parameters.required).toEqual(['edits'])
+    const editItems = multi.parameters.properties.edits.items.properties
+    expect(editItems).toHaveProperty('replaceAll')
+    expect(editItems).toHaveProperty('path')
   })
 
   it('should convert to OpenAI tool definitions format', () => {
@@ -205,5 +217,28 @@ describe('ToolExecutor', () => {
     })
 
     expect(preview).toContain('custom_tool')
+  })
+
+  it('should generate previews for the new batch tools', () => {
+    const executor = new ToolExecutor()
+    const multi = executor.getPreview({
+      id: 'c',
+      name: 'multi_edit_file',
+      arguments: {
+        edits: [
+          { path: '/a.ts', oldText: 'x', newText: 'y' },
+          { path: '/b.ts', oldText: 'z', newText: 'w' },
+        ],
+      },
+    })
+    expect(multi).toContain('批量编辑 2 处')
+    expect(multi).toContain('/a.ts')
+
+    const readMulti = executor.getPreview({
+      id: 'c',
+      name: 'read_multiple_files',
+      arguments: { paths: ['/a.ts', '/b.ts'] },
+    })
+    expect(readMulti).toContain('Read 2 files')
   })
 })

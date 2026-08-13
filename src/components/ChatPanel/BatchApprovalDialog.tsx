@@ -18,7 +18,7 @@ export default function BatchApprovalDialog() {
   const t = useI18n()
 
   if (!batchApproval || batchApproval.sessionId !== activeSessionId) return null
-  const { tools } = batchApproval
+  const { tools, previews } = batchApproval
 
   const toggleAlwaysAllow = (tc: ToolCall) => {
     setAlwaysAllow((prev) => {
@@ -69,14 +69,14 @@ export default function BatchApprovalDialog() {
             {t('agent.batchToolCount', { count: tools.length })}
           </div>
           <div className="space-y-1 max-h-52 overflow-y-auto">
-            {tools.map((tc) => (
+            {tools.map((tc, index) => (
               <div
                 key={tc.id}
                 className="flex items-center gap-2 bg-nova-bg/50 rounded-lg px-3 py-2 border border-nova-border"
               >
                 <span className="font-mono text-nova-accent text-xs shrink-0">{tc.name}</span>
-                <span className="text-nova-text-secondary text-xs truncate min-w-0">
-                  {JSON.stringify(tc.arguments || {})}
+                <span className="text-nova-text-secondary text-xs min-w-0 whitespace-pre-line break-words">
+                  {previews?.[index] || JSON.stringify(tc.arguments || {})}
                 </span>
                 <label className="ml-auto flex items-center gap-1 text-[10px] text-nova-text-muted cursor-pointer select-none shrink-0">
                   <input

@@ -21,7 +21,7 @@ const mockApi = {
 }
 vi.stubGlobal('window', { electronAPI: mockApi })
 
-import { useChatStore, stopGitBranchPolling, trimHistoryForContext, compactToolResults, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, estimateSessionHistoryTokens, estimateContextTokens, DEFAULT_SESSION_TITLE } from '@/stores/chatStore'
+import { useChatStore, stopGitBranchPolling, trimHistoryForContext, compactToolResults, sanitizeToolPairing, generateSessionTitle, generateAiSessionTitle, estimateSessionHistoryTokens, estimateContextTokens, DEFAULT_SESSION_TITLE, normalizeTodos } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { createToolRegistry } from '@/services/tools/ToolRegistry'
@@ -941,5 +941,41 @@ describe('chatStore questionGate (off-session ask confirm)', () => {
     useChatStore.getState().setQuestionGate('s1', 'confirm')
     useChatStore.getState().stopGeneration('s1')
     expect(useChatStore.getState().questionGate.s1).toBeUndefined()
+  })
+})
+
+describe('chatStore normalizeTodos', () => {
+  it('keeps at most one in_progress — later ones demote to pending', () => {
+    const todos = normalizeTodos([
+      { content: 'a', status: 'in_progress' },
+      { content: 'b', status: 'in_progress' },
+      { content: 'c', status: 'pending' },
+    ])
+    const statuses = todos.map((t) => t.status)
+    expect(statuses).toEqual(['in_progress', 'pending', 'pending'])
+  })
+
+  it('does not misreport demoted todos as completed', () => {
+    const todos = normalizeTodos([
+      { content: 'a', status: 'in_progress' },
+      { content: 'b', status: 'in_progress' },
+    ])
+    expect(todos[1].status).toBe('pending')
+    expect(todos[1].status).not.toBe('completed')
+  })
+
+  it('validates status values and assigns dense order', () => {
+    const todos = normalizeTodos([
+      { content: 'a', status: 'bogus' },
+      { content: 'b', status: 'completed' },
+    ])
+    expect(todos[0].status).toBe('pending')
+    expect(todos.map((t) => t.order)).toEqual([0, 1])
+    expect(todos.every((t) => t.id)).toBe(true)
+  })
+
+  it('returns an empty array for non-array input', () => {
+    expect(normalizeTodos(undefined)).toEqual([])
+    expect(normalizeTodos('x')).toEqual([])
   })
 })

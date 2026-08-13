@@ -474,6 +474,8 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.askNoInput': '(no input)',
   'chat.askSkipped': '(user skipped this question)',
   'chat.skip': 'Skip',
+  'chat.askSubmitSelection': 'Submit selection',
+  'chat.askMultiSelectHint': 'Select multiple',
   // Session notifications (bottom-right toasts)
   'chat.sessionTaskDone': 'Session "{title}" finished',
   'chat.sessionTaskFailed': 'Session "{title}" hit an error',
@@ -522,6 +524,7 @@ export const enUS: Record<TranslationKey, string> = {
   'agent.executePlan': 'Execution Plan',
   'agent.awaitingApproval': 'Awaiting approval',
   'agent.approveAndRun': '✓ Approve & Run',
+  'agent.autoApproveAfterPlan': 'Auto-approve all operations during execution after approving this plan',
   'agent.cancelPlan': 'Cancel Plan',
   'agent.modifyPlan': 'Modify Plan',
 
@@ -610,6 +613,8 @@ export const enUS: Record<TranslationKey, string> = {
   'tool.askUserQuestion': 'Ask User',
   'tool.webSearch': 'Web Search',
   'tool.readUrl': 'Read URL',
+  'tool.readMultipleFiles': 'Read Multiple',
+  'tool.multiEditFile': 'Multi-Edit',
   'tool.params': 'Arguments:',
   'tool.result': 'Result:',
   'tool.todoCount': '{count} todos',

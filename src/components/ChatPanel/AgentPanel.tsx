@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import type { TodoItem } from '@/types'
 import { useI18n } from '@/i18n/useI18n'
@@ -106,6 +107,18 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
   const dismissPlan = useChatStore((s) => s.dismissPlan)
   const isRunning = useChatStore((s) => s.runningSessionIds.includes(sessionId))
   const t = useI18n()
+  // Plan-approved auto-approval (allowedPrompts-style): when checked, the
+  // execution phase of this run proceeds without per-tool dialogs. Local
+  // state only — it is passed once to approvePlan and cleared when the run ends.
+  const [autoApprove, setAutoApprove] = useState(false)
+
+  // A fresh plan always starts with auto-approve unchecked — don't leak the
+  // choice made for a previously approved plan into the next plan's card
+  // (otherwise the user could re-approve a new plan with auto-approval on
+  // without noticing the checkbox was still ticked).
+  useEffect(() => {
+    if (session?.planStatus === 'pending_approval') setAutoApprove(false)
+  }, [session?.planStatus])
 
   // A canceled plan stays on record (planContent kept, status 'canceled') so
   // the conversation still shows what was submitted and later canceled — the
@@ -193,9 +206,18 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
         </div>
         <div className="px-4 pb-3.5">
           {renderSteps()}
-          <div className="flex items-center gap-2 mt-3.5">
+          <label className="flex items-center gap-2 mt-3 text-[11px] text-nova-text-muted cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={autoApprove}
+              onChange={(e) => setAutoApprove(e.target.checked)}
+              className="accent-nova-accent w-3.5 h-3.5"
+            />
+            {t('agent.autoApproveAfterPlan')}
+          </label>
+          <div className="flex items-center gap-2 mt-2">
             <button
-              onClick={() => approvePlan(sessionId)}
+              onClick={() => approvePlan(sessionId, { autoApprove })}
               disabled={isRunning}
               className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold text-white rounded-full shadow-md disabled:opacity-40 hover:scale-[1.02] hover:opacity-90 transition-all duration-300"
               style={{ background: 'var(--accent, #0058bc)' }}

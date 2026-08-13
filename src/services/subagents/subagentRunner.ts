@@ -28,7 +28,7 @@ import { getFileContent } from '@/editor/modelRegistry'
 import type { LLMToolCall, SubAgentProgress, SubAgentProgressStep, UsageEvent } from '@/types'
 
 const MAX_SUBAGENT_ITERATIONS = 10
-const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory'])
+const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory', 'multi_edit_file'])
 
 /** Compact a tool call's arguments for the transient progress record — write
  *  payloads (file contents) can be huge, and the panel only needs the shape
@@ -283,11 +283,18 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
         toolCallCount++
         pushProgress({ toolCallCount })
         if (result.isError) lastError = result.result
-        if (tc.arguments?.path) changedPaths.add(tc.arguments.path)
+        // multi_edit_file touches several files — collect them all for the
+        // change report and the open-editor reload notifications below.
+        const touchedPaths = tc.name === 'multi_edit_file'
+          ? (Array.isArray(tc.arguments.edits) ? tc.arguments.edits : []).map((e: any) => String(e?.path || '')).filter(Boolean)
+          : tc.arguments?.path ? [tc.arguments.path] : []
+        for (const p of touchedPaths) changedPaths.add(p)
 
         // Write tools changed files on disk — notify open editors to reload
-        if (WRITE_TOOLS.has(tc.name) && tc.arguments?.path) {
-          window.dispatchEvent(new CustomEvent('ourcode:file-changed', { detail: tc.arguments.path }))
+        if (WRITE_TOOLS.has(tc.name)) {
+          for (const p of touchedPaths) {
+            window.dispatchEvent(new CustomEvent('ourcode:file-changed', { detail: p }))
+          }
         }
 
         // Mark the step finished (result text attached for the expandable view)
