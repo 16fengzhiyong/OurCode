@@ -155,6 +155,15 @@ export default function AgentProcessBlock({ messages, sessionId, defaultExpanded
               </div>
             </Fragment>
           ))}
+          {/* Bottom collapse action — long process blocks can fold back up
+              without hunting for the tiny header chevron */}
+          <button
+            onClick={() => setIsExpanded(false)}
+            className="self-center flex items-center gap-1 px-2.5 py-1 text-[11px] text-nova-text-muted hover:text-nova-text-secondary hover:bg-nova-hover rounded-md transition-colors select-none shrink-0"
+          >
+            <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden>expand_less</span>
+            {t('chat.collapseProcess')}
+          </button>
         </div>
       )}
     </div>

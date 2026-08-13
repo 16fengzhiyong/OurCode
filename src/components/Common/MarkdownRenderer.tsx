@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 import DOMPurify from 'dompurify'
@@ -77,4 +77,33 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
       dangerouslySetInnerHTML={{ __html: html }}
     />
   )
+}
+
+/** 流式 markdown 的尾随节流渲染。Agent 循环每 50ms 冲刷一次 store（见
+ *  chatStore 的 STREAM_FLUSH_MS），而 marked + highlight.js + DOMPurify 对
+ *  整段渐增回答的同步解析依然是每次冲刷最重的开销（O(n²) 总量）。这里把
+ *  解析频率进一步限制到 STREAM_MARKDOWN_THROTTLE_MS —— 文本刷新约 8fps，
+ *  对聊天肉眼无感，但大幅降低主线程阻塞；尾随定时器保证结束后必然收敛到
+ *  最终 content（不会丢尾巴）。 */
+const STREAM_MARKDOWN_THROTTLE_MS = 120
+
+export function StreamingMarkdown({ content }: { content: string }) {
+  const [display, setDisplay] = useState(content)
+  const lastRenderAtRef = useRef(0)
+
+  useEffect(() => {
+    if (content === display) return
+    const wait = Math.max(0, STREAM_MARKDOWN_THROTTLE_MS - (Date.now() - lastRenderAtRef.current))
+    const id = setTimeout(() => {
+      lastRenderAtRef.current = Date.now()
+      setDisplay(content)
+    }, wait)
+    return () => clearTimeout(id)
+    // Only react to new content — `display` is intentionally read from the
+    // closure (the value at the time content last changed), so the timer always
+    // targets the newest chunk and converges when the stream ends.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content])
+
+  return <MarkdownRenderer content={display} />
 }

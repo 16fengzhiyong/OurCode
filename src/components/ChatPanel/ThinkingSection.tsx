@@ -64,8 +64,19 @@ export default function ThinkingSection({ thinking, defaultExpanded = false, str
       </button>
 
       {isExpanded && (
-        <div className="px-1 pb-1.5 text-[12.5px] leading-[1.65] text-nova-text-muted whitespace-pre-wrap border-t border-nova-border/50 pt-2">
-          {thinking}
+        <div className="border-t border-nova-border/50 pt-2 px-1 pb-1.5 flex flex-col gap-1.5">
+          <div className="text-[12.5px] leading-[1.65] text-nova-text-muted whitespace-pre-wrap">
+            {thinking}
+          </div>
+          {/* Bottom collapse action — long thinking blocks can fold back up
+              without hunting for the tiny header chevron */}
+          <button
+            onClick={() => setIsExpanded(false)}
+            className="self-center flex items-center gap-1 px-2.5 py-1 text-[11px] text-nova-text-muted hover:text-nova-text-secondary hover:bg-nova-hover rounded-md transition-colors select-none shrink-0"
+          >
+            <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden>expand_less</span>
+            {t('chat.collapseProcess')}
+          </button>
         </div>
       )}
     </div>

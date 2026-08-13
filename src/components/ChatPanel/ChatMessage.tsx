@@ -266,6 +266,9 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   const [previewMemory, setPreviewMemory] = useState<{ content: string; projectPath: string } | null>(null)
   const [usageOpen, setUsageOpen] = useState(false)
   const usageRef = useRef<HTMLSpanElement>(null)
+  // Live elapsed clock — ticks once a second while this run is active so the
+  // header can show how long the session has been running ("运行中 12s").
+  const [now, setNow] = useState(Date.now())
   // Close the token-usage popover on outside click or Escape (badge click toggles it).
   useEffect(() => {
     if (!usageOpen) return
@@ -330,6 +333,17 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   // Token total for the hover-toolbar badge (kept out of the message header —
   // mainstream keeps the transcript clean and reveals power details on hover).
   const runTokens = (run?.tokensIn || 0) + (run?.tokensOut || 0)
+
+  // While the run is live, re-sync immediately (new run) and tick each second;
+  // the elapsed counter next to「运行中」stays live instead of freezing at 0s.
+  const runStartedAt = run?.startedAt
+  useEffect(() => {
+    if (!isLive || runStartedAt === undefined) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [isLive, runStartedAt])
+  const liveElapsed = isLive && run ? Math.max(0, Math.floor((now - run.startedAt) / 1000)) : 0
 
   const handleSaveEdit = () => {
     editMessage(sessionId, message.id, editContent)
@@ -500,9 +514,10 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
 
       {/* Content column */}
       <div className={`min-w-0 ${isUser ? 'max-w-[80%]' : 'flex-1'}`}>
-        {/* Assistant meta header — minimal (mainstream): just the name plus a
-            quiet live/waiting/error state. No elapsed seconds, no token badge
-            (tokens live in the hover toolbar); done runs leave it clean. */}
+        {/* Assistant meta header — minimal (mainstream): name + pulsing dot +
+            live status with a live elapsed-seconds counter (ticking each
+            second while the run is active); tokens live in the hover toolbar;
+            done runs leave it clean. */}
         {!isUser && !hideMeta && (
           <div className="flex items-center gap-1.5 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
             <span className="font-bold text-nova-text-primary">OurCode AI</span>
@@ -510,6 +525,9 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
               <span className="flex items-center gap-1 text-nova-accent">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
                 {t('agent.runStatus.running')}
+                <span className="font-mono text-[10px] text-nova-text-muted" title={t('agent.elapsed', { seconds: liveElapsed })}>
+                  {formatDuration(liveElapsed)}
+                </span>
               </span>
             )}
             {isWaitingPlan && (

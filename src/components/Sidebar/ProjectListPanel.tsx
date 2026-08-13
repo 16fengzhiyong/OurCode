@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useUIStore } from '@/stores/uiStore'
-import { useChatStore } from '@/stores/chatStore'
+import { useChatStore, sessionLastUserActivity } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import FileTree from './FileTree'
 import { useI18n } from '@/i18n/useI18n'
@@ -161,7 +161,7 @@ export default function ProjectListPanel() {
         entry.sessionCount++
         // Projects opened before open-times were recorded have lastOpened 0 —
         // use the latest session activity as the displayed time.
-        if (entry.lastOpened === 0 && s.updatedAt > entry.lastOpened) entry.lastOpened = s.updatedAt
+        if (entry.lastOpened === 0 && sessionLastUserActivity(s) > entry.lastOpened) entry.lastOpened = sessionLastUserActivity(s)
         continue
       }
       let entry = byPath.get(s.projectPath)
@@ -178,7 +178,7 @@ export default function ProjectListPanel() {
       }
       entry.sessionCount++
       if (s.createdAt < entry.firstAdded) entry.firstAdded = s.createdAt
-      if (s.updatedAt > entry.lastOpened) entry.lastOpened = s.updatedAt
+      if (sessionLastUserActivity(s) > entry.lastOpened) entry.lastOpened = sessionLastUserActivity(s)
     }
     sessionOnly.sort((a, b) => b.firstAdded - a.firstAdded)
 
@@ -243,7 +243,9 @@ export default function ProjectListPanel() {
   const getProjectSessions = (projectPath: string) => {
     return sessions
       .filter((s) => s.projectPath === projectPath)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      // 按最近用户发消息时间排序（回退 updatedAt 兼容旧数据）——agent 运行
+      // 中的工具/进度刷新只改 updatedAt，不会让会话位置一直跳动。
+      .sort((a, b) => sessionLastUserActivity(b) - sessionLastUserActivity(a))
   }
 
   // Sessions created without a project binding (no folder was open at creation
@@ -255,7 +257,7 @@ export default function ProjectListPanel() {
       const q = searchQuery.toLowerCase()
       list = list.filter((s) => s.title.toLowerCase().includes(q))
     }
-    return list.sort((a, b) => b.updatedAt - a.updatedAt)
+    return list.sort((a, b) => sessionLastUserActivity(b) - sessionLastUserActivity(a))
   }, [sessions, searchQuery])
 
   const handleOpenFolder = async () => {
@@ -534,7 +536,7 @@ export default function ProjectListPanel() {
                           {session.title}
                         </span>
                         <span className={`text-[10px] font-mono shrink-0 ${isActive ? 'text-primary/70' : 'text-slate-400 dark:text-nova-text-muted'}`}>
-                          {formatTime(session.updatedAt)}
+                          {formatTime(sessionLastUserActivity(session))}
                         </span>
                       </div>
                     )
@@ -596,7 +598,7 @@ export default function ProjectListPanel() {
                           {session.title}
                         </div>
                         <div className="text-[10px] font-mono text-slate-400 dark:text-nova-text-muted mt-0.5">
-                          {formatTime(session.updatedAt)}
+                          {formatTime(sessionLastUserActivity(session))}
                         </div>
                       </div>
                       {session.pinnedAt && (

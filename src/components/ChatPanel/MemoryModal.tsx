@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMemoryStore } from '@/stores/memoryStore'
+import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
 import MemoryAddModal from './MemoryAddModal'
 
@@ -8,8 +9,10 @@ import MemoryAddModal from './MemoryAddModal'
  * agent's system prompt when they match the current message. Project-scoped
  * memories are only used when the current project matches.
  *
- * 顶栏：当前项目（可下拉切换查看其他项目的记忆）+ 条数 + 「添加记忆」按钮。
+ * 顶栏：项目（可下拉切换到任意已添加项目查看其记忆）+ 条数 + 「添加记忆」按钮。
  * 添加记忆弹出独立对话框，选择保存到哪个项目或全局（原底部输入框已移除）。
+ * 注意：这里的项目切换只影响「查看/管理」，不影响记忆上报（注入系统提示词时
+ * 仍按当前项目匹配）。
  */
 export default function MemoryModal({ onClose, currentProjectPath }: { onClose: () => void; currentProjectPath: string | null }) {
   const { memories, deleteMemory, getMemoriesByProject, getGlobalMemories, getProjectPaths } = useMemoryStore()
@@ -21,6 +24,8 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
   // 当前查看的项目 — 默认跟随当前项目，可在顶栏下拉切换到别的项目查看其记忆
   const [viewProjectPath, setViewProjectPath] = useState<string | null>(currentProjectPath)
   const t = useI18n()
+  // 已添加过的所有项目（左侧项目列表），用于顶栏/添加记忆时选择任意项目查看或保存
+  const recentProjects = useUIStore((s) => s.recentProjects)
 
   // 当前项目切换（例如换了个工作区）时，查看目标跟随当前项目
   useEffect(() => {
@@ -30,12 +35,15 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
   const projectName = (p: string) => p.split(/[/\\]/).pop() || p
   const hasProject = !!currentProjectPath
 
-  // 所有可选项目 = 当前项目 + 记忆库里出现过的项目（去重）
+  // 所有可选项目 = 当前项目 + 已添加过的项目（recentProjects）+ 记忆库里出现
+  // 过的项目（去重）。只影响查看/管理，记忆上报仍按当前项目匹配，逻辑不变。
   const allProjectPaths = useMemo(() => {
-    const paths = new Set<string>(getProjectPaths())
+    const paths = new Set<string>()
     if (currentProjectPath) paths.add(currentProjectPath)
+    recentProjects.forEach((p) => { if (p) paths.add(p) })
+    getProjectPaths().forEach((p) => paths.add(p))
     return Array.from(paths)
-  }, [getProjectPaths, currentProjectPath])
+  }, [getProjectPaths, currentProjectPath, recentProjects])
 
   // 下拉当前选中的项目（null = 没有任何项目可看）。未打开项目但记忆库里
   // 有其他项目时，默认查看第一个，保证「下拉选择别的项目查看」始终可用。
@@ -109,7 +117,7 @@ export default function MemoryModal({ onClose, currentProjectPath }: { onClose: 
           ) : (
             <span className="w-1.5 h-1.5 rounded-full bg-gray-500 shrink-0" />
           )}
-          <span className="text-nova-text-secondary shrink-0">当前项目:</span>
+          <span className="text-nova-text-secondary shrink-0">项目:</span>
           <select
             value={activeViewPath ?? ''}
             onChange={(e) => setViewProjectPath(e.target.value || null)}

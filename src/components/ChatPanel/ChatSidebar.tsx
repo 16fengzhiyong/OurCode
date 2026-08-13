@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useChatStore } from '@/stores/chatStore'
+import { useChatStore, sessionLastUserActivity } from '@/stores/chatStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
 import { getLocale } from '@/i18n'
@@ -61,12 +61,14 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
       })
     }
 
-    // Sort: pinned first (by pinnedAt desc), then by updatedAt desc
+    // Sort: pinned first (by pinnedAt desc), then by last user message desc
+    // (falling back to updatedAt for legacy sessions) — agent activity must
+    // not reorder the list mid-run.
     return [...list].sort((a, b) => {
       if (a.pinnedAt && !b.pinnedAt) return -1
       if (!a.pinnedAt && b.pinnedAt) return 1
       if (a.pinnedAt && b.pinnedAt) return b.pinnedAt - a.pinnedAt
-      return b.updatedAt - a.updatedAt
+      return sessionLastUserActivity(b) - sessionLastUserActivity(a)
     })
   }, [sessions, searchQuery, showArchived])
 
@@ -306,7 +308,7 @@ export default function ChatSidebar({ onClose }: ChatSidebarProps) {
                       {session.title}
                     </div>
                     <div className="text-[10px] text-nova-text-muted mt-0.5">
-                      {formatDate(session.updatedAt)} · {t('chat.messageCount', { count: messageCount })}
+                      {formatDate(sessionLastUserActivity(session))} · {t('chat.messageCount', { count: messageCount })}
                       {session.archivedAt && t('chat.archivedSuffix')}
                     </div>
                     {matchSnippet && (

@@ -3,7 +3,7 @@ import { useChatStore, estimateContextTokens } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
 import ChatMessage from './ChatMessage'
 import ThinkingSection from './ThinkingSection'
-import MarkdownRenderer from '../Common/MarkdownRenderer'
+import { StreamingMarkdown } from '../Common/MarkdownRenderer'
 import BranchTreeModal from './BranchTreeModal'
 import { TodoPanel } from './AgentPanel'
 import WaveLogo from './WaveLogo'
@@ -38,6 +38,9 @@ export default function ChatMessages() {
   // is viewing reacts to its own run; parallel sessions stream independently.
   const isThisSessionLoading = useChatStore((s) => !!activeSessionId && s.runningSessionIds.includes(activeSessionId))
   const stream = useChatStore((s) => (activeSessionId ? s.streamingBySession[activeSessionId] : undefined))
+  // The live agent run of this session — used to show how many seconds the
+  // session has been running next to the "思考中…" pulse while it streams.
+  const activeRun = useChatStore((s) => (activeSessionId ? s.activeRuns[activeSessionId] : undefined))
   // Idle clock: last time this session's agent produced any activity (chunk /
   // tool step / dialog). When it stays silent for > 1 min a warning badge
   // counts up the silence so the user knows the model is still "thinking".
@@ -45,19 +48,27 @@ export default function ChatMessages() {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (!isThisSessionLoading) return
-    // Re-sync immediately on any activity (new chunk resets the counter), then
-    // tick every second while the session runs.
+    // Re-sync immediately on entering a run, then tick every second while the
+    // session runs. Deliberately NOT keyed on `lastActivityAt` — the stream's
+    // per-chunk activity updates (now throttled, but still ~20/s) would tear
+    // down and recreate this interval on every flush; the idleSeconds badge
+    // below just reads the latest activity timestamp against the ticking clock.
     setNow(Date.now())
     const timer = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(timer)
-  }, [isThisSessionLoading, lastActivityAt])
-  const idleSeconds = lastActivityAt ? Math.floor((now - lastActivityAt) / 1000) : 0
+  }, [isThisSessionLoading])
+  const idleSeconds = lastActivityAt ? Math.max(0, Math.floor((now - lastActivityAt) / 1000)) : 0
+  // Elapsed seconds of the live run (0 until the run record exists) — the same
+  // `now` ticker above drives it, so the counter updates every second.
+  const liveRun = activeRun ? activeSession?.agentRuns?.find((r) => r.id === activeRun.runId) : undefined
+  const runElapsed = liveRun ? Math.max(0, Math.floor((now - liveRun.startedAt) / 1000)) : 0
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [showUndoToast, setShowUndoToast] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isSelectMode, setIsSelectMode] = useState(false)
   const [showBranchTree, setShowBranchTree] = useState(false)
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const t = useI18n()
 
   // History is read-only by default; editing (drag reorder / inline edit /
@@ -115,16 +126,21 @@ export default function ChatMessages() {
       // content; growth and streaming respect the user's scroll position.
       if (sessionChanged) {
         isNearBottomRef.current = true
+        setShowScrollToBottom(false)
       } else if (!isNearBottomRef.current) {
         return
       }
-      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      // Instant jump (not smooth): during streaming this effect fires on every
+      // store flush (~20/s), and a smooth-scroll animation per flush fights the
+      // content growth and janks the main thread. The floating "back to latest"
+      // button keeps the smooth behavior for the one-off user action.
+      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
       // chat-msg-row uses content-visibility, so rows resolve their real
       // height one frame after layout; nudge again if the first pass landed
       // short so long histories still end up at the true bottom.
       requestAnimationFrame(() => {
         if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
-          el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+          el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
         }
       })
     }
@@ -137,6 +153,16 @@ export default function ChatMessages() {
       setSelectedIds(new Set())
     }
   }, [editEnabled])
+
+  // Jump back to the newest message — used by the floating down-arrow button
+  // shown while the user is scrolled up reading earlier messages.
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    isNearBottomRef.current = true
+    setShowScrollToBottom(false)
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }, [])
 
   const handleDragStart = useCallback((index: number, e: React.DragEvent) => {
     setDragIndex(index)
@@ -273,9 +299,11 @@ export default function ChatMessages() {
         const el = scrollRef.current
         if (lock !== null && el && Math.abs(el.scrollTop - lock) > 1) el.scrollTop = lock
         // Track whether the user is near the bottom — auto-scroll during
-        // streaming only follows along while they are.
+        // streaming only follows along while they are. The state mirrors the
+        // ref so the floating "back to latest" button shows/hides reactively.
         if (el) {
           isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+          setShowScrollToBottom(!isNearBottomRef.current)
         }
       }}
       className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4 relative"
@@ -429,9 +457,13 @@ export default function ChatMessages() {
           >
             <div className="flex flex-col gap-1.5">
               {/* 聚合模式：整个 turn 渲染为一个 ChatMessage —— 多轮思考与
-                  工具调用合并进单个「思考与执行过程」折叠块，最终回答在块下方 */}
+                  工具调用合并进单个「思考与执行过程」折叠块，最终回答在块下方。
+                  key 必须用 turn 的首条消息 id（稳定身份）而非末条：agent 多轮
+                  运行时每提交一轮就会往 turn 末尾追加一条 assistant 消息，若用
+                  末条 id 作 key，整轮会重挂载，用户正展开查看的历史工具调用
+                  详情（params/result）会被强行收起。 */}
               <ChatMessage
-                key={turn.messages[turn.messages.length - 1].id}
+                key={turn.messages[0].id}
                 message={turn.messages[turn.messages.length - 1]}
                 turnMessages={turn.messages}
                 sessionId={activeSession.id}
@@ -467,7 +499,7 @@ export default function ChatMessages() {
                 <span className="flex items-center gap-1 text-nova-accent">
                   <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
                   <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border">
-                    {t('chat.thinking')}…
+                    {t('chat.thinking')}…{runElapsed > 0 ? ` ${runElapsed}s` : ''}
                   </span>
                 </span>
               </div>
@@ -493,7 +525,7 @@ export default function ChatMessages() {
             {stream?.thinking && <ThinkingSection thinking={stream.thinking} streaming />}
             {stream?.content ? (
               <div className={`text-sm text-nova-text-primary ${lastTurnIsAssistant ? 'rounded-xl bg-nova-surface border border-nova-border px-4 py-3' : ''}`}>
-                <MarkdownRenderer content={stream.content} />
+                <StreamingMarkdown content={stream.content} />
                 <span className="animate-pulse-dot text-nova-accent">▋</span>
               </div>
             ) : !stream?.thinking ? (
@@ -515,6 +547,21 @@ export default function ChatMessages() {
       )}
 
       <div ref={messagesEndRef} />
+
+      {/* Floating "back to latest" pill — appears at the left of the message
+          bubbles only while the user is scrolled up reading earlier messages.
+          Sticky inside the scroll container so it hovers at the bottom of the
+          visible viewport instead of scrolling away with the content. */}
+      {showScrollToBottom && (
+        <button
+          onClick={scrollToBottom}
+          title={t('chat.scrollToBottom')}
+          className="sticky bottom-3 self-start shrink-0 flex items-center gap-1.5 pl-2 pr-2.5 py-1.5 rounded-full bg-nova-card border border-nova-border shadow-lg text-nova-text-secondary hover:text-nova-text-primary hover:bg-nova-hover transition-colors animate-fade-in z-10"
+        >
+          <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden>arrow_downward</span>
+          <span className="text-[11px]">{t('chat.scrollToBottom')}</span>
+        </button>
+      )}
 
       {/* Undo toast */}
       {showUndoToast && undoStack.length > 0 && (

@@ -59,8 +59,43 @@ let _gitBranchFetchedAt = 0
  *  when multiple consumers request git context within a short window. */
 const GIT_CACHE_TTL = 5_000
 
+/** Minimum interval between streaming store flushes (ms). LLM SSE streams can
+ *  emit dozens of chunks per second; without throttling every token triggers a
+ *  zustand set → the whole conversation re-renders and the growing markdown
+ *  answer is re-parsed (marked + highlight.js + DOMPurify) on every token.
+ *  Flushing at ~20fps is imperceptible for chat text but cuts the render and
+ *  parse budget by an order of magnitude. */
+const STREAM_FLUSH_MS = 50
+
 /** localStorage key for the last active chat session (restored on next launch) */
 const LAST_SESSION_KEY = 'lastActiveSessionId'
+
+/** localStorage keys that carry the user's last agent mode / project edit mode
+ *  (完全访问 etc.) over to newly created sessions and NEW WINDOWS — the same
+ *  cross-restart pattern as the last-model persistence in configStore. */
+const LAST_AGENT_MODE_KEY = 'lastAgentMode'
+const LAST_PROJECT_EDIT_MODE_KEY = 'lastProjectEditMode'
+
+/** Last agent mode chosen by the user, or null when never set (fall back to the
+ *  per-project default in createSession). */
+function getLastAgentMode(): 'chat' | 'agent' | null {
+  try {
+    const v = localStorage.getItem(LAST_AGENT_MODE_KEY)
+    return v === 'agent' || v === 'chat' ? v : null
+  } catch {
+    return null
+  }
+}
+
+/** Last project edit mode chosen by the user (手动确认/完全访问/自动编辑/计划). */
+function getLastProjectEditMode(): 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access' | null {
+  try {
+    const v = localStorage.getItem(LAST_PROJECT_EDIT_MODE_KEY)
+    return v === 'confirm_before_change' || v === 'auto_edit' || v === 'plan' || v === 'full_access' ? v : null
+  } catch {
+    return null
+  }
+}
 
 /** Default title of a brand-new session — replaced by an auto-generated title
  *  after the first message, and never overwritten once the user renames. */
@@ -467,6 +502,23 @@ const UNDO_WINDOW_MS = 5000
 /** Re-index sortOrder so messages remain dense (0..n-1) */
 function reindexMessages(messages: ChatMessage[]): ChatMessage[] {
   return messages.map((m, i) => ({ ...m, sortOrder: i }))
+}
+
+/** 会话的「用户最近活动」时间：优先最近一次用户发消息的时间；旧数据没有该
+ *  字段时回退到 updatedAt（保持兼容，行为与之前一致）。会话列表（左侧项目
+ *  列表 / 历史侧栏）一律用此值排序与显示，避免 agent 运行期间 updatedAt 被
+ *  频繁刷新导致会话位置一直跳动。 */
+export function sessionLastUserActivity(s: ChatSession): number {
+  return s.lastUserMessageAt ?? s.updatedAt
+}
+
+/** 从会话历史推导「最近用户发消息的时间」（用于旧数据回填） */
+function deriveLastUserMessageAt(s: ChatSession): number {
+  for (let i = s.messages.length - 1; i >= 0; i--) {
+    const m = s.messages[i]
+    if (m.role === 'user') return m.createdAt || s.createdAt
+  }
+  return s.createdAt
 }
 
 interface ChatState {
@@ -1256,7 +1308,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadSessions: async () => {
     try {
       const sessions = await window.electronAPI.getSessions()
-      set({ sessions })
+      // 旧数据回填 lastUserMessageAt：从最后一条用户消息推导，避免升级后
+      // 排序/显示时间回退到 updatedAt（会被 agent 活动刷新而跳动）。
+      const normalized = sessions.map((s) => ({
+        ...s,
+        lastUserMessageAt: s.lastUserMessageAt ?? deriveLastUserMessageAt(s),
+      }))
+      set({ sessions: normalized })
       // Restore the last active session across restarts (only on the first load)
       if (sessions.length > 0 && !get().activeSessionId) {
         const lastId = localStorage.getItem(LAST_SESSION_KEY)
@@ -1297,8 +1355,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       createdAt: Date.now(),
       updatedAt: Date.now(),
       // Inside a project the new chat defaults to agent mode (project-aware);
-      // outside any project it stays plain chat.
-      agentMode: rootPath ? 'agent' : 'chat',
+      // outside any project it stays plain chat. The user's last choice
+      // (persisted on setAgentMode) carries over to new sessions, mirroring
+      // how the last-picked model is kept.
+      agentMode: rootPath ? (getLastAgentMode() ?? 'agent') : 'chat',
+      // The last edit mode (手动确认/完全访问/自动编辑/计划) also carries over —
+      // opening a new window / chat keeps the mode the user had selected.
+      projectEditMode: getLastProjectEditMode() ?? undefined,
       todos: [],
       planStatus: 'none',
       projectPath: rootPath || undefined,
@@ -1386,6 +1449,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // ───────────── Agent mode / plan / todo ─────────────
 
   setAgentMode: (sessionId, mode) => {
+    // Remember the choice so new sessions / new windows start with the same
+    // mode (mirrors the last-model persistence in configStore).
+    try { localStorage.setItem(LAST_AGENT_MODE_KEY, mode) } catch { /* ignore */ }
     set((s) => ({
       sessions: s.sessions.map((sess) =>
         sess.id === sessionId ? { ...sess, agentMode: mode, updatedAt: Date.now() } : sess
@@ -1395,6 +1461,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setProjectEditMode: (sessionId, mode) => {
+    try { localStorage.setItem(LAST_PROJECT_EDIT_MODE_KEY, mode) } catch { /* ignore */ }
     set((s) => ({
       sessions: s.sessions.map((sess) =>
         sess.id === sessionId ? { ...sess, projectEditMode: mode, updatedAt: Date.now() } : sess
@@ -1545,7 +1612,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({
       sessions: s.sessions.map((sess) =>
         sess.id === sessionId
-          ? { ...sess, messages: [...sess.messages, newMessage], updatedAt: Date.now() }
+          ? {
+              ...sess,
+              messages: [...sess.messages, newMessage],
+              updatedAt: Date.now(),
+              // 用户发消息才刷新排序锚点；agent 的 assistant/tool 消息只更新
+              // updatedAt，不再影响会话在列表中的位置（避免运行中位置跳动）。
+              ...(newMessage.role === 'user' ? { lastUserMessageAt: newMessage.createdAt } : {}),
+            }
           : sess
       ),
     }))
@@ -1990,6 +2064,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeBranchId,
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        // 导入的历史保留原消息时间——排序锚点从消息推导，而不是用导入时刻。
+        lastUserMessageAt: deriveLastUserMessageAt(imported),
         agentMode: 'chat',
         todos: [],
         planStatus: 'none',
@@ -2515,52 +2591,63 @@ async function runAgentLoop(
       let reqCacheWrite = 0
       let cacheHit: { savedTokensIn: number; savedTokensOut: number } | null = null
 
+      // ── Streaming store updates: batch + throttle ─────────────────────────
+      // Every SSE chunk used to trigger TWO separate zustand sets (activity +
+      // content), so the conversation re-rendered and re-parsed the growing
+      // markdown on EVERY token — the main UI stutter while the model streams.
+      // Now a single combined set runs at most once per STREAM_FLUSH_MS; the
+      // inner finally force-flushes so the abort/error handlers below read the
+      // LATEST accumulated content from the store (never a truncated flush).
+      let lastStreamFlushAt = 0
+      const flushStream = (force = false) => {
+        const now = Date.now()
+        if (!force && now - lastStreamFlushAt < STREAM_FLUSH_MS) return
+        lastStreamFlushAt = now
+        set((s) => ({
+          streamLastActivityBySession: { ...s.streamLastActivityBySession, [sessionId]: now },
+          streamingBySession: {
+            ...s.streamingBySession,
+            [sessionId]: { content: fullContent, thinking: fullThinking },
+          },
+        }))
+      }
+
       try {
-        for await (const chunk of sendLLMRequest(req, configGroup)) {
-          if (abortController.signal.aborted) break
-          touchActivity() // any data keeps the idle clock reset
+        try {
+          for await (const chunk of sendLLMRequest(req, configGroup)) {
+            if (abortController.signal.aborted) break
+            // Accumulate first; any data keeps the idle clock reset, batched
+            // into the same set as the content below (no set per token).
+            if (chunk.thinking) fullThinking += chunk.thinking
+            if (chunk.content) fullContent += chunk.content
 
-          if (chunk.thinking) {
-            fullThinking += chunk.thinking
-            set((s) => ({
-              streamingBySession: {
-                ...s.streamingBySession,
-                [sessionId]: { ...s.streamingBySession[sessionId], thinking: fullThinking },
-              },
-            }))
+            if (chunk.toolCalls) {
+              toolCalls = chunk.toolCalls
+            }
+
+            // Real token usage reported by the provider (parsed by the adapters) —
+            // persisted into the usage dashboard instead of being dropped.
+            // `|| 0` guards against adapters that report partial usage objects.
+            if (chunk.usage) {
+              reqTokensIn = chunk.usage.promptTokens || 0
+              reqTokensOut = chunk.usage.completionTokens || 0
+              reqCacheRead = chunk.usage.cacheReadTokens || 0
+              reqCacheWrite = chunk.usage.cacheCreationTokens || 0
+            }
+
+            // Client-side cache hit: the response was replayed locally, no API
+            // call was made — report the saved tokens so the dashboard shows it.
+            if (chunk.cacheHit) {
+              cacheHit = chunk.cacheHit
+            }
+
+            flushStream()
+            if (chunk.done) break
           }
-
-          if (chunk.content) {
-            fullContent += chunk.content
-            set((s) => ({
-              streamingBySession: {
-                ...s.streamingBySession,
-                [sessionId]: { ...s.streamingBySession[sessionId], content: fullContent },
-              },
-            }))
-          }
-
-          if (chunk.toolCalls) {
-            toolCalls = chunk.toolCalls
-          }
-
-          // Real token usage reported by the provider (parsed by the adapters) —
-          // persisted into the usage dashboard instead of being dropped.
-          // `|| 0` guards against adapters that report partial usage objects.
-          if (chunk.usage) {
-            reqTokensIn = chunk.usage.promptTokens || 0
-            reqTokensOut = chunk.usage.completionTokens || 0
-            reqCacheRead = chunk.usage.cacheReadTokens || 0
-            reqCacheWrite = chunk.usage.cacheCreationTokens || 0
-          }
-
-          // Client-side cache hit: the response was replayed locally, no API
-          // call was made — report the saved tokens so the dashboard shows it.
-          if (chunk.cacheHit) {
-            cacheHit = chunk.cacheHit
-          }
-
-          if (chunk.done) break
+        } finally {
+          // Always persist whatever accumulated — the abort/error handlers read
+          // streamingBySession[sessionId] right after this block.
+          flushStream(true)
         }
       } catch (requestError: any) {
         usageEvents.push(makeLlmUsageEvent({

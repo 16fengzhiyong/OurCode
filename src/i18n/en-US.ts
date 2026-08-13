@@ -491,6 +491,8 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.approve': 'Approve',
   'chat.thinkingTitle': 'Thinking',
   'chat.thinkingProcess': 'Thinking & Execution',
+  'chat.collapseProcess': 'Collapse',
+  'chat.scrollToBottom': 'Latest',
   'chat.agentExecutionFlow': 'Agent execution flow',
   'chat.totalSteps': '{count} steps total',
   'chat.subAgentRunning': 'Sub-agent running...',

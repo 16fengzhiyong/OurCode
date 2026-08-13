@@ -383,12 +383,16 @@ export default function ChatPanel() {
                     <select
                       value={projectEditMode}
                       onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}
-                      className="text-xs rounded-md px-2 py-1 border border-nova-border bg-nova-input-bg text-nova-text-primary outline-none cursor-pointer hover:border-nova-accent focus:border-nova-accent transition-colors"
+                      className={`text-xs rounded-md px-2 py-1 border outline-none cursor-pointer transition-colors ${
+                        projectEditMode === 'full_access'
+                          ? 'border-orange-500/50 bg-orange-500/10 text-orange-400'
+                          : 'border-nova-border bg-nova-input-bg text-nova-text-primary hover:border-nova-accent focus:border-nova-accent'
+                      }`}
                       title={t('chat.projectEditModeLabel')}
                       style={{ backgroundImage: 'none' }}
                     >
                       <option value="confirm_before_change" title={t('chat.projectEditModeConfirmHint')}>{t('chat.projectEditModeConfirm')}</option>
-                      <option value="full_access" title={t('chat.projectEditModeFullHint')}>{t('chat.projectEditModeFull')}</option>
+                      <option value="full_access" title={t('chat.projectEditModeFullHint')} className="text-orange-400">{t('chat.projectEditModeFull')}</option>
                       {/* While target mode is on, its own workflow supersedes
                           auto_edit / plan — only manual-confirm and full-access
                           remain selectable. */}

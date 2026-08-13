@@ -488,6 +488,8 @@ export const zhCN = {
   'chat.approve': '批准',
   'chat.thinkingTitle': '思考',
   'chat.thinkingProcess': '思考与执行过程',
+  'chat.collapseProcess': '收起',
+  'chat.scrollToBottom': '回到最新',
   'chat.agentExecutionFlow': 'Agent 执行流',
   'chat.totalSteps': '共 {count} 步',
   'chat.subAgentRunning': '子 Agent 执行中...',

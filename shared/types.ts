@@ -51,6 +51,9 @@ export interface ChatSession {
   messages: ChatMessage[]
   createdAt: number
   updatedAt: number
+  /** 最近一次用户发消息的时间。会话列表按此排序——agent 运行期间 updatedAt
+   *  会被工具调用/进度更新频繁刷新，若按 updatedAt 排序会话位置会一直跳动。 */
+  lastUserMessageAt?: number
   activeBranchId?: string // active branch id, undefined/null = main branch
   branches?: ChatBranch[] // all branches except the main one
   pinnedAt?: number
