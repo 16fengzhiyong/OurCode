@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react'
 import { usePluginStore } from '@/stores/pluginStore'
-import { useUIStore } from '@/stores/uiStore'
 import { PluginInfo, PluginManifest } from '@/services/plugin/types'
 import { useI18n } from '@/i18n/useI18n'
 
-export default function PluginMarketplace() {
-  const { isMarketplaceOpen, closeMarketplace } = useUIStore()
+/**
+ * 插件（扩展）管理区 — the old extension marketplace, embedded in Settings
+ * (设置 → 功能) instead of a standalone modal. Installation / uninstall /
+ * enable-disable / permission logic is unchanged.
+ */
+export default function PluginSection() {
   const { plugins, isInstalling, error, loadPlugins, installPlugin, uninstallPlugin, togglePlugin, clearError } = usePluginStore()
   const t = useI18n()
 
@@ -17,12 +20,8 @@ export default function PluginMarketplace() {
   const [showConfirmUninstall, setShowConfirmUninstall] = useState<string | null>(null)
 
   useEffect(() => {
-    if (isMarketplaceOpen) {
-      loadPlugins()
-    }
-  }, [isMarketplaceOpen, loadPlugins])
-
-  if (!isMarketplaceOpen) return null
+    loadPlugins()
+  }, [loadPlugins])
 
   const filteredPlugins = plugins.filter((p) => {
     if (!searchQuery) return true
@@ -119,142 +118,110 @@ export default function PluginMarketplace() {
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={t('plugin.dialog')} className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={closeMarketplace}>
-      <div
-        className="glass-modal rounded-2xl w-[900px] max-h-[80vh] flex flex-col overflow-hidden" style={{ boxShadow: 'var(--shadow-xl)' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-nova-border">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#3B82F6] to-[#2563EB] flex items-center justify-center">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    <div className="flex flex-col gap-3">
+      {/* Tabs */}
+      <div className="flex items-center gap-1 border-b border-nova-border">
+        <button
+          className={`px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'installed'
+              ? 'text-nova-accent border-b-2 border-nova-accent bg-nova-accent/5'
+              : 'text-nova-text-muted hover:text-nova-text-primary'
+          }`}
+          onClick={() => setActiveTab('installed')}
+        >
+          {t('plugin.installedTab', { count: plugins.length })}
+        </button>
+        <button
+          className={`px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'install'
+              ? 'text-nova-accent border-b-2 border-nova-accent bg-nova-accent/5'
+              : 'text-nova-text-muted hover:text-nova-text-primary'
+          }`}
+          onClick={() => setActiveTab('install')}
+        >
+          {t('plugin.installTab')}
+        </button>
+      </div>
+
+      {activeTab === 'installed' ? (
+        <div>
+          {/* Search */}
+          <div className="mb-3">
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-nova-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-nova-text-primary">{t('plugin.title')}</h2>
-              <p className="text-xs text-nova-text-muted">{t('plugin.subtitle')}</p>
+              <input
+                type="text"
+                placeholder={t('plugin.searchPlaceholder')}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-nova-bg border border-nova-border rounded-lg text-sm text-nova-text-primary placeholder-nova-text-muted focus:outline-none focus:border-nova-accent"
+              />
             </div>
           </div>
-          <button
-            onClick={closeMarketplace}
-            className="p-2 text-nova-text-muted hover:text-white hover:bg-nova-hover rounded-lg transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeWidth={2} d="M6 6l12 12M6 18L18 6" />
-            </svg>
-          </button>
-        </div>
 
-        {/* Tabs */}
-        <div className="flex items-center gap-1 px-6 pt-3 border-b border-nova-border">
-          <button
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-              activeTab === 'installed'
-                ? 'text-nova-accent border-b-2 border-nova-accent bg-nova-accent/5'
-                : 'text-nova-text-muted hover:text-nova-text-primary'
-            }`}
-            onClick={() => setActiveTab('installed')}
-          >
-            {t('plugin.installedTab', { count: plugins.length })}
-          </button>
-          <button
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-              activeTab === 'install'
-                ? 'text-nova-accent border-b-2 border-nova-accent bg-nova-accent/5'
-                : 'text-nova-text-muted hover:text-nova-text-primary'
-            }`}
-            onClick={() => setActiveTab('install')}
-          >
-            {t('plugin.installTab')}
-          </button>
-        </div>
+          {/* Error */}
+          {error && (
+            <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center justify-between">
+              <span className="text-sm text-red-400">{error}</span>
+              <button onClick={clearError} className="text-red-400 hover:text-red-300 text-xs">{t('plugin.close')}</button>
+            </div>
+          )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === 'installed' ? (
-            <div>
-              {/* Search */}
-              <div className="mb-4">
-                <div className="relative">
-                  <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-nova-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <input
-                    type="text"
-                    placeholder={t('plugin.searchPlaceholder')}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-nova-bg border border-nova-border rounded-lg text-sm text-nova-text-primary placeholder-nova-text-muted focus:outline-none focus:border-nova-accent"
-                  />
-                </div>
-              </div>
-
-              {/* Error */}
-              {error && (
-                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center justify-between">
-                  <span className="text-sm text-red-400">{error}</span>
-                  <button onClick={clearError} className="text-red-400 hover:text-red-300 text-xs">{t('plugin.close')}</button>
-                </div>
-              )}
-
-              {/* Plugin list */}
-              {filteredPlugins.length === 0 ? (
-                <div className="text-center py-16">
-                  <svg className="w-16 h-16 mx-auto text-nova-text-muted/30 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                  </svg>
-                  <p className="text-nova-text-muted text-sm">
-                    {searchQuery ? t('plugin.noMatch') : t('plugin.noneInstalled')}
-                  </p>
-                  {!searchQuery && (
-                    <button
-                      onClick={() => setActiveTab('install')}
-                      className="mt-3 text-sm text-nova-accent hover:underline"
-                    >
-                      {t('plugin.installFirst')}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {filteredPlugins.map((plugin) => (
-                    <PluginCard
-                      key={plugin.manifest.id}
-                      plugin={plugin}
-                      onToggle={() => togglePlugin(plugin.manifest.id)}
-                      onUninstall={() => setShowConfirmUninstall(plugin.manifest.id)}
-                      getPermissionLabel={getPermissionLabel}
-                      getStatusBadge={getStatusBadge}
-                    />
-                  ))}
-                </div>
+          {/* Plugin list */}
+          {filteredPlugins.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-nova-text-muted text-sm">
+                {searchQuery ? t('plugin.noMatch') : t('plugin.noneInstalled')}
+              </p>
+              {!searchQuery && (
+                <button
+                  onClick={() => setActiveTab('install')}
+                  className="mt-3 text-sm text-nova-accent hover:underline"
+                >
+                  {t('plugin.installFirst')}
+                </button>
               )}
             </div>
           ) : (
-            /* Install tab */
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-nova-text-secondary">
-                  {t('plugin.installDesc')}
-                </p>
-                <button
-                  onClick={handleImportFile}
-                  className="px-3 py-1.5 text-sm bg-nova-hover border border-nova-border rounded-lg text-nova-text-secondary hover:text-white hover:border-nova-accent/50 transition-colors"
-                >
-                  {t('plugin.importPackage')}
-                </button>
-              </div>
+            <div className="space-y-2">
+              {filteredPlugins.map((plugin) => (
+                <PluginCard
+                  key={plugin.manifest.id}
+                  plugin={plugin}
+                  onToggle={() => togglePlugin(plugin.manifest.id)}
+                  onUninstall={() => setShowConfirmUninstall(plugin.manifest.id)}
+                  getPermissionLabel={getPermissionLabel}
+                  getStatusBadge={getStatusBadge}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Install tab */
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-nova-text-secondary">
+              {t('plugin.installDesc')}
+            </p>
+            <button
+              onClick={handleImportFile}
+              className="px-3 py-1.5 text-sm bg-nova-hover border border-nova-border rounded-lg text-nova-text-secondary hover:text-white hover:border-nova-accent/50 transition-colors"
+            >
+              {t('plugin.importPackage')}
+            </button>
+          </div>
 
-              <div>
-                <label className="block text-sm font-medium text-nova-text-secondary mb-1.5">
-                  {t('plugin.manifestJson')}
-                </label>
-                <textarea
-                  value={manifestText}
-                  onChange={(e) => setManifestText(e.target.value)}
-                  placeholder={`{
+          <div>
+            <label className="block text-sm font-medium text-nova-text-secondary mb-1.5">
+              {t('plugin.manifestJson')}
+            </label>
+            <textarea
+              value={manifestText}
+              onChange={(e) => setManifestText(e.target.value)}
+              placeholder={`{
   "id": "my-plugin",
   "name": "My Plugin",
   "version": "1.0.0",
@@ -263,19 +230,19 @@ export default function PluginMarketplace() {
   "main": "index.js",
   "permissions": ["editor.read", "ai.chat"]
 }`}
-                  className="w-full h-40 p-3 bg-nova-bg border border-nova-border rounded-lg text-sm text-nova-text-primary font-mono resize-none placeholder-nova-text-muted focus:outline-none focus:border-nova-accent"
-                  spellCheck={false}
-                />
-              </div>
+              className="w-full h-40 p-3 bg-nova-bg border border-nova-border rounded-lg text-sm text-nova-text-primary font-mono resize-none placeholder-nova-text-muted focus:outline-none focus:border-nova-accent"
+              spellCheck={false}
+            />
+          </div>
 
-              <div>
-                <label className="block text-sm font-medium text-nova-text-secondary mb-1.5">
-                  {t('plugin.codeLabel')}
-                </label>
-                <textarea
-                  value={codeText}
-                  onChange={(e) => setCodeText(e.target.value)}
-                  placeholder={`// Plugin entry point (runs in a sandboxed Web Worker)
+          <div>
+            <label className="block text-sm font-medium text-nova-text-secondary mb-1.5">
+              {t('plugin.codeLabel')}
+            </label>
+            <textarea
+              value={codeText}
+              onChange={(e) => setCodeText(e.target.value)}
+              placeholder={`// Plugin entry point (runs in a sandboxed Web Worker)
 // Access the API via the global 'api' object
 // e.g., await api.editor.getActiveFile()
 
@@ -283,68 +250,66 @@ api.ui.registerPanel('my-panel', 'My Plugin', () => {
   // Workers have no DOM — return an HTML string
   return '<div>Hello from my plugin!</div>';
 });`}
-                  className="w-full h-48 p-3 bg-nova-bg border border-nova-border rounded-lg text-sm text-nova-text-primary font-mono resize-none placeholder-nova-text-muted focus:outline-none focus:border-nova-accent"
-                  spellCheck={false}
-                />
-              </div>
+              className="w-full h-48 p-3 bg-nova-bg border border-nova-border rounded-lg text-sm text-nova-text-primary font-mono resize-none placeholder-nova-text-muted focus:outline-none focus:border-nova-accent"
+              spellCheck={false}
+            />
+          </div>
 
-              {(installError || error) && (
-                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                  <span className="text-sm text-red-400">{installError || error}</span>
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-3">
-                <button
-                  onClick={() => { setManifestText(''); setCodeText(''); setInstallError(null) }}
-                  className="px-4 py-2 text-sm text-nova-text-muted hover:text-nova-text-primary transition-colors"
-                >
-                  {t('plugin.clear')}
-                </button>
-                <button
-                  onClick={handleInstallFromFile}
-                  disabled={isInstalling || !manifestText.trim() || !codeText.trim()}
-                  className="px-5 py-2 text-sm font-medium bg-nova-accent text-white rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
-                >
-                  {isInstalling ? t('plugin.installing') : t('plugin.install')}
-                </button>
-              </div>
+          {(installError || error) && (
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <span className="text-sm text-red-400">{installError || error}</span>
             </div>
           )}
-        </div>
 
-        {/* Uninstall confirmation */}
-        {showConfirmUninstall && (
-          <div role="dialog" aria-modal="true" aria-label={t('plugin.uninstallDialog')} className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60" onClick={() => setShowConfirmUninstall(null)}>
-            <div className="glass-modal rounded-2xl p-6 w-[400px]" style={{ boxShadow: 'var(--shadow-xl)' }} onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-lg font-semibold text-nova-text-primary mb-2">{t('plugin.uninstallDialog')}</h3>
-              <p className="text-sm text-nova-text-secondary mb-1">
-                {t('plugin.uninstallConfirm')}
-              </p>
-              <p className="text-xs text-nova-text-muted mb-6">
-                {t('plugin.uninstallDesc', { id: showConfirmUninstall })}
-              </p>
-              <div className="flex items-center justify-end gap-3">
-                <button
-                  onClick={() => setShowConfirmUninstall(null)}
-                  className="px-4 py-2 text-sm text-nova-text-muted hover:text-nova-text-primary transition-colors"
-                >
-                  {t('common.cancel')}
-                </button>
-                <button
-                  onClick={async () => {
-                    await uninstallPlugin(showConfirmUninstall)
-                    setShowConfirmUninstall(null)
-                  }}
-                  className="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                >
-                  {t('plugin.uninstall')}
-                </button>
-              </div>
+          <div className="flex items-center justify-end gap-3">
+            <button
+              onClick={() => { setManifestText(''); setCodeText(''); setInstallError(null) }}
+              className="px-4 py-2 text-sm text-nova-text-muted hover:text-nova-text-primary transition-colors"
+            >
+              {t('plugin.clear')}
+            </button>
+            <button
+              onClick={handleInstallFromFile}
+              disabled={isInstalling || !manifestText.trim() || !codeText.trim()}
+              className="px-5 py-2 text-sm font-medium bg-nova-accent text-white rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+            >
+              {isInstalling ? t('plugin.installing') : t('plugin.install')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Uninstall confirmation */}
+      {showConfirmUninstall && (
+        <div role="dialog" aria-modal="true" aria-label={t('plugin.uninstallDialog')} className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60" onClick={() => setShowConfirmUninstall(null)}>
+          <div className="glass-modal rounded-2xl p-6 w-[400px]" style={{ boxShadow: 'var(--shadow-xl)' }} onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-nova-text-primary mb-2">{t('plugin.uninstallDialog')}</h3>
+            <p className="text-sm text-nova-text-secondary mb-1">
+              {t('plugin.uninstallConfirm')}
+            </p>
+            <p className="text-xs text-nova-text-muted mb-6">
+              {t('plugin.uninstallDesc', { id: showConfirmUninstall })}
+            </p>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowConfirmUninstall(null)}
+                className="px-4 py-2 text-sm text-nova-text-muted hover:text-nova-text-primary transition-colors"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                onClick={async () => {
+                  await uninstallPlugin(showConfirmUninstall)
+                  setShowConfirmUninstall(null)
+                }}
+                className="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                {t('plugin.uninstall')}
+              </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

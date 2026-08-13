@@ -83,6 +83,25 @@ export interface MCPManagerOptions {
   bundledNodeDir?: string
 }
 
+/** Connection state of a configured MCP server, as surfaced to the
+ *  management UI (MCP 管理中心). */
+export type McpServerState =
+  | 'connecting' // handshake in progress
+  | 'ready' // initialized, tools available
+  | 'failed' // start/init error or reconnects exhausted
+  | 'restarting' // connection lost, reconnect scheduled (backoff)
+  | 'disabled' // present in config but disabled
+  | 'stopped' // configured but never started (no config loaded / stopped)
+
+export interface McpServerStatus {
+  name: string
+  state: McpServerState
+  /** Reconnect attempt count while restarting (1-based). */
+  retry?: number
+  /** Last failure reason, kept while failed. */
+  error?: string
+}
+
 interface ServerConnection {
   transport: McpTransport
   pending: Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>
@@ -370,6 +389,8 @@ export class MCPManager extends EventEmitter {
   /** False once servers have been (re)loaded — guards against zombie reconnects. */
   private intentionalStop = true
   private restartTimers = new Map<string, NodeJS.Timeout>()
+  /** Per-server connection state, tracked for the management UI. */
+  private statuses = new Map<string, McpServerStatus>()
 
   constructor(private options: MCPManagerOptions = {}) {
     super()
@@ -382,6 +403,15 @@ export class MCPManager extends EventEmitter {
    */
   private emitError(error: Error): void {
     if (this.listenerCount('error') > 0) this.emit('error', error)
+  }
+
+  /** Merge a status patch and notify listeners (used by the management UI —
+   *  the same 'status' event the reconnect path already emitted). */
+  private setStatus(name: string, patch: Partial<McpServerStatus>): void {
+    const prev = this.statuses.get(name) || { name, state: 'stopped' }
+    const next: McpServerStatus = { ...prev, ...patch }
+    this.statuses.set(name, next)
+    this.emit('status', { server: name, state: next.state, retry: next.retry })
   }
 
   private get requestTimeoutMs(): number {
@@ -461,6 +491,9 @@ export class MCPManager extends EventEmitter {
 
     this.intentionalStop = false
     for (const [name, server] of Object.entries(this.config)) {
+      // Seed the status map from config before any connection attempt — the
+      // UI can then show disabled/stopped servers even while none connect.
+      this.setStatus(name, { name, state: server.disabled ? 'disabled' : 'stopped' })
       if (server.disabled) continue
       if (server.serverUrl || server.url) {
         this.startHttpServer(name, server, 0)
@@ -485,11 +518,13 @@ export class MCPManager extends EventEmitter {
   private startServer(name: string, server: McpServerConfig, retry: number): void {
     if (this.intentionalStop) return
     if (!server.command) {
+      this.setStatus(name, { state: 'failed', error: '缺少 command' })
       this.emitError(new Error(`MCP 服务器 "${name}" 缺少 command`))
       return
     }
     let conn: ServerConnection | null = null
     try {
+      this.setStatus(name, { state: 'connecting', retry, error: undefined })
       const { command, args, env } = this.resolveStdio(server)
       const transport = new StdioTransport(name, command, args, env, this.rootPath)
       conn = this.connectTransport(name, transport, retry)
@@ -498,6 +533,7 @@ export class MCPManager extends EventEmitter {
         this.handleDeath(name, conn!, retry, error.message)
       })
     } catch (error: any) {
+      this.setStatus(name, { state: 'failed', error: error.message })
       this.emitError(new Error(`MCP 服务器 "${name}" 启动失败: ${error.message}`))
       this.handleDeath(name, conn, retry, error.message)
     }
@@ -508,6 +544,7 @@ export class MCPManager extends EventEmitter {
     const url = server.serverUrl || server.url || ''
     let conn: ServerConnection | null = null
     try {
+      this.setStatus(name, { state: 'connecting', retry, error: undefined })
       const transport = new HttpTransport(url, server.headers || {}, server.skipTlsVerify === true)
       conn = this.connectTransport(name, transport, retry)
       this.initialize(name, conn, retry).catch((error) => {
@@ -515,6 +552,7 @@ export class MCPManager extends EventEmitter {
         this.handleDeath(name, conn!, retry, error.message)
       })
     } catch (error: any) {
+      this.setStatus(name, { state: 'failed', error: error.message })
       this.emitError(new Error(`MCP 服务器 "${name}" 连接失败: ${error.message}`))
       this.handleDeath(name, conn, retry, error.message)
     }
@@ -536,16 +574,17 @@ export class MCPManager extends EventEmitter {
 
     const { maxRetries, baseDelayMs } = this.restartConfig
     if (retry >= maxRetries) {
+      this.setStatus(name, { state: 'failed', error: reason, retry })
       this.emit('failed', { server: name, reason, retries: retry })
       this.emitError(new Error(`MCP 服务器 "${name}" 重连 ${maxRetries} 次后仍失败: ${reason}`))
       return
     }
 
     const delay = baseDelayMs * 2 ** retry
+    this.setStatus(name, { state: 'restarting', retry: retry + 1, error: reason })
     const timer = setTimeout(() => {
       this.restartTimers.delete(name)
       if (this.intentionalStop) return
-      this.emit('status', { server: name, state: 'restarting', retry: retry + 1 })
       const server = this.config[name]
       if (!server) return
       if (server.serverUrl || server.url) this.startHttpServer(name, server, retry + 1)
@@ -566,6 +605,7 @@ export class MCPManager extends EventEmitter {
     conn.initialized = true
     // Only announce readiness if this connection is still the active one
     if (this.connections.get(name) === conn) {
+      this.setStatus(name, { state: 'ready', error: undefined })
       this.emit('ready', { server: name, restarted: retry > 0 })
     }
   }
@@ -733,6 +773,16 @@ export class MCPManager extends EventEmitter {
 
   serverNames(): string[] {
     return Array.from(this.connections.keys())
+  }
+
+  /** Per-server connection state for the management UI — one entry per
+   *  configured server (disabled/stopped servers included). */
+  getStatus(): McpServerStatus[] {
+    return Object.keys(this.config).map((name) => {
+      const server = this.config[name]
+      if (server.disabled) return { name, state: 'disabled' }
+      return this.statuses.get(name) || { name, state: 'stopped' }
+    })
   }
 }
 

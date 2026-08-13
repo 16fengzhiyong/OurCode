@@ -26,7 +26,7 @@ interface UIState {
   // Sidebar
   isSidebarVisible: boolean
   sidebarWidth: number
-  activeSidebarTab: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage' | 'skills'
+  activeSidebarTab: 'files' | 'git' | 'changes' | 'agent' | 'usage' | 'skills' | 'mcp'
   rootPath: string | null
   recentProjects: string[]
   /** Last time each recent project was opened (ms epoch) — lets the project
@@ -62,9 +62,6 @@ interface UIState {
 
   // Quick Open
   isQuickOpenOpen: boolean
-
-  // Plugin Marketplace
-  isMarketplaceOpen: boolean
 
   // Skill Registry
   isSkillRegistryOpen: boolean,
@@ -106,7 +103,7 @@ interface UIState {
   // Actions
   toggleSidebar: () => void
   setSidebarWidth: (width: number) => void
-  setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'agent' | 'extensions' | 'usage' | 'skills') => void
+  setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'agent' | 'usage' | 'skills' | 'mcp') => void
   setRootPath: (path: string | null) => void
   /** Remove a project from the list ("从列表中移除") — its sessions stay bound
    *  and reappear when the project is re-opened. Callers must ALSO roll the
@@ -133,8 +130,7 @@ interface UIState {
   openQuickOpen: () => void
   closeQuickOpen: () => void
 
-  openMarketplace: () => void
-  closeMarketplace: () => void
+  openMcpCenter: () => void
 
   openSkillRegistry: () => void
   closeSkillRegistry: () => void
@@ -223,9 +219,6 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   // Quick Open
   isQuickOpenOpen: false,
-
-  // Plugin Marketplace
-  isMarketplaceOpen: false,
 
   // Skill Registry
   isSkillRegistryOpen: false,
@@ -362,8 +355,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   openQuickOpen: () => set({ isQuickOpenOpen: true }),
   closeQuickOpen: () => set({ isQuickOpenOpen: false }),
 
-  openMarketplace: () => set({ isMarketplaceOpen: true }),
-  closeMarketplace: () => set({ isMarketplaceOpen: false }),
+  openMcpCenter: () => set({ isSidebarVisible: true, activeSidebarTab: 'mcp' }),
 
   openSkillRegistry: () => set({ isSkillRegistryOpen: true }),
   closeSkillRegistry: () => set({ isSkillRegistryOpen: false }),

@@ -32,7 +32,7 @@ export default function TitleBar() {
   const toggleTerminal = useUIStore((s) => s.toggleTerminal)
   const toggleChat = useUIStore((s) => s.toggleChat)
   const openCommandPalette = useUIStore((s) => s.openCommandPalette)
-  const openMarketplace = useUIStore((s) => s.openMarketplace)
+  const openMcpCenter = useUIStore((s) => s.openMcpCenter)
   const isMaximized = useUIStore((s) => s.isMaximized)
   const rootPath = useUIStore((s) => s.rootPath)
   const isChatVisible = useUIStore((s) => s.isChatVisible)
@@ -214,7 +214,7 @@ export default function TitleBar() {
     {
       label: t('menu.extensions'),
       items: [
-        { label: t('menu.extensions.marketplace'), shortcut: 'Ctrl+Shift+X', action: openMarketplace },
+        { label: t('menu.extensions.mcp'), shortcut: 'Ctrl+Shift+X', action: openMcpCenter },
       ],
     },
     {

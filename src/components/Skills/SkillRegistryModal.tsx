@@ -45,7 +45,7 @@ const isRegistryManaged = (s: LocalSkillRow): boolean => {
 
 /**
  * Skill management dialog: local skills (enable/disable/uninstall) + remote
- * registry browser (install/update). Mirrors the PluginMarketplace layout,
+ * registry browser (install/update). Mirrors the old plugin marketplace layout,
  * restyled after the "插件市场与技能管理设计稿" — pill tabs, round search,
  * status dot + mono "/name" rows with iOS-style toggles, footer hint bar.
  * Installed/enabled skills surface automatically in the agent's skill index,

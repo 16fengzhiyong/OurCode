@@ -36,12 +36,14 @@ test.describe('Plugin System', () => {
       window.confirm = () => true
     })
 
-    // Open the extensions marketplace: menu bar 扩展 → 扩展市场
-    await window.locator('button', { hasText: '扩展' }).first().click()
-    await window.locator('button', { hasText: '扩展市场' }).first().click()
+    // Plugin management moved into Settings: 设置 (gear) → 功能 tab → 插件（扩展）
+    await window.locator('button[title="设置"]').first().click()
+    await window.locator('button', { hasText: '功能' }).first().click()
+
+    const pluginSection = window.locator('section', { hasText: '插件（扩展）' })
 
     // Switch to the "安装扩展" tab
-    await window.locator('button', { hasText: '安装扩展' }).first().click()
+    await pluginSection.locator('button', { hasText: '安装扩展' }).first().click()
 
     const manifest = JSON.stringify(
       {
@@ -57,20 +59,20 @@ test.describe('Plugin System', () => {
       2,
     )
 
-    const textareas = window.locator('textarea')
+    const textareas = pluginSection.locator('textarea')
     await textareas.nth(0).fill(manifest)
     await textareas.nth(1).fill(
       `api.editor.getActiveFile().then(() => { api.ui.registerPanel('p', 'P', () => '<b>hi</b>'); });`,
     )
 
     // Install (the submit button is the second "安装扩展" button)
-    await window.locator('button', { hasText: '安装扩展' }).last().click()
+    await pluginSection.locator('button', { hasText: '安装扩展' }).last().click()
     await expect(window.locator('text=E2E Test Plugin').first()).toBeVisible({ timeout: 5000 })
 
     // Enable it → the sandbox must send 'ready' back over the MessageChannel.
     // Before the RPC fix, activation threw DataCloneError and the badge showed
     // "错误" instead of "已启用" (the active badge label — 运行中 was renamed).
-    await window.locator('button', { hasText: '启用' }).first().click()
+    await pluginSection.locator('button', { hasText: '启用' }).first().click()
     await expect(window.locator('text=已启用').first()).toBeVisible({ timeout: 8000 })
 
     await app.close()

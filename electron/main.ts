@@ -1459,6 +1459,11 @@ function registerIpcHandlers(): void {
     }
   })
 
+  // Per-server connection state for the MCP management UI (MCP 管理中心)
+  ipcMain.handle('mcp:status', async () => {
+    return mcp.getStatus()
+  })
+
   // ───────────────────── Usage statistics ─────────────────────
   ipcMain.handle(IPC_CHANNELS.USAGE_RECORD, (_event, events: UsageEvent[]) => {
     try {

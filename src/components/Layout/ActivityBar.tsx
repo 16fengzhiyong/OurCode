@@ -6,11 +6,10 @@ export default function ActivityBar() {
   const activeSidebarTab = useUIStore((s) => s.activeSidebarTab)
   const setActiveSidebarTab = useUIStore((s) => s.setActiveSidebarTab)
   const toggleSidebar = useUIStore((s) => s.toggleSidebar)
-  const openMarketplace = useUIStore((s) => s.openMarketplace)
   const isSidebarVisible = useUIStore((s) => s.isSidebarVisible)
   const t = useI18n()
 
-  const topIcons: Array<{ key: 'files' | 'git' | 'changes' | 'agent' | 'usage' | 'skills' | 'extensions'; titleKey: TranslationKey; icon: JSX.Element }> = [
+  const topIcons: Array<{ key: 'files' | 'git' | 'changes' | 'agent' | 'usage' | 'skills' | 'mcp'; titleKey: TranslationKey; icon: JSX.Element }> = [
     {
       key: 'files',
       titleKey: 'activityBar.explorer' as TranslationKey,
@@ -80,15 +79,11 @@ export default function ActivityBar() {
       ),
     },
     {
-      key: 'extensions',
-      titleKey: 'activityBar.extensions' as TranslationKey,
+      key: 'mcp',
+      titleKey: 'activityBar.mcp' as TranslationKey,
       icon: (
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <rect x="2" y="2" width="8" height="8" rx="1.2" />
-          <rect x="14" y="2" width="8" height="8" rx="1.2" />
-          <rect x="2" y="14" width="8" height="8" rx="1.2" />
-          <line x1="17" y1="14" x2="23" y2="14" />
-          <line x1="20" y1="11" x2="20" y2="17" />
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
         </svg>
       ),
     },
@@ -120,15 +115,11 @@ export default function ActivityBar() {
   ]
 
   const handleClick = (key: string) => {
-    if (key === 'extensions') {
-      openMarketplace()
-      return
-    }
-    // Sidebar panels (file change history / agent tasks / usage / skills): switch tab
-    if (key === 'changes' || key === 'agent' || key === 'usage' || key === 'skills') {
+    // Sidebar panels (file change history / agent tasks / usage / skills / MCP): switch tab
+    if (key === 'changes' || key === 'agent' || key === 'usage' || key === 'skills' || key === 'mcp') {
       const ui = useUIStore.getState()
       if (!ui.isSidebarVisible) ui.toggleSidebar()
-      ui.setActiveSidebarTab(key as 'changes' | 'agent' | 'usage' | 'skills')
+      ui.setActiveSidebarTab(key as 'changes' | 'agent' | 'usage' | 'skills' | 'mcp')
       return
     }
     if (!isSidebarVisible) {

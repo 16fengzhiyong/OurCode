@@ -10,6 +10,7 @@ import {
   EndpointFormat,
 } from '@/services/llm/endpoints'
 import McpConfigSection from './McpConfigSection'
+import PluginSection from '../Plugin/PluginSection'
 
 // Accent color presets
 const THEME_COLOR_PRESETS = ['#2563eb', '#7c5cbf', '#059669', '#e11d48', '#f59e0b', '#0891b2']
@@ -970,18 +971,6 @@ export default function SettingsModal() {
                   功能入口
                 </h3>
                 <SettingRow
-                  label="插件市场"
-                  desc="浏览、安装和管理插件"
-                  right={
-                    <button
-                      onClick={() => { closeSettings(); useUIStore.getState().openMarketplace() }}
-                      className="px-3 py-1.5 text-xs text-nova-accent bg-nova-accent/10 hover:bg-nova-accent/20 rounded-md transition-colors"
-                    >
-                      打开
-                    </button>
-                  }
-                />
-                <SettingRow
                   label="技能管理"
                   desc="查看和启用 AI 技能（Slash 命令）"
                   right={
@@ -1005,6 +994,15 @@ export default function SettingsModal() {
                     </button>
                   }
                 />
+              </section>
+
+              {/* 插件（扩展） */}
+              <section className="flex flex-col gap-2">
+                <h3 className="flex items-center gap-2 text-[13px] font-semibold text-nova-text-primary uppercase tracking-wider">
+                  <span style={{ width: 3, height: 14, background: 'var(--accent)', borderRadius: 2 }} />
+                  插件（扩展）
+                </h3>
+                <PluginSection />
               </section>
 
               {/* 项目设置 */}

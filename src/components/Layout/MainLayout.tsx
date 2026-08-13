@@ -14,7 +14,6 @@ import QuickOpen from '../Sidebar/QuickOpen'
 import ContextMenu from '../Common/ContextMenu'
 import NotificationToasts from '../Common/NotificationToasts'
 import UnsavedDialog from '../Common/UnsavedDialog'
-import PluginMarketplace from '../Plugin/PluginMarketplace'
 import SkillRegistryModal from '../Skills/SkillRegistryModal'
 import ProblemsPanel from '../Editor/ProblemsPanel'
 import RecentFilesModal from '../Editor/RecentFilesModal'
@@ -140,7 +139,7 @@ export default function MainLayout() {
       // --- Fixed bindings (not part of the shortcut presets) ---
       if (matchesShortcut(e, 'Ctrl+Shift+X')) {
         e.preventDefault()
-        executeCommand('openMarketplace')
+        executeCommand('openMcpCenter')
         return
       }
 
@@ -301,7 +300,6 @@ export default function MainLayout() {
       {isQuickOpenOpen && rootPath && <QuickOpen rootPath={rootPath} />}
       {isRecentFilesOpen && <RecentFilesModal />}
       {contextMenu && <ContextMenu />}
-      <PluginMarketplace />
       <SkillRegistryModal />
       {isMemoryManagerOpen && <MemoryModal onClose={closeMemoryManager} currentProjectPath={currentProjectPath} />}
       <NotificationToasts />

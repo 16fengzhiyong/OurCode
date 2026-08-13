@@ -222,6 +222,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   mcpListPrompts: () => ipcRenderer.invoke('mcp:listPrompts'),
   mcpGetPrompt: (server: string, name: string, args?: Record<string, any>) =>
     ipcRenderer.invoke('mcp:getPrompt', server, name, args),
+  mcpStatus: () => ipcRenderer.invoke('mcp:status'),
 
   // App
   getPath: (name: string) => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_PATH, name),

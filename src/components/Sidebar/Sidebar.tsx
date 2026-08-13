@@ -4,6 +4,7 @@ import FileChangesPanel from './FileChangesPanel'
 import AgentTasksPanel from './AgentTasksPanel'
 import UsagePanel from './UsagePanel'
 import SkillPanel from '../Skills/SkillPanel'
+import McpPanel from '../Mcp/McpPanel'
 import GitPanel from '../Git/GitPanel'
 import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
@@ -29,8 +30,8 @@ export default function Sidebar() {
         return t('agent.tasksPanelTitle')
       case 'usage':
         return t('usage.panelTitle')
-      case 'extensions':
-        return '扩展'
+      case 'mcp':
+        return 'MCP 服务器'
       case 'skills':
         return t('skillPanel.title')
       default:
@@ -88,12 +89,17 @@ export default function Sidebar() {
         </svg>
       )
     }
-    if (activeSidebarTab === 'extensions') {
+    if (activeSidebarTab === 'skills') {
       return (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <rect x="2" y="2" width="8" height="8" rx="1.2" /><rect x="14" y="2" width="8" height="8" rx="1.2" />
-          <rect x="2" y="14" width="8" height="8" rx="1.2" />
-          <line x1="17" y1="14" x2="23" y2="14" /><line x1="20" y1="11" x2="20" y2="17" />
+        <svg width="14" height="14" viewBox="0 0 1024 1024" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+          <path d="M823.296 64.96l135.744 135.744-769.28 769.28-135.808-135.68L823.296 64.96z m0 108.544L162.432 834.24l27.2 27.136L850.432 200.704l-27.2-27.2zM803.2 512a15.68 15.68 0 0 1 15.232 14.336 146.88 146.88 0 0 0 127.68 133.12 15.68 15.68 0 0 1-0.64 31.232 146.752 146.752 0 0 0-133.12 127.744 15.68 15.68 0 0 1-31.104-0.64 146.816 146.816 0 0 0-127.488-133.184 15.68 15.68 0 0 1 0.64-31.232 146.752 146.752 0 0 0 132.992-127.744 15.68 15.68 0 0 1 12.032-13.248l3.84-0.384z m-576-448a15.68 15.68 0 0 1 15.232 14.336 146.88 146.88 0 0 0 127.68 133.12 15.68 15.68 0 0 1-0.64 31.232 146.752 146.752 0 0 0-133.12 127.744 15.68 15.68 0 0 1-31.104-0.64 146.816 146.816 0 0 0-127.488-133.184 15.68 15.68 0 0 1 0.64-31.232 146.752 146.752 0 0 0 132.992-127.744 15.68 15.68 0 0 1 12.032-13.248L227.328 64z m282.624 0a10.24 10.24 0 0 1 10.496 8.832c3.328 23.36 22.4 41.216 45.952 42.944a10.24 10.24 0 0 1 0.64 20.48 50.112 50.112 0 0 0-42.944 45.888 10.24 10.24 0 0 1-20.48 0.64 50.112 50.112 0 0 0-45.888-42.944 10.24 10.24 0 0 1-0.64-20.416 50.112 50.112 0 0 0 42.944-45.952 10.24 10.24 0 0 1 6.912-8.96L509.888 64z" />
+        </svg>
+      )
+    }
+    if (activeSidebarTab === 'mcp') {
+      return (
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
         </svg>
       )
     }
@@ -159,6 +165,8 @@ export default function Sidebar() {
           <UsagePanel />
         ) : activeSidebarTab === 'skills' ? (
           <SkillPanel />
+        ) : activeSidebarTab === 'mcp' ? (
+          <McpPanel />
         ) : null}
       </div>
     </div>

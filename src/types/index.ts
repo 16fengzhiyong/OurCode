@@ -147,6 +147,11 @@ export interface ElectronAPI {
   mcpGetConfig: (rootPath: string) => Promise<{ ok: boolean; config: { mcpServers: Record<string, any> }; file: string | null; error?: string }>
   mcpSaveConfig: (rootPath: string, config: { mcpServers: Record<string, any> }, file?: string | null) => Promise<{ ok: boolean; file?: string; error?: string }>
   mcpToolDefinitions: () => Promise<import('@shared/types').ToolDefinition[]>
+  mcpStatus: () => Promise<Array<{ name: string; state: 'connecting' | 'ready' | 'failed' | 'restarting' | 'disabled' | 'stopped'; retry?: number; error?: string }>>
+  mcpListResources: () => Promise<Array<{ server: string; uri: string; name?: string; mimeType?: string; description?: string }>>
+  mcpReadResource: (server: string, uri: string) => Promise<{ ok: boolean; result?: string; error?: string }>
+  mcpListPrompts: () => Promise<Array<{ server: string; name: string; description?: string; arguments?: Array<{ name: string; description?: string; required?: boolean }> }>>
+  mcpGetPrompt: (server: string, name: string, args?: Record<string, any>) => Promise<{ ok: boolean; result?: any; error?: string }>
 
   // Usage statistics (skills / subagents / MCP / LLM)
   recordUsage: (events: import('@shared/types').UsageEvent[]) => Promise<{ ok: boolean; error?: string }>
