@@ -21,7 +21,7 @@ import type { ToolCall } from '@/services/tools/types'
 import { captureCheckpoint } from '@/services/checkpointService'
 import { buildSkillIndex, listSkills } from '@/services/skills/skillManager'
 import { loadAgentDefinition, SubagentGuard, resolveAllowedRoot } from '@/services/subagents/subagentDefinitions'
-import { subagentStatusLabel, mergeWriteScopes } from '@/services/subagents/subagentReport'
+import { subagentStatusLabel, mergeWriteScopes, resolveSubagentModel } from '@/services/subagents/subagentReport'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useEditorStore } from '@/stores/editorStore'
@@ -128,7 +128,7 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
   const configGroup = useConfigStore.getState().configGroups.find((g) => g.id === session?.configGroupId)
   // Model override (v2 §13.2): the target-mode envelope may pin a per-role
   // model; otherwise resolve from the session exactly as before.
-  const model = opts.model || session?.model || configGroup?.defaultModel || ''
+  const model = resolveSubagentModel(opts.model, session?.model, configGroup?.defaultModel)
 
   const executor = new ToolExecutor()
   await executor.refreshMcpTools()

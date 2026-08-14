@@ -46,3 +46,16 @@ export function mergeWriteScopes(
   if (!envelopeWrite || envelopeWrite.length === 0) return defWrite
   return [...(defWrite || []), ...envelopeWrite]
 }
+
+/**
+ * Subagent model resolution (v2 §10.5 / §13.4): the envelope's per-role model
+ * override wins, then the session model, then the config group default. Plain
+ * runs pass no override → identical to the pre-v2 resolution.
+ */
+export function resolveSubagentModel(
+  override: string | undefined,
+  sessionModel: string | undefined,
+  defaultModel: string | undefined,
+): string {
+  return override || sessionModel || defaultModel || ''
+}

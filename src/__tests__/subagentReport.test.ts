@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { subagentStatusLabel, mergeWriteScopes } from '@/services/subagents/subagentReport'
+import { subagentStatusLabel, mergeWriteScopes, resolveSubagentModel } from '@/services/subagents/subagentReport'
 import { SubagentGuard } from '@/services/subagents/subagentDefinitions'
 
 describe('subagentStatusLabel (v2 §11.3 — report first line from the runner state machine)', () => {
@@ -48,6 +48,19 @@ describe('mergeWriteScopes (v2 §11.2 — envelope files_to_modify → run write
     expect(mergeWriteScopes(['.ourcode/targemode'], ['src/a.ts', 'src/b.ts']))
       .toEqual(['.ourcode/targemode', 'src/a.ts', 'src/b.ts'])
     expect(mergeWriteScopes(undefined, ['src/a.ts'])).toEqual(['src/a.ts'])
+  })
+})
+
+describe('resolveSubagentModel (v2 §10.5 — override > session > default)', () => {
+  it('prefers the envelope override, then session, then default', () => {
+    expect(resolveSubagentModel('gpt-4o', 'claude', 'gemini')).toBe('gpt-4o')
+    expect(resolveSubagentModel(undefined, 'claude', 'gemini')).toBe('claude')
+    expect(resolveSubagentModel(undefined, undefined, 'gemini')).toBe('gemini')
+    expect(resolveSubagentModel(undefined, undefined, undefined)).toBe('')
+  })
+
+  it('plain runs pass no override → resolution is unchanged', () => {
+    expect(resolveSubagentModel(undefined, 'session-model', undefined)).toBe('session-model')
   })
 })
 
