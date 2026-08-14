@@ -42,11 +42,13 @@ describe('parseAgentFrontmatter', () => {
 describe('loadAgentDefinition', () => {
   const root = 'C:/workspace'
   const agentFile = `${root}/.ourcode/agents/code-reviewer.md`
+  const testerFile = `${root}/.ourcode/agents/tm-tester.md`
 
   const mockApi = {
     listDir: vi.fn(async (dir: string) => {
       if (dir === `${root}/.ourcode/agents`) {
-        return [{ name: 'code-reviewer.md', isDirectory: false, isHidden: false }]
+        return [{ name: 'code-reviewer.md', isDirectory: false, isHidden: false },
+                { name: 'tm-tester.md', isDirectory: false, isHidden: false }]
       }
       if (dir === 'C:/userData/agents') return []
       return []
@@ -62,6 +64,16 @@ describe('loadAgentDefinition', () => {
           'maxIterations: 4',
           '---',
           '只读审查。',
+        ].join('\n'),
+        [testerFile]: [
+          '---',
+          'name: tm-tester',
+          'description: 测试',
+          'tools: [read_file, write_file, run_command]',
+          'allowedWritePaths: [.ourcode/targemode, tests]',
+          'maxIterations: 6',
+          '---',
+          '独立验证。',
         ].join('\n'),
       }
       return { content: files[path] || '', encoding: 'utf-8' }
@@ -99,6 +111,26 @@ describe('loadAgentDefinition', () => {
     expect(def.name).toBe('ghost-agent')
     expect(def.systemPrompt).toContain('ghost-agent')
     expect(def.tools).toBeUndefined()
+  })
+
+  it('parses allowedWritePaths from frontmatter (target-mode roles)', async () => {
+    const def = await loadAgentDefinition('tm-tester', root)
+    expect(def.source).toBe('workspace')
+    expect(def.allowedWritePaths).toEqual(['.ourcode/targemode', 'tests'])
+    expect(def.allowedReadPaths).toBeUndefined()
+  })
+
+  it('provides target-mode strong-boundary builtins as no-config fallback', async () => {
+    const ra = await loadAgentDefinition('requirement-analyst', 'C:/other-root')
+    expect(ra.source).toBe('builtin')
+    expect(ra.allowedWritePaths).toEqual(['.ourcode/targemode'])
+    expect(ra.tools).toContain('read_file')
+    expect(ra.tools).not.toContain('delete_file')
+
+    const tester = await loadAgentDefinition('tester', 'C:/other-root')
+    expect(tester.allowedWritePaths).toBeDefined()
+    expect(tester.tools).toContain('run_command')
+    expect(tester.tools).not.toContain('submit_plan')
   })
 })
 
@@ -193,6 +225,63 @@ describe('SubagentGuard — permission isolation', () => {
   it('does not path-scope tools without a path argument', () => {
     const guard = base()
     expect(guard.checkCall('read_file', {})).toBeNull()
+  })
+})
+
+describe('SubagentGuard — read/write path separation (target-mode strong-boundary roles)', () => {
+  function writeScopeGuard(over: Record<string, any> = {}) {
+    const def = {
+      name: 'tester',
+      description: '',
+      systemPrompt: 'x',
+      tools: ['read_file', 'read_multiple_files', 'write_file', 'edit_file', 'multi_edit_file', 'run_command'],
+      allowedWritePaths: ['tests', '.ourcode/targemode'],
+      source: 'builtin' as const,
+      ...over,
+    }
+    return new SubagentGuard(def, 'C:/workspace')
+  }
+
+  it('write tools are scoped to allowedWritePaths; reads stay unrestricted', () => {
+    const guard = writeScopeGuard()
+    expect(guard.checkCall('write_file', { path: 'C:/workspace/tests/a.test.ts' })).toBeNull()
+    expect(guard.checkCall('edit_file', { path: 'C:/workspace/src/business.ts' })).toContain('超出')
+    // no allowedReadPaths / allowedPaths → reads anywhere
+    expect(guard.checkCall('read_file', { path: 'C:/workspace/src/business.ts' })).toBeNull()
+    expect(guard.checkCall('read_file', { path: 'D:/elsewhere/x.ts' })).toBeNull()
+  })
+
+  it('multi_edit_file batch paths are checked against the write scope', () => {
+    const guard = writeScopeGuard()
+    expect(guard.checkCall('multi_edit_file', { edits: [{ path: 'C:/workspace/tests/a.test.ts' }] })).toBeNull()
+    expect(guard.checkCall('multi_edit_file', { edits: [{ path: 'C:/workspace/src/business.ts' }] })).toContain('超出')
+  })
+
+  it('run_command cwd follows the read/execute scope — tester can run at project root', () => {
+    const guard = writeScopeGuard()
+    // read scope unrestricted → no cwd requirement
+    expect(guard.checkCall('run_command', { command: 'npm test', cwd: 'C:/workspace' })).toBeNull()
+  })
+
+  it('explicit allowedReadPaths narrows reads and run_command cwd', () => {
+    const guard = writeScopeGuard({ allowedReadPaths: ['src'] })
+    expect(guard.checkCall('read_file', { path: 'C:/workspace/src/business.ts' })).toBeNull()
+    expect(guard.checkCall('read_file', { path: 'C:/workspace/tests/a.test.ts' })).toContain('超出')
+    expect(guard.checkCall('run_command', { command: 'npm test', cwd: 'C:/workspace' })).toContain('超出')
+    expect(guard.checkCall('run_command', { command: 'npm test', cwd: 'C:/workspace/src' })).toBeNull()
+  })
+
+  it('definitions without the new fields keep the unified allowedPaths behavior', () => {
+    const guard = new SubagentGuard({
+      name: 'x', description: '', systemPrompt: 'x', source: 'builtin',
+      allowedPaths: ['src'],
+    }, 'C:/workspace')
+    expect(guard.checkCall('read_file', { path: 'C:/workspace/src/a.ts' })).toBeNull()
+    expect(guard.checkCall('write_file', { path: 'C:/workspace/src/a.ts' })).toBeNull()
+    expect(guard.checkCall('write_file', { path: 'C:/workspace/tests/a.ts' })).toContain('超出')
+    // run_command still requires cwd inside allowedPaths (original behavior)
+    expect(guard.checkCall('run_command', { command: 'x', cwd: 'C:/workspace' })).toContain('超出')
+    expect(guard.checkCall('run_command', { command: 'x', cwd: 'C:/workspace/src' })).toBeNull()
   })
 })
 

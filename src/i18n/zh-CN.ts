@@ -303,6 +303,7 @@ export const zhCN = {
   'chat.targetModeFirstHint': '目标模式为实验性功能：AI 将自主运行并持续消耗 token，可能产生较多用量，请谨慎使用',
   'chat.targetModeExclusive': '同一项目下已有目标模式在运行，请先关闭后再开启',
   'chat.targetModePlaceholder': '请输入最终目标或你的想法',
+  'chat.targetModeBudgetExceeded': '目标模式全局预算已触顶，已停止自主续跑',
   'chat.arenaCompare': 'Arena 模型对比',
   'chat.workflows': '工作流',
   'chat.memory': '记忆管理',

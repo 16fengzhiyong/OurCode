@@ -104,6 +104,7 @@ export default function ChatPanel() {
   const updateSessionParams = useChatStore((s) => s.updateSessionParams)
   const setTargetMode = useChatStore((s) => s.setTargetMode)
   const targetModeStatus = useChatStore((s) => s.targetModeStatus)
+  const subagentProgress = useChatStore((s) => s.subagentProgress)
   const refreshTargetModeStatus = useChatStore((s) => s.refreshTargetModeStatus)
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
   const models = useConfigStore((s) => s.models)
@@ -128,6 +129,15 @@ export default function ChatPanel() {
   const agentMode = activeSession?.agentMode || 'chat'
   const projectEditMode = activeSession?.projectEditMode || 'confirm_before_change'
   const targetMode = activeSession?.targetMode === true
+  // Current active role for the target-mode badge (v2 改动5): the newest
+  // subagent activity for this session — a running one wins over finished ones.
+  const activeTargetRole = targetMode && activeSession
+    ? (() => {
+        const entries = Object.values(subagentProgress).filter((p) => p.sessionId === activeSession.id)
+        if (entries.length === 0) return ''
+        return (entries.find((p) => p.status === 'running') || entries[entries.length - 1]).name
+      })()
+    : ''
   // Same resolution as the agent loop (`session.model || group.defaultModel`) —
   // previously the pill fell back to nothing when session.model was empty,
   // showing "选择模型" while the conversation actually ran on the default model.
@@ -374,6 +384,9 @@ export default function ChatPanel() {
                       {targetMode ? t('chat.targetModeOn') : t('chat.targetModeOff')}
                       {targetMode && statusBadge(targetModeStatus) && (
                         <span className="ml-1 text-green-300 font-medium">{statusBadge(targetModeStatus)}</span>
+                      )}
+                      {targetMode && activeTargetRole && (
+                        <span className="ml-1 text-green-300/80 font-medium">· {activeTargetRole}</span>
                       )}
                     </button>
                   )}

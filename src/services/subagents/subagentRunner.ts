@@ -20,7 +20,7 @@ import { ToolExecutor } from '@/services/tools'
 import type { ToolCall } from '@/services/tools/types'
 import { captureCheckpoint } from '@/services/checkpointService'
 import { buildSkillIndex, listSkills } from '@/services/skills/skillManager'
-import { loadAgentDefinition, SubagentGuard } from '@/services/subagents/subagentDefinitions'
+import { loadAgentDefinition, SubagentGuard, resolveAllowedRoot } from '@/services/subagents/subagentDefinitions'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useEditorStore } from '@/stores/editorStore'
@@ -59,6 +59,17 @@ export interface SubAgentOptions {
   /** Abort signal of the parent run — the user's Stop button cancels the
    *  subagent (checked between stream chunks and tool executions). */
   abortSignal?: AbortSignal
+  // ── Target-mode envelope overrides (v2, §13.2) ──
+  // All optional — absent ⇒ the run behaves exactly like a plain run_subagent.
+  // The ToolRegistry target-mode fork is the only caller that sets them.
+  /** Model override (role model declared by the task envelope). */
+  model?: string
+  /** Write the full report to this path and return a short summary instead. */
+  reportPath?: string
+  /** Extra write scopes for this run (envelope files_to_modify → hard isolation). */
+  writePaths?: string[]
+  /** Prepend a machine-readable `状态: ...` first line to the returned report. */
+  statusLine?: boolean
 }
 
 /** Build the subagent's system prompt: definition role + environment + current file + skills */
@@ -114,7 +125,9 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
 
   const session = useChatStore.getState().sessions.find((s) => s.id === opts.sessionId)
   const configGroup = useConfigStore.getState().configGroups.find((g) => g.id === session?.configGroupId)
-  const model = session?.model || configGroup?.defaultModel || ''
+  // Model override (v2 §13.2): the target-mode envelope may pin a per-role
+  // model; otherwise resolve from the session exactly as before.
+  const model = opts.model || session?.model || configGroup?.defaultModel || ''
 
   const executor = new ToolExecutor()
   await executor.refreshMcpTools()
@@ -123,7 +136,7 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
   await executor.refreshSkillTools(opts.projectPath)
   executor.setSessionContext(opts.sessionId, opts.projectPath)
 
-  const recordEvent = (event: Partial<UsageEvent>) => {
+  const recordEvent = (event: Partial<UsageEvent>, tokens = 0) => {
     const full: UsageEvent = {
       id: uuidv4(),
       category: 'subagent',
@@ -137,7 +150,15 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
       ...event,
     }
     window.electronAPI.recordUsage([full]).catch(() => { /* stats are best-effort */ })
-    window.dispatchEvent(new CustomEvent('ourcode:usage-recorded'))
+    // Target-mode budget fuse payload (v2 §13.3): per-session tokens for
+    // TARGET-MODE sessions only — budget.ts accumulates these; other listeners
+    // (usage dashboard) ignore the detail.
+    const tmSession = tokens > 0
+      ? useChatStore.getState().sessions.some((s) => s.id === opts.sessionId && s.targetMode === true)
+      : false
+    window.dispatchEvent(new CustomEvent('ourcode:usage-recorded', {
+      detail: tmSession ? { bySession: { [opts.sessionId]: { tokens, projectPath: opts.projectPath } } } : undefined,
+    }))
   }
 
   // No config group / model → cannot run
@@ -156,7 +177,15 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
     // permission guard. The definition drives role, tool allowlist, path scope,
     // iteration budget and token budget.
     const def = await loadAgentDefinition(opts.name, opts.projectPath)
-    const guard = new SubagentGuard(def, opts.projectPath)
+    // Envelope hard-isolation (v2 §11.2 / §13.2): files_to_modify from the task
+    // envelope becomes the write scope for THIS run, on top of the definition's
+    // own allowedWritePaths. Absent writePaths → the guard sees the definition
+    // exactly as-is (plain runs keep their original permission boundary).
+    const mergedWritePaths = opts.writePaths && opts.writePaths.length > 0
+      ? [...(def.allowedWritePaths || []), ...opts.writePaths]
+      : def.allowedWritePaths
+    const guardDef = mergedWritePaths !== def.allowedWritePaths ? { ...def, allowedWritePaths: mergedWritePaths } : def
+    const guard = new SubagentGuard(guardDef, opts.projectPath)
 
     const systemPrompt = await buildSubSystemPrompt(opts, def.systemPrompt)
     const messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; toolCalls?: LLMToolCall[]; toolCallId?: string }> = [
@@ -336,7 +365,7 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
       error: lastError || undefined,
       durationMs: Date.now() - startedAt,
       payload: { toolCallCount, fileChangeCount: changedPaths.size, tokensUsed, summary: finalText.slice(0, 500) },
-    })
+    }, tokensUsed)
 
     // Final progress state — the panel switches from the spinner to a
     // terminal status (✓ done / ✗ error / ⏹ stopped) but stays viewable.
@@ -346,7 +375,18 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
       tokenCount: tokensUsed,
     })
 
-    return [
+    // Machine-readable first line (v2 §11.3 / §13.2): generated by the runner's
+    // own state machine, never parsed from LLM text. Only when statusLine is
+    // enabled (target-mode envelope) — plain runs keep the original format.
+    // Mirrors the original report fallback: a run is only "incomplete/failed"
+    // when no final text was produced (tool errors the agent recovered from
+    // still count as done).
+    const hardError = !finalText && !!lastError
+    const incomplete = (hitTokenBudget || (iterationsLeft <= 0 && !lastError)) && !finalText
+    const statusLabel = aborted ? '阻塞' : hardError ? '失败' : incomplete ? '部分完成' : '完成'
+    const statusLineText = opts.statusLine ? `状态: ${statusLabel}` : ''
+
+    const fullReport = [
       `## 子智能体「${opts.name}」执行报告`,
       opts.description ? `**任务背景**: ${opts.description}` : '',
       `**工具调用**: ${toolCallCount} 次 · **修改文件**: ${changedPaths.size} 个${tokensUsed ? ` · **消耗 token**: ${tokensUsed}` : ''}`,
@@ -355,6 +395,24 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
       `**结果**:`,
       finalText,
     ].filter((l) => l !== '').join('\n')
+
+    // Full report to disk + short summary to the parent (v2 §10.3): the parent
+    // only needs the status line, a one-line summary and the file pointer.
+    // The envelope's report_path is resolved against the project root — the
+    // main-process path guard rejects relative paths.
+    if (opts.reportPath) {
+      const resolved = resolveAllowedRoot(opts.projectPath, opts.reportPath)
+      await window.electronAPI.writeFile(resolved, fullReport, 'utf-8').catch((err) => {
+        console.error('子智能体报告落盘失败:', resolved, err)
+      })
+      return [
+        statusLineText,
+        `**摘要**: 子智能体「${opts.name}」任务${statusLabel === '完成' ? '完成' : `未完全完成（${statusLabel}）`}，工具调用 ${toolCallCount} 次，修改 ${changedPaths.size} 个文件${tokensUsed ? `，消耗 ${tokensUsed} tokens` : ''}。`,
+        `**报告全文**: ${resolved}`,
+      ].filter((l) => l !== '').join('\n')
+    }
+
+    return [statusLineText, fullReport].filter((l) => l !== '').join('\n')
   } catch (error: any) {
     recordEvent({ ok: false, error: error.message, durationMs: Date.now() - startedAt })
     pushProgress({ status: 'error', error: error.message })

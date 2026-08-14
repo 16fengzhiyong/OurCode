@@ -5,6 +5,7 @@ import './styles/global.css'
 import { useEditorStore } from './stores/editorStore'
 import { DEFAULT_PREFERENCES } from './types'
 import { setLocale, resolveLocale, setSystemLocale, getSystemLocale, type LanguagePreference } from './i18n'
+import { installBudgetFuse } from './services/targetMode/budget'
 
 /**
  * Load persisted preferences + system locale BEFORE the first render so the
@@ -27,6 +28,9 @@ async function bootstrap(): Promise<void> {
     useEditorStore.getState().preferences.language as LanguagePreference,
     getSystemLocale(),
   ))
+  // Target-mode budget fuse (v2 §13.3): listens for usage-recorded events and
+  // accumulates per target-mode session; only consulted by target-mode auto-resume.
+  installBudgetFuse()
 
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>

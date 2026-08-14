@@ -2,6 +2,7 @@
  * Tool Registry - defines all tools available to the LLM
  */
 import { Tool, ToolDefinition } from './types'
+import type { SubAgentOptions } from '@/services/subagents/subagentRunner'
 
 export function createToolRegistry(): Tool[] {
   return [
@@ -385,8 +386,9 @@ export function createToolRegistry(): Tool[] {
       },
       execute: async (args, context) => {
         const { runSubAgent } = await import('@/services/subagents/subagentRunner')
-        return runSubAgent({
-          sessionId: context?.sessionId || '',
+        const sessionId = context?.sessionId || ''
+        const opts: SubAgentOptions = {
+          sessionId,
           projectPath: context?.projectPath || '',
           name: String(args.name || 'subagent'),
           task: String(args.prompt || ''),
@@ -395,7 +397,27 @@ export function createToolRegistry(): Tool[] {
           // and let the user's Stop button cancel the run.
           toolCallId: context?.toolCallId,
           abortSignal: context?.abortSignal,
-        })
+        }
+        // Target-mode fork (v2 §13.1): ONLY here is the task text interpreted
+        // as a task envelope. Plain run_subagent tasks are never parsed — the
+        // shared runner stays a dumb pipe, so normal agent mode is unaffected
+        // even when a task happens to start with `---`.
+        if (sessionId) {
+          const { useChatStore } = await import('@/stores/chatStore')
+          const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+          if (session?.targetMode) {
+            const { parseEnvelope } = await import('@/services/targetMode/envelope')
+            const envelope = parseEnvelope(opts.task)
+            if (envelope) {
+              if (envelope.to) opts.name = envelope.to
+              if (envelope.model) opts.model = envelope.model
+              opts.writePaths = envelope.filesToModify
+              if (envelope.reportPath) opts.reportPath = envelope.reportPath
+              opts.statusLine = true
+            }
+          }
+        }
+        return runSubAgent(opts)
       },
       requiresApproval: true,
     },

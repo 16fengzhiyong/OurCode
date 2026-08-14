@@ -306,6 +306,7 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.targetModeFirstHint': 'Target mode is experimental: the AI runs autonomously and keeps consuming tokens, which may add up — use with care',
   'chat.targetModeExclusive': 'Target mode is already running for this project — close it before enabling another',
   'chat.targetModePlaceholder': 'Enter your final goal or thoughts',
+  'chat.targetModeBudgetExceeded': 'Target-mode global budget reached — auto-resume stopped',
   'chat.arenaCompare': 'Arena Model Comparison',
   'chat.workflows': 'Workflows',
   'chat.memory': 'Memories',

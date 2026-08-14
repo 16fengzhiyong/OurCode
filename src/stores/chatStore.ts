@@ -7,6 +7,7 @@ import { useMemoryStore } from './memoryStore'
 import { useUIStore } from './uiStore'
 import { getLastModelForGroup } from './configStore'
 import { TARGET_MODE_INSTRUCTION } from './targetModeInstruction'
+import { budgetExceeded, getBudgetUsage } from '@/services/targetMode/budget'
 import { ensureInitialized, readStatus, readStatusText, parseStatus, TargetModeStatus } from '@/services/targetMode/targetModeService'
 import { t } from '@/i18n'
 import { getFileContent } from '@/editor/modelRegistry'
@@ -1711,6 +1712,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
   continueGeneration: async (sessionId) => {
     // One loop per session — refuse to double-start a session that is running
     if (!sessionId || get().runningSessionIds.includes(sessionId)) return
+    // Target-mode budget fuse (v2 §11.4 / §13.3): the main loop itself is
+    // untouched — only the auto-resume path is gated. Normal chat / agent
+    // sessions never hit this branch (budget tracks target-mode sessions only).
+    const tmSession = get().sessions.find((s) => s.id === sessionId)
+    if (tmSession?.targetMode && budgetExceeded(sessionId)) {
+      const { used, limit } = getBudgetUsage(sessionId)
+      useUIStore.getState().showNotification(t('chat.targetModeBudgetExceeded'), 'warning')
+      get().addMessage(sessionId, {
+        role: 'assistant',
+        content:
+          `[目标模式全局预算已触顶（${used.toLocaleString()} / ${limit.toLocaleString()} tokens），已停止自主续跑。` +
+          '可修改 .ourcode/targemode/budget.md 提高上限后点击"继续"。]',
+      })
+      return
+    }
     const resumeRunId = get().activeRuns[sessionId]?.runId
     await runAgentLoop(sessionId, { resumeRunId })
   },
@@ -2324,7 +2340,23 @@ function makeLlmUsageEvent(opts: {
 function flushUsageEvents(events: UsageEvent[]): void {
   if (!events || events.length === 0) return
   window.electronAPI.recordUsage(events).catch(() => { /* stats are best-effort */ })
-  window.dispatchEvent(new CustomEvent('ourcode:usage-recorded'))
+  // Target-mode budget fuse payload (v2 §13.3): per-session token totals for
+  // TARGET-MODE sessions only — budget.ts accumulates these; other listeners
+  // (usage dashboard) ignore the detail.
+  const bySession: Record<string, { tokens: number; projectPath: string }> = {}
+  for (const e of events) {
+    if (!e.sessionId || !e.projectPath) continue
+    if (!useChatStore.getState().sessions.some((s) => s.id === e.sessionId && s.targetMode === true)) continue
+    const tokens = (e.tokensIn || 0) + (e.tokensOut || 0)
+    if (tokens <= 0) continue
+    const prev = bySession[e.sessionId]
+    bySession[e.sessionId] = prev
+      ? { tokens: prev.tokens + tokens, projectPath: e.projectPath }
+      : { tokens, projectPath: e.projectPath }
+  }
+  window.dispatchEvent(new CustomEvent('ourcode:usage-recorded', {
+    detail: Object.keys(bySession).length > 0 ? { bySession } : undefined,
+  }))
 }
 
 /**

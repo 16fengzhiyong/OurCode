@@ -29,9 +29,12 @@ export const CONTROL_TOOLS = new Set([
 ])
 
 /** Tools whose `path` argument must stay inside allowedPaths (when configured). */
-const PATH_TOOLS = new Set([
-  'read_file', 'write_file', 'edit_file', 'delete_file', 'create_directory',
-  'list_directory', 'get_directory_tree', 'search_files', 'search_in_files',
+const WRITE_PATH_TOOLS = new Set([
+  'write_file', 'edit_file', 'delete_file', 'create_directory', 'multi_edit_file',
+])
+const READ_PATH_TOOLS = new Set([
+  'read_file', 'read_multiple_files', 'list_directory', 'get_directory_tree',
+  'search_files', 'search_in_files',
 ])
 
 export interface SubAgentDefinition {
@@ -43,6 +46,16 @@ export interface SubAgentDefinition {
   tools?: string[]
   /** Paths (relative to the project root, or absolute) the subagent may touch. */
   allowedPaths?: string[]
+  /**
+   * Read/write path separation (optional, target-mode strong-boundary roles).
+   * When either is declared, write tools are checked against `allowedWritePaths`
+   * and read tools against `allowedReadPaths ?? allowedPaths`, so a role can
+   * "read broadly, write narrowly" (e.g. tester reads the whole repo but only
+   * writes test files). Definitions that declare neither keep the original
+   * unified `allowedPaths` behavior — byte-identical for existing roles.
+   */
+  allowedWritePaths?: string[]
+  allowedReadPaths?: string[]
   /** Substrings that block a run_command invocation (e.g. 'rm -rf'). */
   blockedCommands?: string[]
   maxIterations?: number
@@ -89,6 +102,43 @@ export const BUILTIN_AGENTS: Record<string, Omit<SubAgentDefinition, 'name' | 's
     ],
     maxIterations: 8,
     temperature: 0.2,
+  },
+  // ── Target-mode strong-boundary roles (v2) ──
+  // These two are the no-config fallbacks; the editable copies live in the
+  // workspace as .ourcode/agents/tm-*.md (written by targetModeService). The
+  // guard boundary is enforced in CODE via allowedWritePaths + read/write
+  // separation — "physical inability" rather than prompt discipline.
+  'requirement-analyst': {
+    description: '需求分析师（目标模式）',
+    systemPrompt:
+      '你是「requirement-analyst」子智能体，负责澄清目标、产出可验证的检查清单与实施方案。' +
+      '你只写 .ourcode/targemode/ 下的文档，绝不修改业务代码。' +
+      '产出必须结构化：需求条目、检查清单（每项标注可验证性类别 auto=可机器验证 / code=需代码审查 / manual=需人工确认）、假设与待确认项。',
+    tools: [
+      'read_file', 'read_multiple_files', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files',
+      'write_file', 'edit_file', 'create_directory',
+    ],
+    // 可读全仓（allowedReadPaths 未声明 → 读不限），只写目标模式状态目录。
+    allowedWritePaths: ['.ourcode/targemode'],
+    maxIterations: 8,
+    temperature: 0.1,
+  },
+  'tester': {
+    description: '独立测试验证（目标模式）',
+    systemPrompt:
+      '你是「tester」子智能体，负责独立验证实现是否满足验收标准。' +
+      '你只写测试文件与测试报告，绝不修改业务代码。' +
+      '报告必须逐条对照验收标准给出 通过/失败/缺陷，并引用证据（测试名 / 文件:行 / 命令输出），无证据的"通过"不计入。',
+    tools: [
+      'read_file', 'read_multiple_files', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files',
+      'write_file', 'edit_file', 'multi_edit_file', 'create_directory', 'delete_file', 'run_command',
+    ],
+    // 可读全仓（读不限），只写测试目录与目标模式报告目录。具体测试路径随项目
+    // 而异——由工作区 tm-tester.md 编辑，或由任务信封 files_to_modify 精确授予（v2.4）。
+    allowedWritePaths: ['.ourcode/targemode', 'src/__tests__', 'tests', 'test'],
+    maxIterations: 10,
+    maxTokensBudget: 120_000,
+    temperature: 0.1,
   },
 }
 
@@ -273,6 +323,8 @@ async function definitionFromFile(file: { path: string; name: string; source: 'w
     systemPrompt: parsed.systemPrompt,
     tools: fm.tools !== undefined ? parseArray(fm.tools) : undefined,
     allowedPaths: fm.allowedpaths !== undefined ? parseArray(fm.allowedpaths) : undefined,
+    allowedWritePaths: fm.allowedwritepaths !== undefined ? parseArray(fm.allowedwritepaths) : undefined,
+    allowedReadPaths: fm.allowedreadpaths !== undefined ? parseArray(fm.allowedreadpaths) : undefined,
     blockedCommands: fm.blockedcommands !== undefined ? parseArray(fm.blockedcommands) : undefined,
     maxIterations: fm.maxiterations !== undefined ? parseInt(fm.maxiterations, 10) || undefined : undefined,
     maxTokensBudget: fm.maxtokensbudget !== undefined ? parseInt(fm.maxtokensbudget, 10) || undefined : undefined,
@@ -336,8 +388,23 @@ export class SubagentGuard {
       return `工具 "${name}" 不在子智能体「${this.def.name}」的权限白名单中。可用的工具: ${this.def.tools.join(', ')}。`
     }
 
-    const allowedRoots = this.def.allowedPaths
-    if (allowedRoots && allowedRoots.length > 0 && PATH_TOOLS.has(name) && typeof args.path === 'string') {
+    // ── Path scoping ──
+    // Read/write separation (target-mode strong-boundary roles): a definition
+    // may declare allowedWritePaths (write scope) and/or allowedReadPaths (read
+    // scope). When neither is declared, every path tool shares the original
+    // unified allowedPaths scope — existing definitions behave byte-identically.
+    const separated = !!(this.def.allowedWritePaths || this.def.allowedReadPaths)
+    const scopeFor = (name: string): string[] | undefined => {
+      if (!separated) return this.def.allowedPaths
+      if (WRITE_PATH_TOOLS.has(name)) return this.def.allowedWritePaths ?? this.def.allowedPaths
+      // Read tools AND run_command (cwd = the role's read/execute scope) check
+      // the read scope — a test-runner must be able to run commands at the
+      // project root without extending its write scope there.
+      return this.def.allowedReadPaths ?? this.def.allowedPaths
+    }
+
+    const allowedRoots = scopeFor(name)
+    if (allowedRoots && allowedRoots.length > 0 && (WRITE_PATH_TOOLS.has(name) || READ_PATH_TOOLS.has(name)) && typeof args.path === 'string') {
       const roots = allowedRoots.map((r) => resolveAllowedRoot(this.projectPath, r))
       const ok = roots.some((root) => isPathWithin(root, args.path))
       if (!ok) {
