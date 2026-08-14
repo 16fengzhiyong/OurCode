@@ -26,6 +26,7 @@ import { useConfigStore } from '@/stores/configStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { getFileContent } from '@/editor/modelRegistry'
 import type { LLMToolCall, SubAgentProgress, SubAgentProgressStep, UsageEvent } from '@/types'
+import { resolveThinkingLevel, DEFAULT_MODEL_PARAMS } from '@/types'
 
 const MAX_SUBAGENT_ITERATIONS = 10
 const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory', 'multi_edit_file'])
@@ -171,6 +172,9 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
     let lastError = ''
     let hitTokenBudget = false
 
+    // 思考档位统一从 thinkingLevel 派生（旧会话回退，无会话时按默认 off）。
+    const thinkingLevel = resolveThinkingLevel(session?.modelParams ?? DEFAULT_MODEL_PARAMS)
+
     // Only the subagent's allowlisted tools reach its LLM (monotonic decay);
     // the auto-memory tool additionally respects the user's settings toggle.
     let toolDefinitions = executor.getToolDefinitions((name) => guard.toolAllowed(name))
@@ -193,8 +197,9 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
         topP: session?.modelParams.topP ?? 1.0,
         frequencyPenalty: session?.modelParams.frequencyPenalty ?? 0,
         presencePenalty: session?.modelParams.presencePenalty ?? 0,
-        thinking: session?.modelParams.thinking ?? false,
-        reasoningEffort: session?.modelParams.reasoningEffort ?? 'high',
+        // 思考档位统一从 thinkingLevel 派生（无会话时按默认 off/关闭）。
+        thinking: thinkingLevel !== 'off',
+        reasoningEffort: thinkingLevel !== 'off' ? thinkingLevel : undefined,
         tools: toolDefinitions,
       }
 

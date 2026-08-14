@@ -70,9 +70,10 @@ export class GeminiAdapter implements LLMAdapter {
     }
 
     // Deep thinking: Gemini reasoning models use thinkingConfig.thinkingBudget
-    // (low/medium/high -> 2048/4096/8192 tokens). A budget > 0 enables thinking.
+    // (low/medium/high/max -> 2048/4096/8192/16384 tokens). A budget > 0 enables
+    // thinking.
     if (req.thinking) {
-      const effortBudgets = { low: 2048, medium: 4096, high: 8192 }
+      const effortBudgets = { low: 2048, medium: 4096, high: 8192, max: 16384 }
       body.generationConfig.thinkingConfig = { thinkingBudget: effortBudgets[req.reasoningEffort || 'high'] }
     }
 

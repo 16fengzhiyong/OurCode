@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, UsageEvent, SubAgentProgress, AgentRunPhase } from '@/types'
+import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, UsageEvent, SubAgentProgress, AgentRunPhase, resolveThinkingLevel } from '@/types'
 import { TOOL_ALLOWLIST_PREFIX } from '@shared/constants'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
@@ -2536,6 +2536,33 @@ async function runAgentLoop(
     }
   }
 
+  // Compaction's budget check must estimate the request the model ACTUALLY
+  // receives, or the trigger fires at the wrong time:
+  // - Old oversized tool results are compacted BEFORE the check (the loop's
+  //   compactToolResults is idempotent, so proactive and force paths — and the
+  //   estimate and the request — all agree on the same compacted view).
+  // - Tool schemas ride on the request body OUTSIDE the messages array; without
+  //   counting them as overhead the estimate undercounts the real request by
+  //   the full schema size, delaying compaction until the provider overflows.
+  // - The ratio's headroom covers a plain reply; thinking models can emit far
+  //   more, so a thinking session reserves extra output headroom up front.
+  messages = compactToolResults(messages)
+  const compactionWindow = getContextWindow(model)
+  const overheadTokens = estimateTokens(JSON.stringify(
+    toolExecutor.getToolDefinitions()
+      .filter((d) => useEditorStore.getState().preferences.aiAutoMemory || d.function.name !== 'remember'),
+  ))
+  // Unified thinking level (thinkingLevel selector, else thinking/reasoningEffort
+  // fallback) — a non-off level means this round can produce a long reasoning
+  // block, so reserve output headroom the ratio alone doesn't cover.
+  const thinkingLevel = resolveThinkingLevel(session.modelParams)
+  const outputReserve = thinkingLevel !== 'off'
+    ? Math.min(Math.max(
+        session.modelParams.maxTokens > 0 ? session.modelParams.maxTokens : Math.floor(compactionWindow * 0.2),
+        4096,
+      ), Math.floor(compactionWindow * 0.4))
+    : 0
+
   // Context compaction — trigger fires ONLY when the estimate confirms the
   // history exceeds the model's budget (same 80% headroom the trim uses), or
   // when the provider reported a context-overflow error (force, in the catch
@@ -2608,8 +2635,10 @@ async function runAgentLoop(
       messages,
       force,
       signal: abortController.signal,
-      contextWindow: getContextWindow(model),
+      contextWindow: compactionWindow,
       ratio: compactionPrefs.contextCompactionRatio ?? DEFAULT_COMPACTION_RATIO,
+      overheadTokens,
+      outputReserve,
       compactionEnabled,
       estimateTokens,
       summarize: summarizeHistory,
@@ -2805,6 +2834,9 @@ async function runAgentLoop(
       rememberRequestSignature(sessionId, requestSignature)
       const stablePrefixEstTokens = estimateTokens(stable) + estimateTokens(JSON.stringify(toolDefinitions))
 
+      // 统一思考档位（thinkingLevel）派生请求参数：max 在支持档位的 provider
+      // 上调满（Anthropic/Gemini 16384 预算），不支持的归一为 high。
+      const thinkingLevel = resolveThinkingLevel(session.modelParams)
       const req = {
         model,
         messages: messages.map((m) => ({
@@ -2819,8 +2851,8 @@ async function runAgentLoop(
         topP: session.modelParams.topP,
         frequencyPenalty: session.modelParams.frequencyPenalty,
         presencePenalty: session.modelParams.presencePenalty,
-        thinking: session.modelParams.thinking,
-        reasoningEffort: session.modelParams.reasoningEffort,
+        thinking: thinkingLevel !== 'off',
+        reasoningEffort: thinkingLevel !== 'off' ? thinkingLevel : undefined,
         tools: toolDefinitions,
       }
 

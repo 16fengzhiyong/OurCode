@@ -1,4 +1,4 @@
-import { LLMRequest, LLMStreamChunk, ApiConfigGroup, LLMToolCall } from '@/types'
+import { LLMRequest, LLMStreamChunk, ApiConfigGroup, LLMToolCall, normalizeReasoningEffort } from '@/types'
 import { LLMAdapter } from '../types'
 import { mapOpenAiUsage } from '../usage'
 import { llmFetch } from '../http'
@@ -52,7 +52,7 @@ export class GroqAdapter implements LLMAdapter {
     }
     // Deep thinking: Groq is OpenAI-compatible, reasoning models use `reasoning_effort`
     if (req.thinking) {
-      Object.assign(body, { reasoning_effort: req.reasoningEffort || 'high' })
+      Object.assign(body, { reasoning_effort: normalizeReasoningEffort(req.reasoningEffort) })
     }
 
     const response = await llmFetch(url, {

@@ -1,4 +1,4 @@
-import { ApiConfigGroup, LLMRequest, LLMStreamChunk, LLMToolCall } from '@/types'
+import { ApiConfigGroup, LLMRequest, LLMStreamChunk, LLMToolCall, normalizeReasoningEffort } from '@/types'
 import { LLMAdapter } from '../types'
 import { llmFetch } from '../http'
 import { buildChatUrl, buildModelsUrl } from '../endpoints'
@@ -43,7 +43,7 @@ export class ResponsesAdapter implements LLMAdapter {
 
     // Deep thinking: Responses API reasoning models use `reasoning: { effort }`
     if (req.thinking) {
-      body.reasoning = { effort: req.reasoningEffort || 'high' }
+      body.reasoning = { effort: normalizeReasoningEffort(req.reasoningEffort) }
     }
 
     const response = await llmFetch(url, {

@@ -116,6 +116,7 @@ export const DEFAULT_MODEL_PARAMS: ModelParams = {
   presencePenalty: 0,
   thinking: false,
   reasoningEffort: 'high',
+  thinkingLevel: 'off',
 }
 
 // Default User Preferences

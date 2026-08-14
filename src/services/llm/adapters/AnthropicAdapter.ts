@@ -211,9 +211,10 @@ export class AnthropicAdapter implements LLMAdapter {
       }
 
       // Deep thinking: Anthropic extended thinking maps effort to a token budget
-      // (low/medium/high -> 2048/4096/8192). max_tokens must stay above the budget.
+      // (off/low/medium/high/max -> 2048/4096/8192/16384). max_tokens must stay
+      // above the budget.
       if (req.thinking) {
-        const effortBudgets = { low: 2048, medium: 4096, high: 8192 }
+        const effortBudgets = { low: 2048, medium: 4096, high: 8192, max: 16384 }
         const budget = effortBudgets[req.reasoningEffort || 'high']
         body.thinking = { type: 'enabled', budget_tokens: budget }
         if (body.max_tokens <= budget) body.max_tokens = budget + 2048

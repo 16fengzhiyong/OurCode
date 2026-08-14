@@ -13,6 +13,7 @@ import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
 import { statusBadge } from '@/services/targetMode/targetModeService'
 import type { ChatSession } from '@/types'
+import { resolveThinkingLevel } from '@/types'
 
 function IconButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
   return (
@@ -100,6 +101,7 @@ export default function ChatPanel() {
   const createSession = useChatStore((s) => s.createSession)
   const setAgentMode = useChatStore((s) => s.setAgentMode)
   const setProjectEditMode = useChatStore((s) => s.setProjectEditMode)
+  const updateSessionParams = useChatStore((s) => s.updateSessionParams)
   const setTargetMode = useChatStore((s) => s.setTargetMode)
   const targetModeStatus = useChatStore((s) => s.targetModeStatus)
   const refreshTargetModeStatus = useChatStore((s) => s.refreshTargetModeStatus)
@@ -374,6 +376,26 @@ export default function ChatPanel() {
                         <span className="ml-1 text-green-300 font-medium">{statusBadge(targetModeStatus)}</span>
                       )}
                     </button>
+                  )}
+                  {/* 思考档位 — 目标模式与编辑模式之间：关闭/低/中/高/最高。
+                      关闭即不请求思考（reasoning 模型仍可能自行输出）；最高档在
+                      支持预算的 provider（Anthropic/Gemini）上调满 16384 token。 */}
+                  {effectiveAgentMode === 'agent' && (
+                    <select
+                      value={resolveThinkingLevel(activeSession.modelParams)}
+                      onChange={(e) =>
+                        updateSessionParams(activeSession.id, { thinkingLevel: e.target.value as 'off' | 'low' | 'medium' | 'high' | 'max' })
+                      }
+                      className="text-xs rounded-md px-2 py-1 border outline-none cursor-pointer transition-colors border-nova-border bg-nova-input-bg text-nova-text-primary hover:border-nova-accent focus:border-nova-accent"
+                      title={t('chat.thinkingLevelLabel')}
+                      style={{ backgroundImage: 'none' }}
+                    >
+                      <option value="off" title={t('chat.thinkingLevelOffHint')}>{t('chat.thinkingLevelOff')}</option>
+                      <option value="low" title={t('chat.thinkingLevelLowHint')}>{t('chat.thinkingLevelLow')}</option>
+                      <option value="medium" title={t('chat.thinkingLevelMediumHint')}>{t('chat.thinkingLevelMedium')}</option>
+                      <option value="high" title={t('chat.thinkingLevelHighHint')}>{t('chat.thinkingLevelHigh')}</option>
+                      <option value="max" title={t('chat.thinkingLevelMaxHint')}>{t('chat.thinkingLevelMax')}</option>
+                    </select>
                   )}
                   {effectiveAgentMode === 'agent' && (
                     <select

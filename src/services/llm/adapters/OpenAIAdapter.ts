@@ -1,4 +1,4 @@
-import { ApiConfigGroup, LLMRequest, LLMStreamChunk, LLMToolCall } from '@/types'
+import { ApiConfigGroup, LLMRequest, LLMStreamChunk, LLMToolCall, normalizeReasoningEffort } from '@/types'
 import { LLMAdapter } from '../types'
 import { mapOpenAiUsage, ParsedUsage } from '../usage'
 import { llmFetch } from '../http'
@@ -70,7 +70,7 @@ export class OpenAIAdapter implements LLMAdapter {
 
     // Deep thinking: OpenAI reasoning models (o-series) use `reasoning_effort`
     if (req.thinking) {
-      body.reasoning_effort = req.reasoningEffort || 'high'
+      body.reasoning_effort = normalizeReasoningEffort(req.reasoningEffort)
     }
 
     const response = await llmFetch(url, {

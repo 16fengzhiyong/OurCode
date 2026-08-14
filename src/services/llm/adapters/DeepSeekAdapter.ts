@@ -1,4 +1,4 @@
-import { LLMRequest, LLMStreamChunk, ApiConfigGroup, LLMToolCall } from '@/types'
+import { LLMRequest, LLMStreamChunk, ApiConfigGroup, LLMToolCall, normalizeReasoningEffort } from '@/types'
 import { LLMAdapter } from '../types'
 import { mapOpenAiUsage } from '../usage'
 import { llmFetch } from '../http'
@@ -54,7 +54,7 @@ export class DeepSeekAdapter implements LLMAdapter {
     if (req.thinking) {
       Object.assign(body, {
         thinking: { type: 'enabled' },
-        reasoning_effort: req.reasoningEffort || 'high',
+        reasoning_effort: normalizeReasoningEffort(req.reasoningEffort),
       })
     }
 

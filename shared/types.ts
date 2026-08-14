@@ -21,6 +21,11 @@ export interface ApiConfigGroup {
 }
 
 // Model Parameters
+/** 思考档位：关闭 / 低 / 中 / 高 / 最高。统一表达「是否思考 + 多努力思考」，
+ *  取代原先 thinking(boolean) + reasoningEffort 两个字段；旧会话无此字段时
+ *  由 resolveThinkingLevel 从 thinking/reasoningEffort 回退推导。 */
+export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'max'
+
 export interface ModelParams {
   temperature: number
   maxTokens: number
@@ -30,6 +35,22 @@ export interface ModelParams {
   // Deep thinking (reasoning models): toggle + effort level
   thinking: boolean
   reasoningEffort: 'low' | 'medium' | 'high'
+  /** 统一思考档位（优先于 thinking/reasoningEffort，见 resolveThinkingLevel）。 */
+  thinkingLevel?: ThinkingLevel
+}
+
+/** 解析一个 ModelParams 的有效思考档位：新会话直接读 thinkingLevel；旧会话
+ *  按 thinking(boolean) + reasoningEffort 回退（thinking=false → 'off'）。 */
+export function resolveThinkingLevel(p: ModelParams): ThinkingLevel {
+  if (p.thinkingLevel) return p.thinkingLevel
+  return p.thinking ? (p.reasoningEffort as ThinkingLevel) : 'off'
+}
+
+/** 把思考档位归一化为 OpenAI 系（DeepSeek/Groq/Responses/OpenAI）支持的最高档：
+ *  这些 provider 的 reasoning_effort 只有 low/medium/high，max → high。支持
+ *  预算档的 provider（Anthropic/Gemini）直接读 ThinkingLevel 的 max 档。 */
+export function normalizeReasoningEffort(e?: string): 'low' | 'medium' | 'high' {
+  return e === 'low' || e === 'medium' ? e : 'high'
 }
 
 // Chat Branch
@@ -450,7 +471,7 @@ export interface LLMRequest {
   tools?: ToolDefinition[]
   // Deep thinking (reasoning models); optional so non-chat request builders stay compatible
   thinking?: boolean
-  reasoningEffort?: 'low' | 'medium' | 'high'
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'max'
   /** Internal: emit provider prompt-caching markers (e.g. Anthropic cache_control).
    *  Set by the client when the user enabled prompt caching — not part of the
    *  cache key. */
