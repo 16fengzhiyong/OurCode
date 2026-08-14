@@ -406,15 +406,9 @@ export function createToolRegistry(): Tool[] {
           const { useChatStore } = await import('@/stores/chatStore')
           const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
           if (session?.targetMode) {
-            const { parseEnvelope } = await import('@/services/targetMode/envelope')
+            const { parseEnvelope, envelopeToOverrides } = await import('@/services/targetMode/envelope')
             const envelope = parseEnvelope(opts.task)
-            if (envelope) {
-              if (envelope.to) opts.name = envelope.to
-              if (envelope.model) opts.model = envelope.model
-              opts.writePaths = envelope.filesToModify
-              if (envelope.reportPath) opts.reportPath = envelope.reportPath
-              opts.statusLine = true
-            }
+            if (envelope) Object.assign(opts, envelopeToOverrides(envelope))
           }
         }
         return runSubAgent(opts)

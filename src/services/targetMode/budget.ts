@@ -63,6 +63,18 @@ export function budgetExceeded(sessionId: string): boolean {
   return !!s && s.used >= s.limit
 }
 
+/**
+ * Re-read the limit from budget.md — so raising the cap mid-run takes effect
+ * (the fuse checks this before each auto-resume attempt).
+ */
+export async function refreshBudgetLimit(sessionId: string): Promise<void> {
+  const s = budgets.get(sessionId)
+  if (!s) return
+  const limit = await readLimit(s.projectPath)
+  const cur = budgets.get(sessionId)
+  if (cur) cur.limit = limit
+}
+
 /** Current usage for the session (0 when never tracked) — surfaced to UI/audit. */
 export function getBudgetUsage(sessionId: string): { used: number; limit: number } {
   const s = budgets.get(sessionId)

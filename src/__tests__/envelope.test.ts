@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseEnvelope } from '@/services/targetMode/envelope'
+import { parseEnvelope, envelopeToOverrides } from '@/services/targetMode/envelope'
 
 describe('targetMode envelope', () => {
   it('parses a valid task envelope', () => {
@@ -63,5 +63,29 @@ report_path: .ourcode/targemode/agents/test_report.md
     expect(env!.fixAttempts).toBe(0)
     expect(env!.model).toBeUndefined()
     expect(env!.reportPath).toBeUndefined()
+  })
+})
+
+describe('envelopeToOverrides (v2 §13.1 — envelope → run_subagent options)', () => {
+  it('maps all envelope fields onto option overrides', () => {
+    const env = parseEnvelope(
+      '---\nto: tm-tester\nmodel: gpt-4o\nfiles_to_modify: [src/a.ts]\nreport_path: .ourcode/targemode/agents/r.md\n---\nx',
+    )!
+    expect(envelopeToOverrides(env)).toEqual({
+      name: 'tm-tester',
+      model: 'gpt-4o',
+      writePaths: ['src/a.ts'],
+      reportPath: '.ourcode/targemode/agents/r.md',
+      statusLine: true,
+    })
+  })
+
+  it('omits absent fields; empty files_to_modify does not tighten the write scope', () => {
+    const env = parseEnvelope('---\nto: dev\n---\nx')!
+    const o = envelopeToOverrides(env)
+    expect(o.statusLine).toBe(true)
+    expect(o.model).toBeUndefined()
+    expect(o.reportPath).toBeUndefined()
+    expect(o.writePaths).toBeUndefined()
   })
 })

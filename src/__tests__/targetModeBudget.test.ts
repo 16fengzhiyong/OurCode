@@ -63,4 +63,25 @@ describe('targetMode budget fuse', () => {
     const calls = (window.addEventListener as ReturnType<typeof vi.fn>).mock.calls
     expect(calls.filter((c) => c[0] === 'ourcode:usage-recorded')).toHaveLength(1)
   })
+
+  it('refreshBudgetLimit re-reads an updated budget.md limit mid-run', async () => {
+    const budget: Budget = await import('@/services/targetMode/budget')
+    budget.installBudgetFuse()
+    // initial limit from budget.md = 1000; used accumulates to 600
+    fire({ s1: { tokens: 600, projectPath: 'C:/w' } })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(budget.getBudgetUsage('s1').limit).toBe(1000)
+    expect(budget.budgetExceeded('s1')).toBe(false)
+
+    // user raises the cap to 5000 in budget.md → refresh takes effect
+    mockReadFile.mockImplementationOnce(async () => ({ content: '总消耗上限（tokens）：5000', encoding: 'utf-8' }))
+    await budget.refreshBudgetLimit('s1')
+    expect(budget.getBudgetUsage('s1').limit).toBe(5000)
+    expect(budget.budgetExceeded('s1')).toBe(false)
+
+    // and lowering it trips the fuse on the next resume check
+    mockReadFile.mockImplementationOnce(async () => ({ content: '总消耗上限（tokens）：100', encoding: 'utf-8' }))
+    await budget.refreshBudgetLimit('s1')
+    expect(budget.budgetExceeded('s1')).toBe(true)
+  })
 })

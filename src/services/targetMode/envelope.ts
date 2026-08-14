@@ -47,8 +47,7 @@ function parseList(raw?: string): string[] {
  * text is not an envelope: no frontmatter, or a frontmatter without the
  * envelope marker `to:` (a plain task that starts with `---` won't match).
  */
-export function parseEnvelope(task: string): TaskEnvelope | null {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(task || '')
+export function parseEnvelope(task: string): TaskEnvelope | null {  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(task || '')
   if (!m) return null
 
   const lines = m[1].split(/\r?\n/)
@@ -89,4 +88,27 @@ export function parseEnvelope(task: string): TaskEnvelope | null {
     reportPath: fm.report_path || undefined,
     prompt: task.slice(m[0].length).trim(),
   }
+}
+
+/** run_subagent option overrides derived from a parsed envelope (v2 §13.1). */
+export interface EnvelopeOverrides {
+  name?: string
+  model?: string
+  writePaths?: string[]
+  reportPath?: string
+  statusLine?: boolean
+}
+
+/**
+ * Map a parsed envelope onto run_subagent option overrides. Extracted so the
+ * ToolRegistry fork (the only caller) stays a thin gate: normal-mode sessions
+ * never reach it, and the mapping itself is unit-testable.
+ */
+export function envelopeToOverrides(envelope: TaskEnvelope): EnvelopeOverrides {
+  const o: EnvelopeOverrides = { statusLine: true }
+  if (envelope.to) o.name = envelope.to
+  if (envelope.model) o.model = envelope.model
+  if (envelope.filesToModify.length > 0) o.writePaths = envelope.filesToModify
+  if (envelope.reportPath) o.reportPath = envelope.reportPath
+  return o
 }

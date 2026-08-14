@@ -7,7 +7,7 @@ import { useMemoryStore } from './memoryStore'
 import { useUIStore } from './uiStore'
 import { getLastModelForGroup } from './configStore'
 import { TARGET_MODE_INSTRUCTION } from './targetModeInstruction'
-import { budgetExceeded, getBudgetUsage } from '@/services/targetMode/budget'
+import { budgetExceeded, getBudgetUsage, refreshBudgetLimit } from '@/services/targetMode/budget'
 import { ensureInitialized, readStatus, readStatusText, parseStatus, TargetModeStatus } from '@/services/targetMode/targetModeService'
 import { t } from '@/i18n'
 import { getFileContent } from '@/editor/modelRegistry'
@@ -1715,17 +1715,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Target-mode budget fuse (v2 §11.4 / §13.3): the main loop itself is
     // untouched — only the auto-resume path is gated. Normal chat / agent
     // sessions never hit this branch (budget tracks target-mode sessions only).
+    // The limit is re-read from budget.md first so a mid-run cap raise works.
     const tmSession = get().sessions.find((s) => s.id === sessionId)
-    if (tmSession?.targetMode && budgetExceeded(sessionId)) {
-      const { used, limit } = getBudgetUsage(sessionId)
-      useUIStore.getState().showNotification(t('chat.targetModeBudgetExceeded'), 'warning')
-      get().addMessage(sessionId, {
-        role: 'assistant',
-        content:
-          `[目标模式全局预算已触顶（${used.toLocaleString()} / ${limit.toLocaleString()} tokens），已停止自主续跑。` +
-          '可修改 .ourcode/targemode/budget.md 提高上限后点击"继续"。]',
-      })
-      return
+    if (tmSession?.targetMode) {
+      await refreshBudgetLimit(sessionId)
+      if (budgetExceeded(sessionId)) {
+        const { used, limit } = getBudgetUsage(sessionId)
+        useUIStore.getState().showNotification(t('chat.targetModeBudgetExceeded'), 'warning')
+        get().addMessage(sessionId, {
+          role: 'assistant',
+          content:
+            `[目标模式全局预算已触顶（${used.toLocaleString()} / ${limit.toLocaleString()} tokens），已停止自主续跑。` +
+            '可修改 .ourcode/targemode/budget.md 提高上限后点击"继续"。]',
+        })
+        return
+      }
     }
     const resumeRunId = get().activeRuns[sessionId]?.runId
     await runAgentLoop(sessionId, { resumeRunId })
