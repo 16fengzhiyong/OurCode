@@ -509,6 +509,10 @@ export const zhCN = {
   'chat.contextLabel': '上下文',
   'chat.contextOpenFiles': '+{count} 个打开文件',
   'chat.analyzing': '正在根据代码库分析…',
+  // 阶段感知的等待文案（chatStore.runPhaseBySession 驱动）
+  'chat.phasePreparing': '正在准备上下文…',
+  'chat.phaseCompacting': '正在压缩历史上下文…',
+  'chat.phaseWaiting': '正在等待模型响应…',
   'chat.idleWarning': '模型已长时间没有输出数据，仍在等待响应',
   'chat.idleCount': '已 {minutes} 分 {seconds} 秒无响应',
   'chat.toolStatReads': '已读 {n}',

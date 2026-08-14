@@ -110,6 +110,16 @@ export interface TodoItem {
 // (think/search/edit/execute/... get distinct icons, Windsurf-style)
 export type AgentToolKind = 'think' | 'search' | 'edit' | 'execute' | 'fetch' | 'switch_mode' | 'ask' | 'other'
 
+// Stage of a session's agent loop — drives the "正在…" placeholder in the chat
+// transcript so a silent wait shows what the app is actually doing (preparing
+// context / compacting history / waiting for the model's first token) instead
+// of a generic "analyzing the codebase" label.
+export type AgentRunPhase =
+  | 'preparing'  // refreshing tools / building system prompt / codebase retrieval
+  | 'compacting' // context-compaction summarizer LLM call (runs before the main request)
+  | 'waiting'    // LLM request sent, no token received yet (time-to-first-token)
+  | 'streaming'  // model output (content/thinking) is flowing
+
 // One executed tool call inside an agent run (transient, shown in AgentRunPanel)
 export interface AgentTraceEntry {
   id: string

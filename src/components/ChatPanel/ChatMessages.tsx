@@ -29,6 +29,11 @@ export default function ChatMessages() {
   // is viewing reacts to its own run; parallel sessions stream independently.
   const isThisSessionLoading = useChatStore((s) => !!activeSessionId && s.runningSessionIds.includes(activeSessionId))
   const stream = useChatStore((s) => (activeSessionId ? s.streamingBySession[activeSessionId] : undefined))
+  // Current agent-loop stage of this session (preparing / compacting / waiting
+  // / streaming) + when it started — the "正在…" placeholder below shows the
+  // real stage instead of a generic codebase-analysis label, with its own
+  // elapsed-seconds counter driven by the same `now` ticker as runElapsed.
+  const runPhase = useChatStore((s) => (activeSessionId ? s.runPhaseBySession[activeSessionId] : undefined))
   // The live agent run of this session — used to show how many seconds the
   // session has been running next to the "思考中…" pulse while it streams.
   const activeRun = useChatStore((s) => (activeSessionId ? s.activeRuns[activeSessionId] : undefined))
@@ -53,6 +58,9 @@ export default function ChatMessages() {
   // `now` ticker above drives it, so the counter updates every second.
   const liveRun = activeRun ? activeSession?.agentRuns?.find((r) => r.id === activeRun.runId) : undefined
   const runElapsed = liveRun ? Math.max(0, Math.floor((now - liveRun.startedAt) / 1000)) : 0
+  // Seconds the session has spent in its CURRENT stage (resets on each phase
+  // transition). For 'waiting' this is the model's time-to-first-token.
+  const phaseElapsed = runPhase ? Math.max(0, Math.floor((now - runPhase.since) / 1000)) : 0
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [showUndoToast, setShowUndoToast] = useState(false)
@@ -520,8 +528,16 @@ export default function ChatMessages() {
                   </div>
                   <span>{t('chat.thinking')}</span>
                 </div>
-                {/* 动作期状态反馈：搜索/读取代码库时给出明确加载文案，而非卡住 */}
-                <div className="pl-0.5 text-[11px] text-nova-text-muted/70">{t('chat.analyzing')}</div>
+                {/* 动作期状态反馈：真实阶段（准备上下文 / 压缩历史 / 等待模型首
+                    token）+ 该阶段已耗时，而非笼统的「正在根据代码库分析…」。
+                    无阶段时（理论上只有 loading 标记刚置位的瞬间）回落旧文案。 */}
+                <div className="pl-0.5 text-[11px] text-nova-text-muted/70">
+                  {runPhase?.phase === 'preparing' && t('chat.phasePreparing')}
+                  {runPhase?.phase === 'compacting' && t('chat.phaseCompacting')}
+                  {runPhase?.phase === 'waiting' && t('chat.phaseWaiting')}
+                  {(!runPhase || runPhase.phase === 'streaming') && t('chat.analyzing')}
+                  {phaseElapsed > 0 ? ` ${phaseElapsed}s` : ''}
+                </div>
               </div>
             ) : null}
           </div>

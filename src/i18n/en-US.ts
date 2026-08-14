@@ -512,6 +512,10 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.contextLabel': 'Context',
   'chat.contextOpenFiles': '+{count} more open',
   'chat.analyzing': 'Analyzing the codebase…',
+  // Stage-aware waiting labels (driven by chatStore.runPhaseBySession)
+  'chat.phasePreparing': 'Preparing context…',
+  'chat.phaseCompacting': 'Compacting history…',
+  'chat.phaseWaiting': 'Waiting for the model…',
   'chat.idleWarning': 'The model has not produced output for a while; still waiting for a response.',
   'chat.idleCount': 'No response for {minutes}m {seconds}s',
   'chat.toolStatReads': 'Read {n}',

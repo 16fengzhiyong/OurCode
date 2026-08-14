@@ -162,17 +162,307 @@ export async function writeFile(path: string, content: string): Promise<string> 
   return `File written: ${path}`
 }
 
+/* ═══════════════ Text-match engine (anchor self-healing) ═══════════════
+ * The edit tools are exact-text find/replace, but LLMs routinely emit oldText
+ * that no longer byte-matches the file (trailing whitespace, CRLF, smart
+ * quotes/dashes/NBSP, or a block that drifted). Instead of just failing:
+ *   - a normalized (fuzzy) match is applied only when UNIQUE, and reported;
+ *   - an ambiguous oldText (several matches, no context/replaceAll) is refused
+ *     with every occurrence listed — never a silent "first hit wins";
+ *   - a total miss reports the closest lines (near-miss hints) so the model
+ *     can retry with a corrected oldText without re-reading the whole file.
+ * multi_edit_file stays all-or-nothing: nothing is written unless every edit
+ * resolves (exact or unique fuzzy).
+ */
+
+/** Punctuation/whitespace variants folded during fuzzy matching: NBSP and
+ *  friends become plain spaces, smart quotes/dashes/ellipsis become ASCII. */
+const NORMALIZE_PUNCT: Record<string, string> = {
+  '\u00a0': ' ',
+  '\u2007': ' ',
+  '\u202f': ' ',
+  '\u3000': ' ',
+  '\u2018': "'",
+  '\u2019': "'",
+  '\u201c': '"',
+  '\u201d': '"',
+  '\u2013': '-',
+  '\u2014': '-',
+  '\u2015': '-',
+  '\u2026': '...',
+}
+
+/** Dominant line ending of `content` ('\n' for no-newline files). */
+function detectLineEnding(content: string): '\n' | '\r\n' {
+  const totalLf = content.split('\n').length - 1
+  if (totalLf === 0) return '\n'
+  const crlf = (content.match(/\r\n/g) || []).length
+  return crlf * 2 >= totalLf ? '\r\n' : '\n'
+}
+
+/** Re-write `text`'s line endings to match the file's dominant style, so
+ *  replacing inside a CRLF file never leaves mixed endings. No-op when the
+ *  file is LF or `text` has no newlines. */
+function adaptLineEnding(content: string, text: string): string {
+  if (!text.includes('\n')) return text
+  return detectLineEnding(content) === '\r\n' ? text.replace(/\r?\n/g, '\r\n') : text
+}
+
+/** Single-pass normalization with a position map: the i-th normalized char
+ *  originates from original index map[i]. Per line: CRLF→LF, the leading
+ *  whitespace run is kept verbatim (indentation is significant), other runs
+ *  collapse to one space, trailing whitespace drops, punctuation variants are
+ *  substituted. The map lets a match found in the normalized text be spliced
+ *  back into the original file exactly. */
+function normalizeWithMap(s: string): { text: string; map: number[] } {
+  const chars: string[] = []
+  const map: number[] = []
+  const n = s.length
+  let i = 0
+  let atLineStart = true
+  while (i < n) {
+    const ch = s[i]
+    if (ch === '\r' && s[i + 1] === '\n') { i += 1; continue } // CR of a CRLF pair (LF below)
+    if (ch === '\n') {
+      chars.push('\n'); map.push(i); i += 1; atLineStart = true; continue
+    }
+    if (ch === ' ' || ch === '\t') {
+      let run = i
+      while (run < n && (s[run] === ' ' || s[run] === '\t')) run += 1
+      if (atLineStart) {
+        // Leading indentation — keep exactly as-is.
+        for (let k = i; k < run; k++) { chars.push(s[k]); map.push(k) }
+      } else if (run < n && s[run] !== '\n') {
+        // Interior run → one space; a trailing run before '\n' drops.
+        chars.push(' '); map.push(i)
+      }
+      i = run
+      continue
+    }
+    const sub = NORMALIZE_PUNCT[ch]
+    if (sub !== undefined) {
+      for (let k = 0; k < sub.length; k++) { chars.push(sub[k]); map.push(i) }
+    } else {
+      chars.push(ch); map.push(i)
+    }
+    atLineStart = false
+    i += 1
+  }
+  return { text: chars.join(''), map }
+}
+
+/** Offsets of each line's start in `content` (for 1-based line lookups). */
+function buildLineStarts(content: string): number[] {
+  const starts = [0]
+  for (let i = 0; i < content.length; i++) {
+    if (content[i] === '\n') starts.push(i + 1)
+  }
+  return starts
+}
+
+/** 1-based line number of the line containing `offset`. */
+function lineAt(lineStarts: number[], offset: number): number {
+  let lo = 0
+  let hi = lineStarts.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (lineStarts[mid] <= offset) lo = mid
+    else hi = mid - 1
+  }
+  return lo + 1
+}
+
+/** Trimmed, capped line text for error messages. */
+function lineSnippet(content: string, lineStarts: number[], line: number): string {
+  const start = lineStarts[line - 1]
+  const end = lineStarts[line] ?? content.length
+  return content.slice(start, end).trim().slice(0, 80)
+}
+
+interface MatchCandidate {
+  /** Start index of the match in the ORIGINAL content. */
+  index: number
+  /** Position of the match in the searched haystack (normalized space for fuzzy). */
+  norm: number
+  /** 1-based line number in the original file. */
+  line: number
+  snippet: string
+}
+
+/** All non-overlapping occurrences of `needle` in `haystack`. With `map`
+ *  (normalized→original), `index` is translated back to the original file;
+ *  `snippetSource` is always the original content for readable excerpts. */
+function findOccurrences(
+  haystack: string,
+  needle: string,
+  snippetSource: string,
+  lineStarts: number[],
+  map?: number[],
+): MatchCandidate[] {
+  const out: MatchCandidate[] = []
+  if (!needle) return out
+  let from = 0
+  let at = haystack.indexOf(needle, from)
+  while (at !== -1) {
+    const orig = map ? map[at] : at
+    const line = lineAt(lineStarts, orig)
+    out.push({ index: orig, norm: at, line, snippet: lineSnippet(snippetSource, lineStarts, line) })
+    from = at + Math.max(1, needle.length)
+    at = haystack.indexOf(needle, from)
+  }
+  return out
+}
+
+/** True when `context` immediately follows `start` in `haystack` (exact or
+ *  normalized text). Comparison is leading-whitespace-insensitive so a context
+ *  of "= 2" still matches file text " = 2" — the model usually omits the space. */
+function contextFollows(haystack: string, start: number, context: string): boolean {
+  const normCtx = normalizeWithMap(context).text.trim()
+  if (!normCtx) return true
+  const window = normalizeWithMap(haystack.slice(start, start + normCtx.length + 64)).text
+  return window.trimStart().startsWith(normCtx)
+}
+
+type EditOutcome =
+  | { kind: 'ok'; index: number; length: number; fuzzy: boolean }
+  | { kind: 'ok_all'; occurrences: MatchCandidate[] }
+  | { kind: 'ambiguous'; fuzzy: boolean; contextMiss: boolean; candidates: MatchCandidate[]; total: number }
+  | { kind: 'notfound'; nearMisses: Array<{ line: number; snippet: string }> }
+
+/** Resolve one exact-text edit against `content`: returns where to splice, or
+ *  a structured reason the caller renders into a self-healing error message. */
+function resolveMatch(opts: {
+  content: string
+  oldText: string
+  context?: string
+  replaceAll: boolean
+}): EditOutcome {
+  const { content, oldText, context, replaceAll } = opts
+  const lineStarts = buildLineStarts(content)
+
+  // ── Exact pass ──
+  const exact = findOccurrences(content, oldText, content, lineStarts)
+  const exactCtx = context ? exact.filter((c) => contextFollows(content, c.index + oldText.length, context)) : exact
+  if (exactCtx.length > 0) {
+    if (exactCtx.length === 1) return { kind: 'ok', index: exactCtx[0].index, length: oldText.length, fuzzy: false }
+    if (replaceAll) return { kind: 'ok_all', occurrences: exactCtx }
+    return { kind: 'ambiguous', fuzzy: false, contextMiss: false, candidates: exactCtx, total: exactCtx.length }
+  }
+  if (context && exact.length > 0) {
+    // oldText exists but context follows none of them — the model should fix context.
+    return { kind: 'ambiguous', fuzzy: false, contextMiss: true, candidates: exact, total: exact.length }
+  }
+
+  // ── Normalized (fuzzy) pass — applied only when unique ──
+  const { text: normText, map } = normalizeWithMap(content)
+  const normNeedle = normalizeWithMap(oldText).text
+  if (!normNeedle) return { kind: 'notfound', nearMisses: [] }
+  const fuzzy = findOccurrences(normText, normNeedle, content, lineStarts, map)
+  const fuzzyCtx = context
+    ? fuzzy.filter((c) => contextFollows(normText, c.norm + normNeedle.length, context))
+    : fuzzy
+  if (fuzzyCtx.length > 0) {
+    if (fuzzyCtx.length === 1) {
+      const c = fuzzyCtx[0]
+      const spanStart = c.index
+      const spanEnd = map[c.norm + normNeedle.length - 1] + 1
+      // Fail-safe: only splice when the span really re-normalizes to the needle.
+      if (normalizeWithMap(content.slice(spanStart, spanEnd)).text === normNeedle) {
+        return { kind: 'ok', index: spanStart, length: spanEnd - spanStart, fuzzy: true }
+      }
+      return { kind: 'notfound', nearMisses: findNearMisses(content, lineStarts, oldText) }
+    }
+    return { kind: 'ambiguous', fuzzy: true, contextMiss: false, candidates: fuzzyCtx, total: fuzzyCtx.length }
+  }
+  if (context && fuzzy.length > 0) {
+    return { kind: 'ambiguous', fuzzy: true, contextMiss: true, candidates: fuzzy, total: fuzzy.length }
+  }
+  return { kind: 'notfound', nearMisses: findNearMisses(content, lineStarts, oldText) }
+}
+
+/** Up to 3 lines whose normalized text contains the needle's most distinctive
+ *  fragment — hints for the model when the oldText drifted or changed. */
+function findNearMisses(content: string, lineStarts: number[], oldText: string): Array<{ line: number; snippet: string }> {
+  const needleLines = normalizeWithMap(oldText).text.split('\n').map((l) => l.trim())
+  const first = needleLines.find((l) => l.length > 0)
+  if (!first) return []
+  const words = first.split(/[^A-Za-z0-9_$]+/).filter((w) => w.length >= 4)
+  const firstWords = words.slice(0, 2).join(' ')
+  const anchors = Array.from(new Set([first, firstWords, words[0] ?? ''].filter((a) => a && a.length >= 4)))
+  const normLines = normalizeWithMap(content).text.split('\n')
+  const hits: Array<{ line: number; snippet: string }> = []
+  for (const anchor of anchors) {
+    for (let i = 0; i < normLines.length && hits.length < 3; i++) {
+      if (normLines[i].includes(anchor)) {
+        const line = i + 1
+        hits.push({ line, snippet: lineSnippet(content, lineStarts, line) })
+      }
+    }
+    if (hits.length > 0) return hits
+  }
+  return hits
+}
+
+/** Multi-line detail for an ambiguous / context-missed edit failure. */
+function buildAmbiguousDetail(path: string, o: Extract<EditOutcome, { kind: 'ambiguous' }>, bullet = '- '): string {
+  const reason = o.contextMiss
+    ? `匹配到 ${o.total} 处，但提供的 context 未紧跟任何一处；请修正 context 以锁定目标`
+    : `匹配到 ${o.total} 处（replaceAll=false 且未提供可消歧的 context）；请补充 context（紧跟 oldText 的文本）或改用 replaceAll`
+  const fuzzyNote = o.fuzzy ? '（该文本经空白/标点归一化后仍匹配多处）' : ''
+  const lines = o.candidates.slice(0, 10).map((c) => `    line ${c.line}: ${c.snippet}`)
+  const more = o.candidates.length > 10 ? `\n    …等 ${o.candidates.length} 处` : ''
+  return `${bullet}${path}: ${reason}${fuzzyNote}：\n${lines.join('\n')}${more}`
+}
+
+/** Multi-line detail for a not-found edit failure, with near-miss hints. */
+function buildNotFoundDetail(path: string, o: Extract<EditOutcome, { kind: 'notfound' }>, bullet = '- '): string {
+  if (o.nearMisses.length === 0) {
+    return `${bullet}${path}: 未找到 oldText。请用 read_file 查看文件当前内容后以新的 oldText 重试。`
+  }
+  return (
+    `${bullet}${path}: 未找到精确文本。相近位置（文本可能已变化）：\n` +
+    o.nearMisses.map((n) => `    line ${n.line}: ${n.snippet}`).join('\n') +
+    `\n  请用 read_file 确认实际内容后，以新的 oldText（可带 context）重试。`
+  )
+}
+
 /** Edit a file by replacing exact text — first occurrence by default, all
  *  occurrences when replaceAll is true (split/join, never a regex, so the
- *  replacement text can't be misinterpreted as a pattern). */
-export async function editFile(path: string, oldText: string, newText: string, replaceAll = false): Promise<string> {
+ *  replacement text can't be misinterpreted as a pattern). `context` (text
+ *  immediately following oldText) disambiguates when oldText appears several
+ *  times; on a miss the error reports the closest lines instead of leaving
+ *  the model to re-read the whole file. */
+export async function editFile(path: string, oldText: string, newText: string, replaceAll = false, context?: string): Promise<string> {
+  if (!oldText) return 'Error: edit_file 的 oldText 不能为空'
   const { content } = await window.electronAPI.readFile(path)
-  if (!content.includes(oldText)) {
-    return `Error: Could not find the specified text in ${path}. The text may have changed or the match is not exact.`
+  const replacement = adaptLineEnding(content, newText)
+  const outcome = resolveMatch({ content, oldText, context: context || undefined, replaceAll })
+  if (outcome.kind === 'ok') {
+    const next = content.slice(0, outcome.index) + replacement + content.slice(outcome.index + outcome.length)
+    await window.electronAPI.writeFile(path, next, 'utf-8')
+    return `File edited: ${path}${outcome.fuzzy ? ' (fuzzy match: 空白/标点归一化后唯一命中)' : ''}`
   }
-  const newContent = replaceAll ? content.split(oldText).join(newText) : content.replace(oldText, newText)
-  await window.electronAPI.writeFile(path, newContent, 'utf-8')
-  return `File edited: ${path}${replaceAll ? ' (all occurrences)' : ''}`
+  if (outcome.kind === 'ok_all') {
+    let out = ''
+    let last = 0
+    for (const c of outcome.occurrences) {
+      out += content.slice(last, c.index) + replacement
+      last = c.index + oldText.length
+    }
+    await window.electronAPI.writeFile(path, out + content.slice(last), 'utf-8')
+    return `File edited: ${path} (all ${outcome.occurrences.length} occurrences)`
+  }
+  if (outcome.kind === 'ambiguous' && !outcome.contextMiss && !outcome.fuzzy && !context) {
+    // Backward-compatible default: no context given + several matches → first hit.
+    const first = outcome.candidates[0]
+    const next = content.slice(0, first.index) + replacement + content.slice(first.index + oldText.length)
+    await window.electronAPI.writeFile(path, next, 'utf-8')
+    return `File edited: ${path} (first occurrence)`
+  }
+  if (outcome.kind === 'ambiguous') {
+    return `Error: ${buildAmbiguousDetail(path, outcome, '')}`
+  }
+  return `Error: ${buildNotFoundDetail(path, outcome, '')}`
 }
 
 interface EditSpec {
@@ -180,6 +470,9 @@ interface EditSpec {
   oldText?: string
   newText?: string
   replaceAll?: boolean
+  /** Optional text immediately following oldText, used to disambiguate when
+   *  oldText appears multiple times. */
+  context?: string
 }
 
 /** Apply exact-text edits across multiple files in one call. Two-phase:
@@ -187,8 +480,10 @@ interface EditSpec {
  *     buffers — edits to the same file validate against the result of the
  *     previous edits (sequential), edits to different files stay independent;
  *  2) only if ALL edits validate, persist every buffer to disk.
- *  A failing edit therefore writes nothing — no half-applied refactor. A write
- *  error reports exactly how many files landed. */
+ *  A failing edit therefore writes nothing — no half-applied refactor. Failing
+ *  edits are reported with their line numbers (and near-miss hints) so the
+ *  model can self-heal without re-reading. A write error reports exactly how
+ *  many files landed. */
 export async function multiEditFile(edits: EditSpec[]): Promise<string> {
   const specs = (Array.isArray(edits) ? edits : [])
     .map((e) => ({
@@ -196,13 +491,15 @@ export async function multiEditFile(edits: EditSpec[]): Promise<string> {
       oldText: String(e?.oldText ?? ''),
       newText: String(e?.newText ?? ''),
       replaceAll: !!e?.replaceAll,
+      context: e?.context ? String(e.context) : undefined,
     }))
     .filter((e) => e.path && e.oldText)
   if (specs.length === 0) return 'Error: multi_edit_file 需要非空的 edits 数组'
 
-  // Phase 1 — read + validate + buffer-apply everything before touching disk
+  // Phase 1 — read + resolve + buffer-apply everything before touching disk
   const contents = new Map<string, string>()
   const failures: string[] = []
+  let fuzzyCount = 0
   for (const e of specs) {
     if (!contents.has(e.path)) {
       try {
@@ -214,12 +511,24 @@ export async function multiEditFile(edits: EditSpec[]): Promise<string> {
       }
     }
     const content = contents.get(e.path)!
-    if (!content.includes(e.oldText)) {
-      const snippet = e.oldText.length > 80 ? e.oldText.slice(0, 80) + '…' : e.oldText
-      failures.push(`- ${e.path}: 未找到要替换的文本 "${snippet}"`)
-      continue
+    const outcome = resolveMatch({ content, oldText: e.oldText, context: e.context, replaceAll: e.replaceAll })
+    const replacement = adaptLineEnding(content, e.newText)
+    if (outcome.kind === 'ok') {
+      contents.set(e.path, content.slice(0, outcome.index) + replacement + content.slice(outcome.index + outcome.length))
+      if (outcome.fuzzy) fuzzyCount += 1
+    } else if (outcome.kind === 'ok_all') {
+      let out = ''
+      let last = 0
+      for (const c of outcome.occurrences) {
+        out += content.slice(last, c.index) + replacement
+        last = c.index + e.oldText.length
+      }
+      contents.set(e.path, out + content.slice(last))
+    } else if (outcome.kind === 'ambiguous') {
+      failures.push(buildAmbiguousDetail(e.path, outcome))
+    } else {
+      failures.push(buildNotFoundDetail(e.path, outcome))
     }
-    contents.set(e.path, e.replaceAll ? content.split(e.oldText).join(e.newText) : content.replace(e.oldText, e.newText))
   }
   if (failures.length > 0) {
     return `Error: multi_edit_file 校验失败，未写入任何文件（${failures.length} 处不匹配）：\n${failures.join('\n')}`
@@ -235,7 +544,8 @@ export async function multiEditFile(edits: EditSpec[]): Promise<string> {
       return `Error: multi_edit_file 写入 ${path} 失败 (${error?.message || String(error)})；已完成 ${written.length}/${contents.size} 个文件，其余未写入。`
     }
   }
-  return `已批量编辑 ${specs.length} 处（${contents.size} 个文件）。`
+  const fuzzyNote = fuzzyCount > 0 ? `；其中 ${fuzzyCount} 处为模糊匹配（空白/标点归一化后唯一命中）` : ''
+  return `已批量编辑 ${specs.length} 处（${contents.size} 个文件）${fuzzyNote}。`
 }
 
 /** Create a directory */

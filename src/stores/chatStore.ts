@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, UsageEvent, SubAgentProgress, lookupModelMetadata } from '@/types'
+import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, UsageEvent, SubAgentProgress, AgentRunPhase, lookupModelMetadata } from '@/types'
 import { TOOL_ALLOWLIST_PREFIX } from '@shared/constants'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
@@ -578,6 +578,11 @@ interface ChatState {
   runningSessionIds: string[]
   /** Per-session live streaming text (sessionId → { content, thinking }) */
   streamingBySession: Record<string, { content: string; thinking: string }>
+  /** Per-session agent-loop stage (sessionId → { phase, since }). Drives the
+   *  "正在…" placeholder in ChatMessages so a silent wait shows what the app
+   *  is actually doing (preparing context / compacting / waiting for the
+   *  model's first token) instead of a generic codebase-analysis label. */
+  runPhaseBySession: Record<string, { phase: AgentRunPhase; since: number }>
   /** Per-session timestamp of the last agent activity (stream chunk / tool
    *  step / approval dialog). The idle "已 X 分钟无响应" indicator reads it. */
   streamLastActivityBySession: Record<string, number>
@@ -1002,6 +1007,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   activeSessionId: null,
   runningSessionIds: [],
   streamingBySession: {},
+  runPhaseBySession: {},
   streamLastActivityBySession: {},
   abortControllers: {},
   undoStack: [],
@@ -2381,6 +2387,20 @@ async function runAgentLoop(
   }
   touchActivity()
 
+  // Stage of the agent loop, surfaced in ChatMessages' "正在…" placeholder so
+  // a silent wait shows what the app is actually doing instead of a generic
+  // codebase-analysis label. `since` anchors the elapsed-seconds counter.
+  const setRunPhase = (phase: AgentRunPhase | null) => {
+    set((s) => {
+      const runPhaseBySession = { ...s.runPhaseBySession }
+      if (phase === null) delete runPhaseBySession[sessionId]
+      else runPhaseBySession[sessionId] = { phase, since: Date.now() }
+      return { runPhaseBySession }
+    })
+  }
+  // Pre-stream phase: MCP/skill refresh, system-prompt build, codebase retrieval.
+  setRunPhase('preparing')
+
   const abortController = new AbortController()
   set((s) => ({ abortControllers: { ...s.abortControllers, [sessionId]: abortController } }))
 
@@ -2497,6 +2517,9 @@ async function runAgentLoop(
   const summarizeModel = (compactionPrefs.contextCompactionModel || model).trim() || model
   const summarizeHistory = async ({ anchor, history }: { anchor: string; history: string }) => {
     const startedAt = Date.now()
+    // The summarizer is a real LLM call (its own TTFT) — surface it as a
+    // distinct phase instead of a silent "waiting for the model".
+    setRunPhase('compacting')
     try {
       let tokensIn = 0
       let tokensOut = 0
@@ -2511,6 +2534,8 @@ async function runAgentLoop(
           tokensOut = u.tokensOut
         },
       })
+      // Back to the pre-stream stage — the main request is built next.
+      setRunPhase('preparing')
       // Compaction is a real LLM call — bill it to the session like any other.
       usageEvents.push(makeLlmUsageEvent({
         sessionId, projectPath, model: summarizeModel, provider: configGroup.provider,
@@ -2518,6 +2543,8 @@ async function runAgentLoop(
       }))
       return summary
     } catch (error: any) {
+      // Phase self-heals: the 'waiting' marker before the main request
+      // overwrites whatever stage we leave behind on the error path.
       usageEvents.push(makeLlmUsageEvent({
         sessionId, projectPath, model: summarizeModel, provider: configGroup.provider,
         startedAt, ok: false, error: error?.message,
@@ -2694,6 +2721,13 @@ async function runAgentLoop(
       let fullContent = ''
       let fullThinking = ''
       let toolCalls: any[] = []
+      // Tracks whether this round has emitted its first token — flips the phase
+      // from 'waiting' (TTFT) to 'streaming' exactly once, so the per-chunk
+      // flush below doesn't spam phase updates.
+      let roundStreamStarted = false
+      // The LLM request is about to go out — from here until the first token
+      // the wait is entirely the provider's time-to-first-token.
+      setRunPhase('waiting')
       const reqStartedAt = Date.now()
       let reqTokensIn = 0
       let reqTokensOut = 0
@@ -2730,6 +2764,12 @@ async function runAgentLoop(
             // into the same set as the content below (no set per token).
             if (chunk.thinking) fullThinking += chunk.thinking
             if (chunk.content) fullContent += chunk.content
+
+            // First real token (content or reasoning) — the TTFT wait is over.
+            if (!roundStreamStarted && (chunk.content || chunk.thinking)) {
+              roundStreamStarted = true
+              setRunPhase('streaming')
+            }
 
             if (chunk.toolCalls) {
               toolCalls = chunk.toolCalls
@@ -2921,6 +2961,9 @@ async function runAgentLoop(
           messages.push({ role: 'user', content: `用户回答: ${answer}${note}` })
           chatStore.addMessage(sessionId, { role: 'user', content: `用户回答: ${answer}${note}` })
           clearStream()
+          // Waiting on the user's answer — a dialog is up; reset the phase so
+          // the placeholder doesn't linger on the stale round's 'streaming'.
+          setRunPhase('preparing')
           continue // 跳过本轮只读调用；下一轮按用户决定继续
         }
       }
@@ -2936,6 +2979,11 @@ async function runAgentLoop(
       // Round committed — the tool rows below render from this message (with
       // live status via appendToolResult), so the stream's copy must not linger.
       clearStream()
+      // Tools are about to execute (their own progress renders via ToolStepRow).
+      // Reset the phase so the brief gap after the last tool finishes and before
+      // the next round's 'waiting' marker shows a truthful stage, not the stale
+      // 'streaming' from the round that just committed.
+      setRunPhase('preparing')
 
       // Add assistant message to messages array for next iteration
       messages.push({
@@ -3380,6 +3428,8 @@ async function runAgentLoop(
       const runningSessionIds = s.runningSessionIds.filter((id) => id !== sessionId)
       const streamingBySession = { ...s.streamingBySession }
       delete streamingBySession[sessionId]
+      const runPhaseBySession = { ...s.runPhaseBySession }
+      delete runPhaseBySession[sessionId]
       const streamLastActivityBySession = { ...s.streamLastActivityBySession }
       delete streamLastActivityBySession[sessionId]
       const abortControllers = { ...s.abortControllers }
@@ -3391,6 +3441,7 @@ async function runAgentLoop(
       return {
         runningSessionIds,
         streamingBySession,
+        runPhaseBySession,
         streamLastActivityBySession,
         abortControllers,
         batchApprovedBySession,

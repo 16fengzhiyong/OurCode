@@ -143,7 +143,8 @@ export function createToolRegistry(): Tool[] {
       description:
         'Edit a file by replacing a specific string with new content. The oldText must match exactly ' +
         '(replace the first occurrence by default; set replaceAll=true to replace every occurrence). ' +
-        'For edits touching several files in one round-trip, prefer multi_edit_file.',
+        'If oldText appears multiple times, pass context (the text immediately following oldText) to ' +
+        'pick the right occurrence. For edits touching several files in one round-trip, prefer multi_edit_file.',
       parameters: {
         type: 'object',
         properties: {
@@ -151,12 +152,13 @@ export function createToolRegistry(): Tool[] {
           oldText: { type: 'string', description: 'Exact text to find and replace' },
           newText: { type: 'string', description: 'Replacement text' },
           replaceAll: { type: 'boolean', description: 'Replace every occurrence of oldText instead of only the first (default false)' },
+          context: { type: 'string', description: 'Optional text immediately following oldText, used to disambiguate when oldText appears multiple times' },
         },
         required: ['path', 'oldText', 'newText'],
       },
       execute: async (args) => {
         const { editFile } = await import('@/services/tools/helpers')
-        return editFile(args.path, args.oldText, args.newText, !!args.replaceAll)
+        return editFile(args.path, args.oldText, args.newText, !!args.replaceAll, args.context)
       },
       requiresApproval: true,
     },
@@ -164,11 +166,12 @@ export function createToolRegistry(): Tool[] {
       name: 'multi_edit_file',
       description:
         'Apply exact-text replacements across multiple files in one call. ' +
-        'Each edit is { path, oldText, newText, replaceAll? } (replaceAll replaces every ' +
-        'occurrence, default is the first one only). Validation is all-or-nothing: every ' +
-        'oldText must match exactly in its file, otherwise NOTHING is written and the ' +
-        'failing edits are listed so you can fix and retry. Use it for cross-file refactors ' +
-        'instead of a long sequence of edit_file calls.',
+        'Each edit is { path, oldText, newText, replaceAll?, context? } — replaceAll replaces every ' +
+        'occurrence; context (text immediately following oldText) disambiguates when oldText appears ' +
+        'multiple times. Validation is all-or-nothing: every oldText must match exactly (or uniquely ' +
+        'after whitespace/punctuation normalization), otherwise NOTHING is written and the failing ' +
+        'edits are reported with their line numbers so you can fix and retry without re-reading. Use ' +
+        'it for cross-file refactors instead of a long sequence of edit_file calls.',
       parameters: {
         type: 'object',
         properties: {
@@ -182,6 +185,7 @@ export function createToolRegistry(): Tool[] {
                 oldText: { type: 'string', description: 'Exact text to find and replace' },
                 newText: { type: 'string', description: 'Replacement text' },
                 replaceAll: { type: 'boolean', description: 'Replace every occurrence of oldText instead of only the first (default false)' },
+                context: { type: 'string', description: 'Optional text immediately following oldText, used to disambiguate when oldText appears multiple times' },
               },
               required: ['path', 'oldText', 'newText'],
             },

@@ -77,6 +77,71 @@ describe('multiEditFile', () => {
   })
 })
 
+describe('multiEditFile 锚点自愈', () => {
+  beforeEach(() => {
+    fs.clear()
+  })
+
+  it('多处匹配且无 context 时拒绝执行并列出所有位置', async () => {
+    fs.set('C:/proj/multi.ts', 'const foo = 1\nconst foo = 2\n')
+    const res = await multiEditFile([{ path: 'C:/proj/multi.ts', oldText: 'const foo', newText: 'const bar' }])
+    expect(res).toContain('Error')
+    expect(res).toContain('匹配到 2 处')
+    expect(res).toContain('line 1')
+    expect(res).toContain('line 2')
+    // 整批零写入
+    expect(fs.get('C:/proj/multi.ts')).toBe('const foo = 1\nconst foo = 2\n')
+  })
+
+  it('context 锁定到正确位置', async () => {
+    fs.set('C:/proj/multi.ts', 'const foo = 1\nconst foo = 2\n')
+    // context 带前导空格也能匹配（模型常写 "= 2" 而文件是 " = 2"）
+    const res = await multiEditFile([{ path: 'C:/proj/multi.ts', oldText: 'const foo', newText: 'const bar', context: '= 2' }])
+    expect(res).toContain('1 处')
+    expect(fs.get('C:/proj/multi.ts')).toBe('const foo = 1\nconst bar = 2\n')
+  })
+
+  it('context 未命中任何一处时报错并列出位置', async () => {
+    fs.set('C:/proj/multi.ts', 'const foo = 1\nconst foo = 2\n')
+    const res = await multiEditFile([{ path: 'C:/proj/multi.ts', oldText: 'const foo', newText: 'X', context: 'NOPE' }])
+    expect(res).toContain('Error')
+    expect(res).toContain('context 未紧跟')
+    expect(fs.get('C:/proj/multi.ts')).toBe('const foo = 1\nconst foo = 2\n')
+  })
+
+  it('空白/引号归一化后唯一命中时应用并标注模糊匹配', async () => {
+    // 智能引号 + 尾随空格，精确匹配失败但归一化后唯一命中
+    fs.set('C:/proj/fuzzy.ts', 'const x = \u201cfoo\u201d  \n')
+    const res = await multiEditFile([{ path: 'C:/proj/fuzzy.ts', oldText: 'const x = "foo"\n', newText: 'const x = bar' }])
+    expect(res).toContain('模糊匹配')
+    expect(fs.get('C:/proj/fuzzy.ts')).toBe('const x = bar')
+  })
+
+  it('归一化后仍有多处匹配时拒绝并列出位置', async () => {
+    fs.set('C:/proj/fuzzy2.ts', 'foo  \nfoo \n')
+    const res = await multiEditFile([{ path: 'C:/proj/fuzzy2.ts', oldText: 'foo\n', newText: 'bar' }])
+    expect(res).toContain('Error')
+    expect(res).toContain('匹配到 2 处')
+    expect(fs.get('C:/proj/fuzzy2.ts')).toBe('foo  \nfoo \n')
+  })
+
+  it('完全未找到时给出相近位置线索（near-miss）', async () => {
+    fs.set('C:/proj/miss.ts', 'export function oldName(x: number) {\n  return x\n}\n')
+    const res = await multiEditFile([{ path: 'C:/proj/miss.ts', oldText: 'export function newName(', newText: 'export function renamed(' }])
+    expect(res).toContain('Error')
+    expect(res).toContain('line 1')
+    expect(res).toContain('oldName')
+    expect(fs.get('C:/proj/miss.ts')).toBe('export function oldName(x: number) {\n  return x\n}\n')
+  })
+
+  it('replaceAll 仍然替换全部出现位置', async () => {
+    fs.set('C:/proj/all.ts', 'foo foo foo')
+    const res = await multiEditFile([{ path: 'C:/proj/all.ts', oldText: 'foo', newText: 'bar', replaceAll: true }])
+    expect(res).toContain('1 处')
+    expect(fs.get('C:/proj/all.ts')).toBe('bar bar bar')
+  })
+})
+
 describe('editFile replaceAll', () => {
   beforeEach(() => {
     fs.clear()
