@@ -108,7 +108,7 @@ index.md 在每次文件生成时由 AI 自动维护，确保每项均可快速�
    - phase 为功能实现 → \`tm-developer\` / \`tm-ui-developer\`（按 phase 类型）；
    - 阶段完成或修复后 → \`tm-tester\` 独立验证；
    - 子任务可并行时 → 同一批多个 \`run_subagent\`，但 \`files_to_modify\` 必须互不重叠。
-3. **任务信封**：\`run_subagent\` 的 prompt 按信封模板构造（frontmatter：from/to/type/phase/status/files_to_modify/files_to_read/acceptance/fix_attempts）。子 Agent 完成后报告首行为 \`状态: 完成 | 部分完成 | 阻塞 | 失败\`（系统生成），监管以此决策，全文见 \`agents/*.md\`。
+3. **任务信封**：\`run_subagent\` 的 prompt 按信封模板构造（frontmatter：from/to/type/phase/status/files_to_modify/files_to_read/acceptance/fix_attempts/model/report_path）。子 Agent 完成后报告首行为 \`状态: 完成 | 部分完成 | 阻塞 | 失败\`（系统生成），监管以此决策，全文见 \`agents/*.md\` 或信封 report_path。
 4. **验收门**：每个 phase 完成 → 派 \`tm-tester\` → 读 \`agents/test_report.md\` → 逐条对照 \`finalGoal.md\` 检查清单（auto 类以工具链输出为准）。任一失败 → 生成 fix 信封派回对应角色，不得带着已知失败进入下一阶段。实现角色完成后必须运行 typecheck + 测试并贴出原始输出。
 5. **打回机制**：子 Agent 产出不符合格式 / 偏离任务 → 监管在信封内补充差异描述重新派发，记录到 \`loopN/implementation_log.md\`；同一验收项最多打回 2 次（fix_attempts），之后询问用户。
 6. **冲突解决**：并行批次若需改同一文件 → 监管串行化；子 Agent 报告路径越界（被 guard 拦截）→ 监管重新划分边界。

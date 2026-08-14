@@ -132,6 +132,20 @@ describe('loadAgentDefinition', () => {
     expect(tester.tools).toContain('run_command')
     expect(tester.tools).not.toContain('submit_plan')
   })
+
+  it('tm-* workspace names fall back to the strong boundary, not the generic definition', async () => {
+    // The supervisor spawns tm-* roles (SPEC ch.9). If the editable .md is
+    // deleted, the tm-* builtin alias must keep the write restriction —
+    // never the unrestricted generic fallback.
+    const tmTester = await loadAgentDefinition('tm-tester', 'C:/other-root')
+    expect(tmTester.source).toBe('builtin')
+    expect(tmTester.allowedWritePaths).toBeDefined()
+    expect(tmTester.tools).toContain('run_command')
+
+    const tmRa = await loadAgentDefinition('tm-requirement-analyst', 'C:/other-root')
+    expect(tmRa.allowedWritePaths).toEqual(['.ourcode/targemode'])
+    expect(tmRa.tools).not.toContain('delete_file')
+  })
 })
 
 describe('SubagentGuard — permission isolation', () => {

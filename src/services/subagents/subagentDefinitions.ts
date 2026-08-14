@@ -104,10 +104,12 @@ export const BUILTIN_AGENTS: Record<string, Omit<SubAgentDefinition, 'name' | 's
     temperature: 0.2,
   },
   // ── Target-mode strong-boundary roles (v2) ──
-  // These two are the no-config fallbacks; the editable copies live in the
-  // workspace as .ourcode/agents/tm-*.md (written by targetModeService). The
-  // guard boundary is enforced in CODE via allowedWritePaths + read/write
+  // The guard boundary is enforced in CODE via allowedWritePaths + read/write
   // separation — "physical inability" rather than prompt discipline.
+  // Two names each: the canonical name and the `tm-` workspace-file name (the
+  // supervisor spawns tm-* per SPEC ch.9; the tm-* alias keeps the strong
+  // boundary even if the user deletes the editable .md → falls back here
+  // instead of the unrestricted generic definition).
   'requirement-analyst': {
     description: '需求分析师（目标模式）',
     systemPrompt:
@@ -119,6 +121,20 @@ export const BUILTIN_AGENTS: Record<string, Omit<SubAgentDefinition, 'name' | 's
       'write_file', 'edit_file', 'create_directory',
     ],
     // 可读全仓（allowedReadPaths 未声明 → 读不限），只写目标模式状态目录。
+    allowedWritePaths: ['.ourcode/targemode'],
+    maxIterations: 8,
+    temperature: 0.1,
+  },
+  'tm-requirement-analyst': {
+    description: '需求分析师（目标模式，tm- 工作区角色回退）',
+    systemPrompt:
+      '你是「tm-requirement-analyst」子智能体，负责澄清目标、产出可验证的检查清单与实施方案。' +
+      '你只写 .ourcode/targemode/ 下的文档，绝不修改业务代码。' +
+      '产出必须结构化：需求条目、检查清单（每项标注可验证性类别 auto=可机器验证 / code=需代码审查 / manual=需人工确认）、假设与待确认项。',
+    tools: [
+      'read_file', 'read_multiple_files', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files',
+      'write_file', 'edit_file', 'create_directory',
+    ],
     allowedWritePaths: ['.ourcode/targemode'],
     maxIterations: 8,
     temperature: 0.1,
@@ -135,6 +151,21 @@ export const BUILTIN_AGENTS: Record<string, Omit<SubAgentDefinition, 'name' | 's
     ],
     // 可读全仓（读不限），只写测试目录与目标模式报告目录。具体测试路径随项目
     // 而异——由工作区 tm-tester.md 编辑，或由任务信封 files_to_modify 精确授予（v2.4）。
+    allowedWritePaths: ['.ourcode/targemode', 'src/__tests__', 'tests', 'test'],
+    maxIterations: 10,
+    maxTokensBudget: 120_000,
+    temperature: 0.1,
+  },
+  'tm-tester': {
+    description: '独立测试验证（目标模式，tm- 工作区角色回退）',
+    systemPrompt:
+      '你是「tm-tester」子智能体，负责独立验证实现是否满足验收标准。' +
+      '你只写测试文件与测试报告，绝不修改业务代码。' +
+      '报告必须逐条对照验收标准给出 通过/失败/缺陷，并引用证据（测试名 / 文件:行 / 命令输出），无证据的"通过"不计入。',
+    tools: [
+      'read_file', 'read_multiple_files', 'list_directory', 'get_directory_tree', 'search_files', 'search_in_files',
+      'write_file', 'edit_file', 'multi_edit_file', 'create_directory', 'delete_file', 'run_command',
+    ],
     allowedWritePaths: ['.ourcode/targemode', 'src/__tests__', 'tests', 'test'],
     maxIterations: 10,
     maxTokensBudget: 120_000,
