@@ -54,3 +54,6 @@ tools/repro-*.*
 
 # e2e debug screenshots (cursor/caret/hit probes during bug investigation)
 e2e/*.png
+
+# Docs (not committed per user request)
+docs/
