@@ -120,10 +120,13 @@ export async function retrieveRelevantContext(
   // 1) File-name matches (highest signal) — only when we have a keyword to
   //    search by (explicit attachments alone must not call search with undefined)
   if (keywords.length > 0 && !opts?.skipSearch) {
+    console.time(`[检索] searchFiles "${keywords[0]}" @ ${rootPath}`)
     try {
       const nameHits = await window.electronAPI.searchFiles(rootPath, keywords[0])
       for (const p of nameHits.slice(0, 10)) matches.push({ path: p, score: 10 })
-    } catch { /* ignore */ }
+    } catch { /* ignore */ } finally {
+      console.timeEnd(`[检索] searchFiles "${keywords[0]}" @ ${rootPath}`)
+    }
   }
 
   // 2) Content keyword search — FIRST keyword only. Each searchInFiles is a
@@ -132,6 +135,7 @@ export async function retrieveRelevantContext(
   //    cost on every message. (The cache above makes repeated queries free.)
   if (keywords.length > 0 && !opts?.skipSearch) {
     const kw = keywords[0]
+    console.time(`[检索] searchInFiles "${kw}" @ ${rootPath}`)
     try {
       const hits = await window.electronAPI.searchInFiles(rootPath, kw, {
         filePattern: SOURCE_EXTENSIONS,
@@ -145,7 +149,9 @@ export async function retrieveRelevantContext(
           score: 5,
         })
       }
-    } catch { /* ignore */ }
+    } catch { /* ignore */ } finally {
+      console.timeEnd(`[检索] searchInFiles "${kw}" @ ${rootPath}`)
+    }
   }
 
   // 3) Context files explicitly referenced by the user — highest priority so
