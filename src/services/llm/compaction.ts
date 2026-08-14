@@ -58,6 +58,16 @@ export interface CompactOptions {
   signal?: AbortSignal
   contextWindow?: number
   ratio?: number
+  /** Request payload tokens that ride along OUTSIDE the messages array (the
+   *  tool definitions/schemas attached to the request body). The message-sum
+   *  estimate would otherwise undercount the real request by exactly this
+   *  much, delaying compaction until the provider overflows. Default 0. */
+  overheadTokens?: number
+  /** Headroom reserved for THIS round's reply (including thinking tokens on
+   *  reasoning models). The ratio already leaves headroom for a plain answer;
+   *  pass a bigger reserve when the model may emit a long reasoning block, so
+   *  request + output never exceeds the window. Default 0. */
+  outputReserve?: number
   compactionEnabled: boolean
   /** Calibrated token estimator (chatStore's, injected to avoid duplication). */
   estimateTokens: (text: string) => number
@@ -186,11 +196,15 @@ export async function maybeCompact(opts: CompactOptions): Promise<CompactResult 
 
   // Trigger only when the estimate CONFIRMS we're over the budget — under the
   // threshold the history stays untouched. (force skips the check.)
+  // The budget reflects the REAL request: the message-sum plus the tool-schema
+  // overhead that rides outside the messages array, minus the output headroom
+  // reserved for this round's reply (thinking on reasoning models can exceed
+  // the ratio's default headroom and overflow the window).
   if (!opts.force) {
     const contextWindow = opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW
     const ratio = opts.ratio ?? DEFAULT_COMPACTION_RATIO
-    const budget = Math.floor(contextWindow * ratio)
-    const total = opts.messages.reduce((sum, m) => sum + opts.estimateTokens(m.content), 0)
+    const budget = Math.floor(contextWindow * ratio) - (opts.outputReserve || 0)
+    const total = opts.messages.reduce((sum, m) => sum + opts.estimateTokens(m.content), 0) + (opts.overheadTokens || 0)
     if (total <= budget) return null
   }
 

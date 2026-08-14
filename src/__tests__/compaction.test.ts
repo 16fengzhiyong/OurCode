@@ -104,6 +104,26 @@ describe('maybeCompact', () => {
     expect(result).not.toBeNull()
   })
 
+  it('counts the tool-schema overhead that rides outside the messages array', async () => {
+    // Messages alone are far under the budget — only the request-body overhead
+    // (tool schemas) pushes the real request over the line.
+    const plain = await maybeCompact(baseOpts({ contextWindow: 1000 })) // budget 800 > ~19 tokens
+    expect(plain).toBeNull()
+    const withOverhead = await maybeCompact(baseOpts({ contextWindow: 1000, overheadTokens: 1000 })) // ≈19 + 1000 > 800
+    expect(withOverhead).not.toBeNull()
+  })
+
+  it('reserves output headroom (thinking) by lowering the effective budget', async () => {
+    const messages = [sys, user('x'.repeat(50)), assistant('y'.repeat(50)), user('CURRENT')] // ≈120 tokens
+    // Under the 80% budget on its own…
+    const plain = await maybeCompact(baseOpts({ messages, contextWindow: 200 })) // budget 160 > 120
+    expect(plain).toBeNull()
+    // …but with a thinking-reply reserve the effective budget drops to 110 and
+    // the same history crosses the line, compacting BEFORE the round overflows.
+    const reserved = await maybeCompact(baseOpts({ messages, contextWindow: 200, outputReserve: 50 }))
+    expect(reserved).not.toBeNull()
+  })
+
   it('does not summarize when only the system prompt precedes the current turn', async () => {
     const result = await maybeCompact(baseOpts({ messages: [sys, user('u1')], force: true }))
     expect(result).toBeNull()
