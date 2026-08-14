@@ -1,4 +1,4 @@
-export { ToolExecutor, configureToolOutput } from './ToolExecutor'
+export { ToolExecutor, configureToolOutput, configureSecretRedaction } from './ToolExecutor'
 export { truncateToolOutput, DEFAULT_TOOL_OUTPUT_MAX_CHARS, DEFAULT_TOOL_OUTPUT_MAX_LINES } from './truncate'
 export type { ToolOutputLimits } from './truncate'
 export { createToolRegistry, toToolDefinitions } from './ToolRegistry'

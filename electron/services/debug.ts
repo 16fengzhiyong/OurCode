@@ -7,6 +7,7 @@
  * terminated events.
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
+import { scrubbedSpawnEnv } from './env-scrub'
 
 export interface DapBreakpoint {
   path: string
@@ -30,7 +31,7 @@ export class DebugAdapterClient {
   }
 
   async start(command: string, args: string[], cwd: string): Promise<void> {
-    const proc = spawn(command, args, { cwd, shell: process.platform === 'win32' })
+    const proc = spawn(command, args, { cwd, shell: process.platform === 'win32', env: scrubbedSpawnEnv() })
     this.proc = proc
     proc.stdout.on('data', (d: Buffer) => this.onData(d))
     proc.stderr.on('data', (d: Buffer) => this.onStderr?.(d.toString()))

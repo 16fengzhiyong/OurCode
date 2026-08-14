@@ -36,6 +36,7 @@ import { join, relative } from 'path'
 import { EventEmitter } from 'events'
 import { request as httpRequest, ClientRequest, IncomingMessage } from 'http'
 import { request as httpsRequest } from 'https'
+import { scrubEnv } from './env-scrub'
 
 export interface McpServerConfig {
   command?: string
@@ -55,6 +56,11 @@ export interface McpToolInfo {
   name: string
   description?: string
   inputSchema?: Record<string, any>
+  /** True when the tool comes from lastKnownTools of a server that is NOT
+   *  currently connected — the model-facing definition list filters these out,
+   *  but consumers that render state (e.g. a management panel) can show
+   *  "已断开" instead of the tools silently vanishing. */
+  stale?: boolean
 }
 
 export interface McpResourceInfo {
@@ -130,6 +136,27 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 const LIST_TOOLS_TIMEOUT_MS = 10_000
 const DEFAULT_RESTART = { maxRetries: 5, baseDelayMs: 1_000 }
 const MAX_MESSAGE_BYTES = 10 * 1024 * 1024
+/**
+ * A server that stays ready for this long after its last death counts as a NEW
+ * outage for backoff purposes — an occasionally restarted server (e.g. one that
+ * reloads every few minutes) must not burn down maxRetries and stop reconnecting
+ * forever, while a crash-looping server (never survives the window) still does.
+ */
+const STABLE_WINDOW_MS = 60_000
+
+/** Pure decision for the backoff-budget reset. Exported for tests. */
+export function shouldResetRetry(
+  lastReady: number | undefined,
+  lastDeath: number | undefined,
+  now: number,
+  stableWindowMs: number = STABLE_WINDOW_MS,
+): boolean {
+  // Never became ready (init never succeeded) → still crash-looping, no reset.
+  if (lastReady === undefined) return false
+  // First death after a successful ready → definitely a new outage.
+  if (lastDeath === undefined) return true
+  return now - lastDeath >= stableWindowMs
+}
 
 // ─────────────────────────── stdio transport ───────────────────────────
 
@@ -147,7 +174,9 @@ class StdioTransport implements McpTransport {
     this.label = name
     const proc = spawn(command, args, {
       cwd: cwd || undefined,
-      env: { ...process.env, ...env } as Record<string, string>,
+      // Inherited env is scrubbed (no credential-shaped variables leak into
+      // the server); the server's OWN configured env wins over the scrub.
+      env: { ...scrubEnv(process.env ?? {}), ...env } as Record<string, string>,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     })
@@ -391,6 +420,14 @@ export class MCPManager extends EventEmitter {
   private restartTimers = new Map<string, NodeJS.Timeout>()
   /** Per-server connection state, tracked for the management UI. */
   private statuses = new Map<string, McpServerStatus>()
+  /** When each server last became ready — for backoff-budget resets. */
+  private readyAt = new Map<string, number>()
+  /** When each server last died — for backoff-budget resets. */
+  private lastDeathAt = new Map<string, number>()
+  /** Last successfully enumerated tools per server. Survives a disconnect so
+   *  consumers can show stale tools while the server is gone; cleared on
+   *  stopAll / config reload. */
+  private lastKnownTools = new Map<string, McpToolInfo[]>()
 
   constructor(private options: MCPManagerOptions = {}) {
     super()
@@ -572,6 +609,17 @@ export class MCPManager extends EventEmitter {
 
     if (this.intentionalStop) return
 
+    const now = Date.now()
+    // Backoff-budget reset: if the server stayed ready for a full stable
+    // window since its last death, this is a NEW outage — reset the retry
+    // counter so a healthy-but-occasionally-restarted server never burns down
+    // maxRetries and stops reconnecting forever. A crash-looping server never
+    // survives the window, so its retries keep exhausting as before.
+    if (shouldResetRetry(this.readyAt.get(name), this.lastDeathAt.get(name), now) && retry > 0) {
+      retry = 0
+    }
+    this.lastDeathAt.set(name, now)
+
     const { maxRetries, baseDelayMs } = this.restartConfig
     if (retry >= maxRetries) {
       this.setStatus(name, { state: 'failed', error: reason, retry })
@@ -603,6 +651,9 @@ export class MCPManager extends EventEmitter {
     // Send the initialized notification (no id → notification)
     this.notify(conn, 'notifications/initialized', {})
     conn.initialized = true
+    // Record when this server became ready — the backoff-budget reset in
+    // handleDeath uses it to tell "new outage" from "still crash-looping".
+    this.readyAt.set(name, Date.now())
     // Only announce readiness if this connection is still the active one
     if (this.connections.get(name) === conn) {
       this.setStatus(name, { state: 'ready', error: undefined })
@@ -662,7 +713,7 @@ export class MCPManager extends EventEmitter {
         const result = await this.request(conn, 'tools/list', {}, Math.min(this.requestTimeoutMs, LIST_TOOLS_TIMEOUT_MS))
         const items: any[] = result?.tools || []
         const disabled = new Set(serverConfig?.disabledTools || [])
-        return items
+        const tools: McpToolInfo[] = items
           .filter((tool) => !disabled.has(tool.name))
           .map((tool) => ({
             server: name,
@@ -670,12 +721,29 @@ export class MCPManager extends EventEmitter {
             description: tool.description,
             inputSchema: tool.inputSchema,
           }))
+        // Cache the successfully enumerated tools — they survive a disconnect
+        // (marked stale) so consumers can keep showing the server's capability
+        // surface while it is gone.
+        this.lastKnownTools.set(name, tools)
+        return tools
       } catch {
         // Skip servers that fail to enumerate tools
         return []
       }
     }))
-    return perServer.flat()
+    const live = perServer.flat()
+    // Stale tools: configured + previously enumerated servers that are not
+    // currently connected. Marked stale so model-facing consumers filter them;
+    // panel/state consumers can display "已断开" instead of the tools silently
+    // vanishing. Cleared on stopAll / config reload.
+    for (const [name, tools] of this.lastKnownTools) {
+      const serverConfig = this.config[name]
+      if (!serverConfig || serverConfig.disabled) continue
+      const conn = this.connections.get(name)
+      if (conn && conn.initialized) continue
+      for (const tool of tools) live.push({ ...tool, stale: true })
+    }
+    return live
   }
 
   /** Call a tool on a specific server */
@@ -765,6 +833,11 @@ export class MCPManager extends EventEmitter {
       } catch { /* already closed */ }
       this.connections.delete(name)
     }
+    // Stale tools / backoff state belong to a loaded config generation — drop
+    // them so a config reload (or app quit) can't resurrect stale state.
+    this.lastKnownTools.clear()
+    this.readyAt.clear()
+    this.lastDeathAt.clear()
   }
 
   isConfigured(): boolean {

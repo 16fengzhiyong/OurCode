@@ -103,6 +103,10 @@ export interface ElectronAPI {
   // Shell
   shellExec: (command: string, cwd?: string, options?: { timeoutMs?: number }) => Promise<{ success: boolean; output: string; error?: string }>
 
+  // Tool-output spill store — oversized tool results page through read_file
+  spillSave: (sessionId: string, text: string) => Promise<string | null>
+  spillDeleteSession: (sessionId: string) => Promise<void>
+
   // Web fetch (web_search / read_url tools)
   webFetch: (url: string, options?: { timeoutMs?: number; maxBytes?: number }) => Promise<{
     ok: boolean; status?: number; contentType?: string; finalUrl?: string; text?: string; error?: string

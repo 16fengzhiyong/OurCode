@@ -1,5 +1,6 @@
 import type { ChatError } from '@/types'
 import { t } from '@/i18n'
+import { redactSecrets, type RedactSecretsOptions } from './redact'
 
 /**
  * Parse an exception thrown by the LLM layer into a structured, user-friendly
@@ -7,9 +8,14 @@ import { t } from '@/i18n'
  *   `API 请求失败 (401): {"error":{"message":"invalid api key"}}`
  * — the raw JSON body (if any) is kept in `detail` so the UI can render it in a
  * collapsible area instead of dumping it into the chat as plain text.
+ *
+ * `redact` (the request's own secrets) masks API keys that a provider error
+ * body may echo back — defense in depth on top of LLMClient's choke-point
+ * redaction.
  */
-export function parseLLMError(error: unknown): ChatError {
-  const message = error instanceof Error ? error.message : String(error ?? '')
+export function parseLLMError(error: unknown, opts?: { redact?: RedactSecretsOptions }): ChatError {
+  const raw = error instanceof Error ? error.message : String(error ?? '')
+  const message = opts?.redact ? redactSecrets(raw, opts.redact) : raw
   // Most adapters report `API 请求失败 (400): …`; some relays use the bare
   // `status_code=400` form — accept both so the code badge still shows.
   const codeMatch = message.match(/\((\d{3})\)/) ?? message.match(/status_code[=:]\s?(\d{3})/)

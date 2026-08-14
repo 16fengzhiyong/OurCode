@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import { join } from 'path'
 import { mkdirSync, rmSync, writeFileSync } from 'fs'
-import { MCPManager, extractMcpText, toMcpToolDefinition } from '../services/mcp-manager'
+import { MCPManager, extractMcpText, toMcpToolDefinition, shouldResetRetry } from '../services/mcp-manager'
 
 const MOCK = join(__dirname, 'fixtures', 'mock-mcp-server.js')
 
@@ -247,5 +247,64 @@ describe('toMcpToolDefinition', () => {
     expect(def.function.name).toBe('mcp__git__git_status')
     expect(def.function.description).toContain('MCP:git')
     expect(def.function.parameters).toEqual({ type: 'object', properties: {} })
+  })
+})
+
+describe('MCP backoff-budget reset + stale tools', () => {
+  afterEach(() => {
+    for (const m of managers) m.stopAll()
+    managers.length = 0
+  })
+
+  describe('shouldResetRetry', () => {
+    const now = 1_000_000
+
+    it('never resets for a server that never became ready (crash-loop)', () => {
+      expect(shouldResetRetry(undefined, undefined, now)).toBe(false)
+      expect(shouldResetRetry(undefined, now - 10, now)).toBe(false)
+    })
+
+    it('resets on the first death after a successful ready', () => {
+      expect(shouldResetRetry(now - 5000, undefined, now)).toBe(true)
+    })
+
+    it('resets only after the stable window has passed since the last death', () => {
+      // died 10s ago → still within the window → keep the retry budget
+      expect(shouldResetRetry(now - 1000, now - 10_000, now, 60_000)).toBe(false)
+      // died 90s ago → stable window passed → new outage → reset
+      expect(shouldResetRetry(now - 1000, now - 90_000, now, 60_000)).toBe(true)
+    })
+  })
+
+  describe('stale tool merge', () => {
+    it('returns cached tools marked stale for a dead-but-configured server', async () => {
+      const manager = new MCPManager()
+      managers.push(manager)
+      ;(manager as any).config = { mock: { command: 'x', args: [] } }
+      ;(manager as any).lastKnownTools.set('mock', [
+        { server: 'mock', name: 'toolA', description: 'd' },
+      ])
+
+      const tools = await manager.listTools()
+      expect(tools).toContainEqual({ server: 'mock', name: 'toolA', description: 'd', stale: true })
+    })
+
+    it('does not merge stale tools for disabled or live servers', async () => {
+      const manager = new MCPManager()
+      managers.push(manager)
+      ;(manager as any).config = { disabledSrv: { command: 'x', args: [], disabled: true } }
+      ;(manager as any).lastKnownTools.set('disabledSrv', [{ server: 'disabledSrv', name: 't' }])
+
+      const tools = await manager.listTools()
+      expect(tools).toEqual([])
+    })
+
+    it('clears stale tools on stopAll (config reload / quit)', () => {
+      const manager = new MCPManager()
+      managers.push(manager)
+      ;(manager as any).lastKnownTools.set('mock', [{ server: 'mock', name: 't' }])
+      manager.stopAll()
+      expect((manager as any).lastKnownTools.size).toBe(0)
+    })
   })
 })

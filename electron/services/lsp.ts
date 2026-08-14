@@ -7,6 +7,7 @@
  * publishDiagnostics (fed into Monaco markers → the Problems panel).
  */
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
+import { scrubbedSpawnEnv } from './env-scrub'
 
 export interface LspMessage {
   jsonrpc: '2.0'
@@ -41,7 +42,7 @@ export class LspServer {
 
   /** Start the process and perform the initialize handshake (resolves with capabilities). */
   async start(opts: LspServerOptions): Promise<unknown> {
-    const proc = spawn(opts.command, opts.args, { cwd: opts.cwd, shell: process.platform === 'win32' })
+    const proc = spawn(opts.command, opts.args, { cwd: opts.cwd, shell: process.platform === 'win32', env: scrubbedSpawnEnv() })
     this.proc = proc
     proc.stdout.on('data', (d: Buffer) => this.onData(d))
     proc.stderr.on('data', (d: Buffer) => this.onStderr?.(d.toString()))

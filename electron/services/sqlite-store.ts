@@ -142,6 +142,14 @@ export class SQLiteStore {
     if (!sessColumns.some((c: any) => c.name === 'last_user_message_at')) {
       this.db.exec("ALTER TABLE chat_sessions ADD COLUMN last_user_message_at INTEGER DEFAULT 0")
     }
+    // Durable compaction lock: 1 while an LLM summarizer is mid-flight for this
+    // session. Persisted so a crash mid-compaction is detectable on the next
+    // load (the lock is cleared then — the old summary stays valid, so nothing
+    // is lost; the lock only prevents a half-finished compaction from being
+    // treated as complete).
+    if (!sessColumns.some((c: any) => c.name === 'compaction_in_progress')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN compaction_in_progress INTEGER DEFAULT 0")
+    }
     // Add project_path column to memories if missing (project-scoped memories)
     const memColumns = this.db.prepare("PRAGMA table_info(memories)").all() as any[]
     if (!memColumns.some((c: any) => c.name === 'project_path')) {
@@ -391,12 +399,22 @@ export class SQLiteStore {
         }))
       } catch { branches = [] }
 
-      return {
-        id: session.id,
-        title: session.title,
-        configGroupId: session.config_group_id,
-        model: session.model,
-        modelParams: JSON.parse(session.model_params || '{}'),
+    // Crash recovery: a durable lock left at 1 means the app died while the
+    // summarizer was running. The pre-crash summary (if any) is still valid —
+    // clear the lock so a future run can compact again. (Sessions are never
+    // saved while the lock is held with a half-written summary — summary only
+    // lands after the summarizer returns.)
+    if (session.compaction_in_progress) {
+      this.db.prepare('UPDATE chat_sessions SET compaction_in_progress = 0 WHERE id = ?').run(session.id)
+    }
+
+    return {
+      id: session.id,
+      title: session.title,
+      configGroupId: session.config_group_id,
+      model: session.model,
+      modelParams: JSON.parse(session.model_params || '{}'),
+      compactionInProgress: false,
         messages: messages.map(msg => {
           const toolResults = parseJsonField<ChatMessage['toolResults']>(msg.tool_results, undefined)
           return {
@@ -457,7 +475,8 @@ export class SQLiteStore {
         SET title = ?, config_group_id = ?, model = ?, model_params = ?, updated_at = ?,
             active_branch_id = ?, branches = ?, pinned_at = ?, archived_at = ?,
             agent_mode = ?, todos = ?, plan_content = ?, plan_status = ?, agent_runs = ?, project_path = ?,
-            summary = ?, summary_message_count = ?, project_edit_mode = ?, last_user_message_at = ?
+            summary = ?, summary_message_count = ?, project_edit_mode = ?, last_user_message_at = ?,
+            compaction_in_progress = ?
         WHERE id = ?
       `).run(
         session.title,
@@ -479,14 +498,15 @@ export class SQLiteStore {
         (session as any).summaryMessageCount || 0,
         (session as any).projectEditMode || 'confirm_before_change',
         (session as any).lastUserMessageAt || 0,
+        (session as any).compactionInProgress ? 1 : 0,
         id
       )
     } else {
       this.db.prepare(`
         INSERT INTO chat_sessions (id, title, config_group_id, model, model_params, created_at, updated_at,
           active_branch_id, branches, pinned_at, archived_at, agent_mode, todos, plan_content, plan_status, agent_runs, project_path,
-          summary, summary_message_count, project_edit_mode, last_user_message_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          summary, summary_message_count, project_edit_mode, last_user_message_at, compaction_in_progress)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         session.title,
@@ -508,7 +528,8 @@ export class SQLiteStore {
         (session as any).summary || '',
         (session as any).summaryMessageCount || 0,
         (session as any).projectEditMode || 'confirm_before_change',
-        (session as any).lastUserMessageAt || 0
+        (session as any).lastUserMessageAt || 0,
+        (session as any).compactionInProgress ? 1 : 0
       )
     }
 

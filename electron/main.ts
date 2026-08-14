@@ -14,6 +14,8 @@ import { BackupService } from './services/backup'
 import { LspServer } from './services/lsp'
 import { DebugAdapterClient } from './services/debug'
 import { MCPManager, extractMcpText, toMcpToolDefinition } from './services/mcp-manager'
+import { scrubbedSpawnEnv } from './services/env-scrub'
+import { SpillStore } from './services/spill-store'
 import { v4 as uuidv4 } from 'uuid'
 import { IPC_CHANNELS } from '../shared/constants'
 import type { UsageEvent } from '../shared/types'
@@ -96,7 +98,7 @@ function runGit(cwd: string, args: string[], input: string | undefined, trim: bo
     execFile(
       'git',
       args,
-      { cwd, timeout: 15000, maxBuffer: 5 * 1024 * 1024, input } as ExecFileOptions,
+      { cwd, timeout: 15000, maxBuffer: 5 * 1024 * 1024, input, env: scrubbedSpawnEnv() } as ExecFileOptions,
       (error: Error | null, stdout: string | Buffer, stderr: string | Buffer) => {
         if (error) {
           reject(new Error(String(stderr || error.message)))
@@ -116,6 +118,7 @@ let fileIndex: FileIndexService
 let store: SQLiteStore
 let backup: BackupService
 let mcp: MCPManager
+let spillStore: SpillStore
 
 // Language servers by document URI (one per open file)
 const lspServers = new Map<string, LspServer>()
@@ -355,7 +358,7 @@ function rgSearchInFiles(
     const maxResults = 500
     let done = false
     let buf = ''
-    const child = spawn(rgBin, args, { windowsHide: true })
+    const child = spawn(rgBin, args, { windowsHide: true, env: scrubbedSpawnEnv() })
     child.stdout.on('data', (d: Buffer) => {
       if (done) return
       buf += d.toString()
@@ -417,7 +420,7 @@ function rgSearchFiles(dirPath: string, query: string, maxResults = 50): Promise
     const results: string[] = []
     let done = false
     let buf = ''
-    const child = spawn(rgBin, args, { windowsHide: true })
+    const child = spawn(rgBin, args, { windowsHide: true, env: scrubbedSpawnEnv() })
     child.stdout.on('data', (d: Buffer) => {
       if (done) return
       buf += d.toString()
@@ -1427,7 +1430,9 @@ function registerIpcHandlers(): void {
 
   // Used by the renderer to build tool definitions for the LLM
   ipcMain.handle('mcp:toolDefinitions', async () => {
-    const tools = await mcp.listTools()
+    // Stale tools (from a disconnected server's last-known list) are filtered —
+    // the model must never be offered a tool that would fail with "未连接".
+    const tools = (await mcp.listTools()).filter((t) => !t.stale)
     return tools.map((t) => toMcpToolDefinition(t))
   })
 
@@ -1522,6 +1527,7 @@ function registerIpcHandlers(): void {
         timeout: timeoutMs,
         maxBuffer: 5 * 1024 * 1024,
         shell: process.platform === 'win32' ? 'powershell.exe' : 'bash',
+        env: scrubbedSpawnEnv(),
       }, (error: any, stdout: string, stderr: string) => {
         if (error) {
           // exec 超时会把子进程杀掉并置 killed=true（signal='SIGTERM'）。超时
@@ -1538,6 +1544,16 @@ function registerIpcHandlers(): void {
         }
       })
     })
+  })
+
+  // Tool-output spill store — oversized tool results page through read_file
+  ipcMain.handle('spill:save', async (_event, sessionId: string, text: string) => {
+    if (typeof sessionId !== 'string' || typeof text !== 'string') return null
+    return spillStore.save(sessionId, text)
+  })
+  ipcMain.handle('spill:deleteSession', async (_event, sessionId: string) => {
+    if (typeof sessionId !== 'string') return
+    await spillStore.deleteSession(sessionId)
   })
 
   // App handlers
@@ -1670,6 +1686,11 @@ app.whenReady().then(() => {
   fileIndex = new FileIndexService(fileSystem)
   store = new SQLiteStore(userDataPath)
   backup = new BackupService(join(userDataPath, 'backups'))
+  // Tool-output spill store: full outputs of oversized tool results live under
+  // userData/spill/<session>/ (read_file can page them back). Sweep the TTL on
+  // every startup — spills are cache, not user data.
+  spillStore = new SpillStore(join(userDataPath, 'spill'))
+  void spillStore.sweep()
   // Bundled MCP servers (e.g. the git-server) ship inside the package via
   // extraResources → <resources>/mcp-servers (outside app.asar, so a plain
   // Node child can read them); in dev they live in the repo root.

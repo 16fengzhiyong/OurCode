@@ -1,0 +1,65 @@
+/**
+ * Approval pre-hook factory — the agent loop's per-tool approval decision,
+ * extracted so the full flow (gate serialization → re-checks → dialog → allow /
+ * deny) can be unit-tested without booting the whole store.
+ *
+ * The hook is registered on the shared ToolExecutor for one agent run. It
+ * filters by session (the executor is shared by parallel loops), denies tools
+ * the user batch-rejected, and shows ONE dialog at a time — the executor runs
+ * a round's tools concurrently but the store has a single pendingApproval slot
+ * and one resolve-key per session, so concurrent dialogs would overwrite each
+ * other and silently reject every tool but the last.
+ */
+import type { ToolExecuteContext } from '@/services/tools/ToolExecutor'
+import type { ToolCall } from '@/services/tools/types'
+import { createSerialGate } from '@/utils/serialGate'
+
+export type ApprovalHookOutcome = { allow: true } | { deny: true; reason: string }
+
+export interface ApprovalPreHookOptions {
+  sessionId: string
+  /** Per-round batch-rejected tool ids (user declined the whole round). */
+  batchRejectedRef: { current: Set<string> }
+  /** Live approval decision (project edit mode / batch / allowlist). */
+  needsApproval: (name: string) => boolean
+  /** Preview text shown in the dialog. */
+  getPreview: (toolCall: ToolCall) => string
+  /** True once the enclosing run has been aborted — deny without a dialog. */
+  isAborted: () => boolean
+  /** Show the dialog and resolve with the user's decision. The 60s auto-reject
+   *  and the store's pendingApproval/pending resolves live inside this — the
+   *  hook only cares about the boolean outcome. */
+  onDialog: (toolCall: ToolCall, preview: string) => Promise<boolean>
+  /** Serialization gate — injectable for tests; defaults to a fresh FIFO gate. */
+  gate?: { enter: () => Promise<() => void> }
+}
+
+/** Build the run's approval pre-hook (see the module docs). */
+export function createApprovalPreHook(opts: ApprovalPreHookOptions): (
+  toolCall: ToolCall,
+  ctx: ToolExecuteContext,
+) => Promise<ApprovalHookOutcome> {
+  const gate = opts.gate ?? createSerialGate()
+  return async (toolCall, ctx): Promise<ApprovalHookOutcome> => {
+    if (ctx.sessionId !== opts.sessionId) return { allow: true }
+    // Tools the user batch-rejected this round — deny without a dialog.
+    if (opts.batchRejectedRef.current.has(toolCall.id)) return { deny: true, reason: '用户拒绝了此操作' }
+    if (!opts.needsApproval(toolCall.name)) return { allow: true }
+
+    // Wait for the previous approval dialog before showing ours.
+    const release = await gate.enter()
+    try {
+      // Re-check after waiting: the run may have been stopped or batch-approved
+      // while we waited (e.g. the anti-flail question switched the edit mode),
+      // and the batch-reject set may have been updated.
+      if (opts.isAborted()) return { deny: true, reason: '已停止' }
+      if (opts.batchRejectedRef.current.has(toolCall.id)) return { deny: true, reason: '用户拒绝了此操作' }
+      if (!opts.needsApproval(toolCall.name)) return { allow: true }
+
+      const approved = await opts.onDialog(toolCall, opts.getPreview(toolCall))
+      return approved ? { allow: true } : { deny: true, reason: '用户拒绝了此操作' }
+    } finally {
+      release()
+    }
+  }
+}

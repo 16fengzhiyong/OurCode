@@ -96,6 +96,10 @@ export interface ChatSession {
   /** 摘要覆盖的 session.messages 条数：边界前的消息在请求中被摘要替代。
    *  越界时自动 clamp（用户可能编辑/删除了历史）。 */
   summaryMessageCount?: number
+  /** Durable compaction lock — true while the LLM summarizer is mid-flight.
+   *  Persisted to SQLite so a crash mid-compaction is detected and cleared on
+   *  the next load (the pre-crash summary stays valid). Not user-visible. */
+  compactionInProgress?: boolean
 }
 
 // Agent todo list item (managed via the manage_todo tool)

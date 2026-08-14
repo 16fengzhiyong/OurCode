@@ -6,7 +6,9 @@ import { Tool, ToolCall, ToolResult, ToolDefinition } from './types'
 import { createToolRegistry, toToolDefinitions } from './ToolRegistry'
 import { toSkillToolDefinitions, loadSkillContent, getWorkspaceRoot } from '@/services/skills/skillManager'
 import type { UsageEvent, UsageEventCategory } from '@/types'
-import { truncateToolOutput, ToolOutputLimits } from './truncate'
+import { truncateToolOutput, ToolOutputLimits, shouldSpill, buildSpillPreview } from './truncate'
+import { runWithTimeout } from './withTimeout'
+import { redactSecrets, type RedactSecretsOptions } from '@/services/llm/redact'
 
 /** Execution context for one tool call (falls back to the shared session context) */
 export interface ToolExecuteContext {
@@ -26,6 +28,41 @@ let toolOutputLimits: () => ToolOutputLimits = () => ({})
 export function configureToolOutput(limits: () => ToolOutputLimits): void {
   toolOutputLimits = limits
 }
+
+// Secret redaction for tool-error text and usage telemetry. Wired from
+// chatStore with a lazy accessor over the active config group — the request
+// path itself is already redacted at LLMClient's choke point; this covers the
+// tool-error surfaces that never see the request (MCP errors, usage events).
+let secretRedaction: () => RedactSecretsOptions | undefined = () => undefined
+export function configureSecretRedaction(getSecrets: () => RedactSecretsOptions | undefined): void {
+  secretRedaction = getSecrets
+}
+
+// ── Tool pipeline hooks ──────────────────────────────────────────────
+// Execution flows through five stages, each extensible from outside the class:
+//   guards → pre hooks → around hooks + core → post hooks → result observers.
+// Guards are MONOTONIC: they can only deny (return a reason); nothing later
+// may re-grant a denied call. Pre hooks may allow or deny (deny is terminal).
+// Around hooks wrap core execution. Post hooks rewrite the result. Result
+// observers receive the final result and must not throw.
+
+/** Pre-hook outcome: allow, or deny (terminal — nothing later re-grants). */
+export type PreHookOutcome = { allow: true } | { deny: true; reason: string }
+/** Guard: returns a denial reason string, or undefined to allow. Deny-only. */
+export type ToolGuard = (toolCall: ToolCall, ctx: ToolExecuteContext) => string | undefined | Promise<string | undefined>
+/** Pre hook: allow or deny (approval dialogs, checkpoint capture). */
+export type ToolPreHook = (toolCall: ToolCall, ctx: ToolExecuteContext) => PreHookOutcome | Promise<PreHookOutcome>
+/** Around hook: wraps the core execution (timeout, retry, metrics). `next`
+ *  may be called with a ctx override (e.g. a composed AbortSignal). */
+export type ToolAroundHook = (
+  toolCall: ToolCall,
+  ctx: ToolExecuteContext,
+  next: (ctxOverride?: ToolExecuteContext) => Promise<ToolResult>,
+) => Promise<ToolResult>
+/** Post hook: rewrites the result (spill/truncate, redaction). */
+export type ToolPostHook = (toolCall: ToolCall, result: ToolResult, ctx: ToolExecuteContext) => ToolResult | Promise<ToolResult>
+/** Result observer: fire-and-forget notification (usage recording). */
+export type ToolResultObserver = (toolCall: ToolCall, result: ToolResult, ctx: ToolExecuteContext) => void
 
 /** File-write tools gated by the read-before-write guard below. */
 const READ_GUARD_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'multi_edit_file'])
@@ -59,10 +96,125 @@ export class ToolExecutor {
    *  subagents get their own executor instance, so they must read before
    *  writing within their own scope. */
   private readFilesBySession = new Map<string, Set<string>>()
+  /** Five-stage pipeline registries (see the hook types above). */
+  private guards: ToolGuard[] = []
+  private preHooks: ToolPreHook[] = []
+  private aroundHooks: ToolAroundHook[] = []
+  private postHooks: ToolPostHook[] = []
+  private resultObservers: ToolResultObserver[] = []
+  /** Per-call start time for usage attribution (observers run after the result
+   *  is known, so the timing is captured at execute() entry). */
+  private startedAtByCall = new Map<string, number>()
 
   constructor() {
     this.tools = createToolRegistry()
     this.toolMap = new Map(this.tools.map((t) => [t.name, t]))
+    this.registerBuiltinPipeline()
+  }
+
+  /** Register a deny-only guard (monotonic: once denied, nothing re-grants).
+   *  Returns a dispose function. */
+  registerGuard(guard: ToolGuard): () => void {
+    return this.pushDisposable(this.guards, guard)
+  }
+
+  /** Register a pre hook (allow / deny). Denials short-circuit the pipeline. */
+  registerPreHook(hook: ToolPreHook): () => void {
+    return this.pushDisposable(this.preHooks, hook)
+  }
+
+  /** Register an around hook wrapping core execution (timeout, retry, metrics). */
+  registerAroundHook(hook: ToolAroundHook): () => void {
+    return this.pushDisposable(this.aroundHooks, hook)
+  }
+
+  /** Register a post hook that rewrites the result (spill/truncate, redaction). */
+  registerPostHook(hook: ToolPostHook): () => void {
+    return this.pushDisposable(this.postHooks, hook)
+  }
+
+  /** Register a result observer (usage recording, telemetry). Never throws. */
+  registerResultObserver(observer: ToolResultObserver): () => void {
+    return this.pushDisposable(this.resultObservers, observer)
+  }
+
+  private pushDisposable<T>(list: T[], item: T): () => void {
+    list.push(item)
+    return () => {
+      const i = list.indexOf(item)
+      if (i !== -1) list.splice(i, 1)
+    }
+  }
+
+  /** Built-in pipeline stages — the class's own safety net, present on every
+   *  executor (main loop + subagents): read-before-write guard, cooperative
+   *  deadline, read-tracking + output cap/spill, usage recording. */
+  private registerBuiltinPipeline(): void {
+    // Guard: read-before-write (deny-only, monotonic). Runs BEFORE approval so
+    // a call that is doomed anyway (file never read) never pops an approval
+    // dialog. Only existing files are gated (a brand-new file can't be read);
+    // multi_edit_file checks every target path in its edits array. Only
+    // enforced when a session context exists.
+    this.registerGuard(async (toolCall, ctx) => {
+      if (!READ_GUARD_TOOLS.has(toolCall.name) || !ctx.sessionId) return undefined
+      const targets = toolCall.name === 'multi_edit_file'
+        ? (Array.isArray(toolCall.arguments?.edits) ? toolCall.arguments.edits : [])
+            .map((e: any) => String(e?.path || '').trim())
+            .filter(Boolean)
+        : [String(toolCall.arguments?.path || '')]
+      for (const targetPath of targets) {
+        if (targetPath && !this.hasReadFile(ctx.sessionId, targetPath) && await this.fileExists(targetPath)) {
+          return `Error: File has not been read yet. Read it first before writing to it.（文件尚未读取，请先调用 read_file 读取后再写入）: ${targetPath}`
+        }
+      }
+      return undefined
+    })
+
+    // Around: cooperative deadline for tools that declare timeoutMs. The
+    // composed signal (budget + the enclosing run's Stop) is threaded into the
+    // core execution; the hard race settles even if the tool ignores it.
+    this.registerAroundHook(async (toolCall, ctx, next) => {
+      const timeoutMs = this.toolMap.get(toolCall.name)?.timeoutMs ?? 0
+      return runWithTimeout(
+        (signal) => next({ ...ctx, abortSignal: signal }),
+        timeoutMs,
+        ctx.abortSignal,
+      )
+    })
+
+    // Post: read-tracking (a successful read/write makes the path known).
+    this.registerPostHook((toolCall, result, ctx) => {
+      if (toolCall.name === 'read_file' || toolCall.name === 'write_file') {
+        this.markRead(ctx.sessionId, String(toolCall.arguments?.path || ''))
+      } else if (toolCall.name === 'read_multiple_files') {
+        const paths = Array.isArray(toolCall.arguments?.paths) ? toolCall.arguments.paths : []
+        for (const p of paths) this.markRead(ctx.sessionId, String(p || ''))
+      }
+      return result
+    })
+
+    // Post: cap / spill oversized outputs (spill needs the session for the dir).
+    this.registerPostHook(async (toolCall, result, ctx) => {
+      result.result = await this.capResult(result.result, ctx.sessionId)
+      return result
+    })
+
+    // Result observer: usage recording for skill / MCP calls (built-in tools
+    // are not tracked in the dashboard's tool categories — unchanged).
+    this.registerResultObserver((toolCall, result, ctx) => {
+      const startedAt = this.startedAtByCall.get(toolCall.id) ?? Date.now()
+      this.startedAtByCall.delete(toolCall.id)
+      if (toolCall.name.startsWith('skill__')) {
+        const skillName = toolCall.name.slice('skill__'.length)
+        this.recordUsage('skill', skillName, startedAt, { ok: !result.isError, error: result.isError ? result.result : undefined, context: ctx })
+      } else if (toolCall.name.startsWith('mcp__')) {
+        const rest = toolCall.name.slice('mcp__'.length)
+        const sep = rest.indexOf('__')
+        const server = sep === -1 ? rest : rest.slice(0, sep)
+        const toolName = sep === -1 ? rest : rest.slice(sep + 2)
+        this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: !result.isError, error: result.isError ? result.result : undefined, context: ctx })
+      }
+    })
   }
 
   /** Get all static tools */
@@ -161,12 +313,26 @@ export class ToolExecutor {
     return tool?.requiresApproval ?? false
   }
 
-  /** Single exit funnel for every tool result: caps pathologically large outputs
-   *  (MCP results / run_command output / skill content — the paths with no
-   *  upper bound of their own) at the configured limits. Built-in tools self-cap
-   *  below the defaults, so existing behavior is untouched. */
-  private capResult(result: string): string {
-    return truncateToolOutput(result, toolOutputLimits())
+  /** Single exit funnel for every tool result: outputs over the inline budget
+   *  are spilled to disk (full text saved; preview + locator returned) when a
+   *  session is known, else capped at the configured limits. Built-in tools
+   *  self-cap below the defaults, so existing behavior is untouched. */
+  private async capResult(result: string, sessionId?: string): Promise<string> {
+    const limits = toolOutputLimits()
+    if (sessionId && shouldSpill(result, limits)) {
+      try {
+        const locator = await window.electronAPI.spillSave(sessionId, result)
+        if (locator) return buildSpillPreview(result, locator, limits)
+      } catch {
+        // spill unavailable → fall through to plain truncation
+      }
+    }
+    return truncateToolOutput(result, limits)
+  }
+
+  /** Mask API keys / header secrets that an error text may echo back. */
+  private redact(text: string): string {
+    return redactSecrets(text, secretRedaction())
   }
 
   /** Persist one usage event (skills / subagents / MCP) into the dashboard */
@@ -187,35 +353,107 @@ export class ToolExecutor {
       startedAt,
       durationMs: Date.now() - startedAt,
       ok: opts.ok,
-      error: opts.error,
+      error: opts.error ? this.redact(opts.error) : undefined,
     }
     window.electronAPI.recordUsage([event]).catch(() => { /* stats are best-effort */ })
     window.dispatchEvent(new CustomEvent('ourcode:usage-recorded'))
   }
 
-  /** Execute a tool call. `context` attributes usage to a specific session —
-   *  with parallel agent loops the shared setSessionContext slot is racy, so
-   *  the agent loop passes the per-call context explicitly. */
+  /** Execute a tool call through the five-stage pipeline. `context` attributes
+   *  usage to a specific session — with parallel agent loops the shared
+   *  setSessionContext slot is racy, so the agent loop passes the per-call
+   *  context explicitly. */
   async execute(toolCall: ToolCall, context?: ToolExecuteContext): Promise<ToolResult> {
     const ctx = context || this.sessionContext || {}
+    this.startedAtByCall.set(toolCall.id, Date.now())
+
+    // Stage 1 — guards (deny-only, monotonic). First denial is terminal; no
+    // later stage can re-grant. Read-before-write lives here, before approval,
+    // so a doomed call never pops an approval dialog.
+    for (const guard of this.guards) {
+      const reason = await guard(toolCall, ctx)
+      if (reason) {
+        this.startedAtByCall.delete(toolCall.id)
+        return this.deniedResult(toolCall, reason)
+      }
+    }
+
+    // Stage 2 — pre hooks (approval, checkpoint). Deny is terminal.
+    for (const hook of this.preHooks) {
+      const outcome = await hook(toolCall, ctx)
+      if ('deny' in outcome && outcome.deny) {
+        this.startedAtByCall.delete(toolCall.id)
+        return this.deniedResult(toolCall, outcome.reason, { rejected: true })
+      }
+    }
+
+    // Stages 3–5 — around + core, post, observers. The finally guarantees the
+    // per-call timing entry is released on EVERY exit path (the usage observer
+    // only covers skill/mcp), and post-hook failures are isolated: a failing
+    // result rewrite must never turn a tool call into an exception.
+    let result: ToolResult
+    try {
+      try {
+        result = await this.runAround(toolCall, ctx)
+      } catch (error: any) {
+        // Safety net for around-hook / core throws (core itself returns errors).
+        result = {
+          toolCallId: toolCall.id,
+          name: toolCall.name,
+          result: this.redact(`Error executing ${toolCall.name}: ${error.message}`),
+          isError: true,
+        }
+      }
+
+      // Stage 4 — post hooks (read-tracking, cap/spill).
+      for (const post of this.postHooks) {
+        try {
+          result = await post(toolCall, result, ctx)
+        } catch (error: any) {
+          console.error(`Tool post hook 失败 (${toolCall.name}):`, error)
+        }
+      }
+
+      // Stage 5 — result observers (usage recording). Observers never break the
+      // loop.
+      for (const observer of this.resultObservers) {
+        try {
+          observer(toolCall, result, ctx)
+        } catch { /* observer failure is non-fatal */ }
+      }
+    } finally {
+      this.startedAtByCall.delete(toolCall.id)
+    }
+    return result
+  }
+
+  /** Run the around-hook chain, ending at core execution. */
+  private runAround(toolCall: ToolCall, ctx: ToolExecuteContext): Promise<ToolResult> {
+    const chain = async (i: number, c: ToolExecuteContext): Promise<ToolResult> => {
+      if (i >= this.aroundHooks.length) return this.executeCore(toolCall, c)
+      return this.aroundHooks[i](toolCall, c, (override) => chain(i + 1, override ?? c))
+    }
+    return chain(0, ctx)
+  }
+
+  /** Core execution: route skill / MCP / builtin tools and return the raw
+   *  result (cap/spill, usage recording and markRead happen in pipeline stages,
+   *  not here). */
+  private async executeCore(toolCall: ToolCall, ctx: ToolExecuteContext): Promise<ToolResult> {
     // Skill dynamic tool: skill__<name> — loads the skill's instructions
     if (toolCall.name.startsWith('skill__')) {
       const skillName = toolCall.name.slice('skill__'.length)
-      const startedAt = Date.now()
       try {
         // Load from the RUNNING session's project first — with parallel agent
         // loops the workspace follows each conversation, not the folder being
         // browsed in the sidebar file tree.
         const content = await loadSkillContent(skillName, ctx.projectPath || getWorkspaceRoot())
         if (content == null) {
-          this.recordUsage('skill', skillName, startedAt, { ok: false, error: '技能不存在', context: ctx })
-          return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(`Error: 技能 "${skillName}" 不存在`), isError: true }
+          return { toolCallId: toolCall.id, name: toolCall.name, result: this.redact(`Error: 技能 "${skillName}" 不存在`), isError: true }
         }
-        this.recordUsage('skill', skillName, startedAt, { ok: true, context: ctx })
-        return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(content) }
+        return { toolCallId: toolCall.id, name: toolCall.name, result: content }
       } catch (error: any) {
-        this.recordUsage('skill', skillName, startedAt, { ok: false, error: error.message, context: ctx })
-        return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(`Error: ${error.message}`), isError: true }
+        return { toolCallId: toolCall.id, name: toolCall.name, result: this.redact(`Error: ${error.message}`), isError: true }
       }
     }
 
@@ -224,22 +462,18 @@ export class ToolExecutor {
       const rest = toolCall.name.slice('mcp__'.length)
       const sep = rest.indexOf('__')
       if (sep === -1) {
-        return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult('Error: malformed MCP tool name'), isError: true }
+        return { toolCallId: toolCall.id, name: toolCall.name, result: 'Error: malformed MCP tool name', isError: true }
       }
       const server = rest.slice(0, sep)
       const toolName = rest.slice(sep + 2)
-      const startedAt = Date.now()
       try {
         const res = await window.electronAPI.mcpCallTool(server, toolName, toolCall.arguments || {})
         if (res.ok) {
-          this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: true, context: ctx })
-          return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(res.result || '(空结果)') }
+          return { toolCallId: toolCall.id, name: toolCall.name, result: res.result || '(空结果)' }
         }
-        this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: false, error: res.error, context: ctx })
-        return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(`Error: ${res.error}`), isError: true }
+        return { toolCallId: toolCall.id, name: toolCall.name, result: this.redact(`Error: ${res.error}`), isError: true }
       } catch (error: any) {
-        this.recordUsage('mcp', `${server}__${toolName}`, startedAt, { sub: server, ok: false, error: error.message, context: ctx })
-        return { toolCallId: toolCall.id, name: toolCall.name, result: this.capResult(`Error: ${error.message}`), isError: true }
+        return { toolCallId: toolCall.id, name: toolCall.name, result: this.redact(`Error: ${error.message}`), isError: true }
       }
     }
 
@@ -248,66 +482,39 @@ export class ToolExecutor {
       return {
         toolCallId: toolCall.id,
         name: toolCall.name,
-        result: this.capResult(`Error: Unknown tool "${toolCall.name}"`),
+        result: `Error: Unknown tool "${toolCall.name}"`,
         isError: true,
       }
     }
 
-    // Read-before-write guard (ZCode-style): write/edit/delete must not touch
-    // a file the session has never read — the model can't know what it's
-    // changing. Only existing files are gated (a brand-new file can't be read);
-    // paths read via read_file (or created by a successful write) are known.
-    // multi_edit_file checks every target path in its edits array.
-    // Only enforced when a session context exists — without one there's no
-    // read-tracking to consult, so the write proceeds.
-    if (READ_GUARD_TOOLS.has(toolCall.name) && ctx.sessionId) {
-      const targets = toolCall.name === 'multi_edit_file'
-        ? (Array.isArray(toolCall.arguments?.edits) ? toolCall.arguments.edits : [])
-            .map((e: any) => String(e?.path || '').trim())
-            .filter(Boolean)
-        : [String(toolCall.arguments?.path || '')]
-      for (const targetPath of targets) {
-        if (targetPath && !this.hasReadFile(ctx.sessionId, targetPath) && await this.fileExists(targetPath)) {
-          return {
-            toolCallId: toolCall.id,
-            name: toolCall.name,
-            result: this.capResult(`Error: File has not been read yet. Read it first before writing to it.（文件尚未读取，请先调用 read_file 读取后再写入）: ${targetPath}`),
-            isError: true,
-          }
-        }
-      }
-    }
-
     try {
+      // The around-hook stage already composed the deadline + Stop signal into
+      // ctx.abortSignal for tools with a timeoutMs; forward it unchanged.
       const result = await tool.execute(toolCall.arguments, {
         sessionId: ctx.sessionId,
         projectPath: ctx.projectPath,
         toolCallId: ctx.toolCallId ?? toolCall.id,
         abortSignal: ctx.abortSignal,
       })
-      // A successful read makes the path known; a successful write to a NEW
-      // file does too (the model just authored it, so it may edit it next).
-      // read_multiple_files marks every path it attempted — files it couldn't
-      // read are edge cases (existed-but-unreadable) and losing the guard there
-      // is an acceptable trade-off for keeping the batch failure-isolated.
-      if (toolCall.name === 'read_file' || toolCall.name === 'write_file') {
-        this.markRead(ctx.sessionId, String(toolCall.arguments?.path || ''))
-      } else if (toolCall.name === 'read_multiple_files') {
-        const paths = Array.isArray(toolCall.arguments?.paths) ? toolCall.arguments.paths : []
-        for (const p of paths) this.markRead(ctx.sessionId, String(p || ''))
-      }
-      return {
-        toolCallId: toolCall.id,
-        name: toolCall.name,
-        result: this.capResult(result),
-      }
+      return { toolCallId: toolCall.id, name: toolCall.name, result }
     } catch (error: any) {
       return {
         toolCallId: toolCall.id,
         name: toolCall.name,
-        result: this.capResult(`Error executing ${toolCall.name}: ${error.message}`),
+        result: this.redact(`Error executing ${toolCall.name}: ${error.message}`),
         isError: true,
       }
+    }
+  }
+
+  /** Build the result for a denied call (guard reason / user rejection). */
+  private deniedResult(toolCall: ToolCall, reason: string, opts?: { rejected?: boolean }): ToolResult {
+    return {
+      toolCallId: toolCall.id,
+      name: toolCall.name,
+      result: truncateToolOutput(reason, toolOutputLimits()),
+      isError: true,
+      rejected: opts?.rejected,
     }
   }
 

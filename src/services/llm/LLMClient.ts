@@ -9,6 +9,7 @@ import { DeepSeekAdapter } from './adapters/DeepSeekAdapter'
 import { GroqAdapter } from './adapters/GroqAdapter'
 import { buildCacheKey, fetchCachedResponse, shouldCache, storeCachedResponse, CachedResponse } from './responseCache'
 import { classifyLLMError } from './classify'
+import { redactError } from './redact'
 
 const REQUEST_TIMEOUT_MS = 600_000 // 10 min idle (no-data) timeout for LLM streams
 
@@ -171,9 +172,17 @@ export async function* sendLLMRequest(
       }
       break // request finished (naturally or via the done chunk)
     } catch (error: any) {
+      // API key and custom header values must never surface in an error the
+      // chat/model can see — some providers echo the key back in the error
+      // body, and URL-keyed ones (Gemini) put it in the URL. Redact here, the
+      // single choke point where the request's own secrets are in scope.
       const err = (error.name === 'AbortError' || controller.signal.aborted)
         ? new Error('请求超时，请稍后重试')
-        : error
+        : redactError(error, {
+            apiKey: safeConfig.apiKey,
+            baseUrl: safeConfig.baseUrl,
+            customHeaders: safeConfig.customHeaders,
+          })
       // Auto-retry transient failures ONLY before the stream produced anything
       // (chunks.length === 0). Once output has started, retrying would replay
       // partial content — surface the error instead. Context-overflow is never

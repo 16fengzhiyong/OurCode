@@ -16,6 +16,7 @@ const mockApi = {
   checkpointList: vi.fn(async () => []),
   checkpointSave: vi.fn(async () => {}),
   checkpointDelete: vi.fn(async () => {}),
+  spillDeleteSession: vi.fn(async () => {}),
   saveConfigGroup: vi.fn(async () => ({})),
   getConfigGroups: vi.fn(async () => []),
 }

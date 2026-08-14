@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, UsageEvent, SubAgentProgress, AgentRunPhase, lookupModelMetadata } from '@/types'
+import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, UsageEvent, SubAgentProgress, AgentRunPhase } from '@/types'
 import { TOOL_ALLOWLIST_PREFIX } from '@shared/constants'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
@@ -13,10 +13,12 @@ import { getFileContent } from '@/editor/modelRegistry'
 import { sendLLMRequest, configureLLMCache, configureLLMRetry } from '@/services/llm/LLMClient'
 import { parseLLMError } from '@/services/llm/errors'
 import { classifyLLMError } from '@/services/llm/classify'
-import { maybeCompact, runSummarizer, buildSummaryBlock, DEFAULT_COMPACTION_RATIO } from '@/services/llm/compaction'
+import { redactSecrets } from '@/services/llm/redact'
+import { maybeCompact, runSummarizer, buildSummaryBlock, getContextWindow, DEFAULT_COMPACTION_RATIO } from '@/services/llm/compaction'
 import { djb2Hash, toolSignature, rememberRequestSignature, getPreviousSignature, analyzeCacheBreak, recordCacheRead, hasSeenCacheRead } from '@/services/llm/cacheDiagnostics'
-import { ToolExecutor, configureToolOutput } from '@/services/tools'
+import { ToolExecutor, configureToolOutput, configureSecretRedaction } from '@/services/tools'
 import { ToolCall, ToolResult } from '@/services/tools/types'
+import { createApprovalPreHook } from './approvalHook'
 import { runWithConcurrency } from '@/services/subagents/parallel'
 import {
   extractKeywords,
@@ -48,6 +50,15 @@ configureToolOutput(() => ({
   maxChars: useEditorStore.getState().preferences.toolOutputMaxChars,
   maxLines: useEditorStore.getState().preferences.toolOutputMaxLines,
 }))
+// Secret redaction for tool-error text / usage telemetry — always mask the
+// currently-active group's key & header values (lazy so it tracks the group
+// the user actually switches to; the request path is redacted separately).
+configureSecretRedaction(() => {
+  const group = useConfigStore.getState().getActiveConfigGroup()
+  return group
+    ? { apiKey: group.apiKey, baseUrl: group.baseUrl, customHeaders: group.customHeaders }
+    : undefined
+})
 
 // Cached git info (refreshed via refreshGitBranch)
 let _cachedGitBranch = ''
@@ -582,7 +593,7 @@ interface ChatState {
    *  "正在…" placeholder in ChatMessages so a silent wait shows what the app
    *  is actually doing (preparing context / compacting / waiting for the
    *  model's first token) instead of a generic codebase-analysis label. */
-  runPhaseBySession: Record<string, { phase: AgentRunPhase; since: number }>
+  runPhaseBySession: Record<string, { phase: AgentRunPhase; since: number; detail?: string }>
   /** Per-session timestamp of the last agent activity (stream chunk / tool
    *  step / approval dialog). The idle "已 X 分钟无响应" indicator reads it. */
   streamLastActivityBySession: Record<string, number>
@@ -859,7 +870,7 @@ export function compactToolResults(messages: RequestMessage[]): RequestMessage[]
  * earlier context was cut. Exported for unit tests.
  */
 export function trimHistoryForContext(messages: RequestMessage[], modelId: string): RequestMessage[] {
-  const contextWindow = lookupModelMetadata(modelId)?.contextWindow || 128000
+  const contextWindow = getContextWindow(modelId)
   const budget = Math.floor(contextWindow * 0.8)
   const total = messages.reduce((sum, m) => sum + estimateTokens(m.content), 0)
   if (total <= budget) return messages
@@ -1473,6 +1484,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })
     window.electronAPI.deleteSession(sessionId)
     window.electronAPI.checkpointDelete(sessionId)
+    // Remove the session's spilled tool-output files (best-effort cache cleanup)
+    void window.electronAPI.spillDeleteSession(sessionId).catch(() => {})
     // Drop the executor's per-session read-tracking (read-before-write guard)
     toolExecutor.forgetSession(sessionId)
   },
@@ -2390,16 +2403,30 @@ async function runAgentLoop(
   // Stage of the agent loop, surfaced in ChatMessages' "正在…" placeholder so
   // a silent wait shows what the app is actually doing instead of a generic
   // codebase-analysis label. `since` anchors the elapsed-seconds counter.
-  const setRunPhase = (phase: AgentRunPhase | null) => {
+  const setRunPhase = (phase: AgentRunPhase | null, detail?: string) => {
     set((s) => {
       const runPhaseBySession = { ...s.runPhaseBySession }
       if (phase === null) delete runPhaseBySession[sessionId]
-      else runPhaseBySession[sessionId] = { phase, since: Date.now() }
+      else runPhaseBySession[sessionId] = { phase, since: Date.now(), ...(detail ? { detail } : {}) }
       return { runPhaseBySession }
     })
   }
   // Pre-stream phase: MCP/skill refresh, system-prompt build, codebase retrieval.
   setRunPhase('preparing')
+  // 准备阶段的逐步计时（诊断用）：每一步完成后把「步骤 + 耗时」写进 phase
+  // 的 detail（UI 的占位行直接显示），进入首 token 等待前在控制台输出完整分解，
+  // 用于定位「准备上下文」到底慢在哪一步。
+  const prepTimings: string[] = []
+  const timePrepStep = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+    const t0 = performance.now()
+    try {
+      return await fn()
+    } finally {
+      const ms = Math.round(performance.now() - t0)
+      prepTimings.push(`${label}=${ms}ms`)
+      setRunPhase('preparing', `${label} ${ms}ms`)
+    }
+  }
 
   const abortController = new AbortController()
   set((s) => ({ abortControllers: { ...s.abortControllers, [sessionId]: abortController } }))
@@ -2419,12 +2446,18 @@ async function runAgentLoop(
   let runCacheReadTokens = 0
   let runCacheWriteTokens = 0
 
+  // Tool pipeline disposers — declared OUTSIDE the try (a try body's consts are
+  // invisible to its own finally, which is a sibling block scope), so the
+  // finally below can unregister this run's approval/checkpoint hooks.
+  let disposeApprovalHook: () => void = () => {}
+  let disposeCheckpointHook: () => void = () => {}
+
   try {
     // Refresh dynamic tools (MCP servers + workspace skills) before building the tool list.
     // Skill tools scope to the RUNNING session's project (global skills always
     // included) — the browsing root would leak other projects' skills in.
-    await toolExecutor.refreshMcpTools()
-    await toolExecutor.refreshSkillTools(session.projectPath || getWorkspaceRoot())
+    await timePrepStep('刷新MCP工具', () => toolExecutor.refreshMcpTools())
+    await timePrepStep('刷新技能', () => toolExecutor.refreshSkillTools(session.projectPath || getWorkspaceRoot()))
 
   // Build the system prompt with memories / rules / skills / retrieved context
   const lastUserMessage = [...session.messages].reverse().find((m) => m.role === 'user')
@@ -2433,13 +2466,13 @@ async function runAgentLoop(
   // Split the prompt into a byte-stable prefix + per-turn dynamic context so
   // provider prefix caches (OpenAI / DeepSeek / Anthropic) keep hitting across
   // turns instead of re-billing the whole history every time.
-  const { stable, dynamic } = await buildSystemPrompt(
+  const { stable, dynamic } = await timePrepStep('构建提示词', () => buildSystemPrompt(
     baseSystemPrompt, userContent, lastUserMessage?.contextFiles || [],
     session.projectPath,
     // Pure chat mode has no tool loop — auto-retrieval is its most expensive
     // and least useful step there; explicit @-attached files still get read.
     agentMode !== 'agent',
-  )
+  ))
   let stableSystemPrompt = stable
   let dynamicContext = dynamic
   // Mode instructions are static text → stable prefix. Target-mode workflow
@@ -2520,6 +2553,10 @@ async function runAgentLoop(
     // The summarizer is a real LLM call (its own TTFT) — surface it as a
     // distinct phase instead of a silent "waiting for the model".
     setRunPhase('compacting')
+    // Durable lock: persisted to SQLite BEFORE the summarizer starts, so a
+    // crash mid-summary leaves the lock behind — the next load clears it and
+    // the pre-crash summary (if any) stays valid. Cleared on every exit path.
+    setCompactionLock(true)
     try {
       let tokensIn = 0
       let tokensOut = 0
@@ -2550,7 +2587,20 @@ async function runAgentLoop(
         startedAt, ok: false, error: error?.message,
       }))
       throw error
+    } finally {
+      setCompactionLock(false)
     }
+  }
+  /** Flip the durable compaction lock in the store AND persist it immediately,
+   *  so a crash mid-summarizer leaves it set for the next load to clear. */
+  const setCompactionLock = (locked: boolean): void => {
+    const s = useChatStore.getState().sessions.find((x) => x.id === sessionId)
+    if (!s) return
+    if (s.compactionInProgress === locked) return
+    useChatStore.setState((st) => ({
+      sessions: st.sessions.map((x) => (x.id === sessionId ? { ...x, compactionInProgress: locked } : x)),
+    }))
+    void chatStore.saveSession(sessionId)
   }
   const applyCompaction = async (force: boolean): Promise<boolean> => {
     const compacted = await maybeCompact({
@@ -2558,7 +2608,7 @@ async function runAgentLoop(
       messages,
       force,
       signal: abortController.signal,
-      contextWindow: lookupModelMetadata(model)?.contextWindow,
+      contextWindow: getContextWindow(model),
       ratio: compactionPrefs.contextCompactionRatio ?? DEFAULT_COMPACTION_RATIO,
       compactionEnabled,
       estimateTokens,
@@ -2582,7 +2632,7 @@ async function runAgentLoop(
     }))
     return true
   }
-  if (!(await applyCompaction(false))) {
+  if (!(await timePrepStep('上下文压缩', () => applyCompaction(false)))) {
     // Context-window management: trim the oldest history when the estimate
     // exceeds the model's budget (keeps the current user turn + a notice).
     messages = trimHistoryForContext(messages, model)
@@ -2593,6 +2643,12 @@ async function runAgentLoop(
   // the provider doesn't reject the whole request with a 400 ("insufficient
   // tool messages following tool_calls message").
   messages = sanitizeToolPairing(messages)
+
+  // 准备阶段结束，即将进入首 token 等待——把分步耗时打出来，方便定位
+  // 「准备上下文」慢在哪一步（UI 的占位行只显示最近完成的一步）。
+  if (prepTimings.length > 0) {
+    console.warn(`[准备阶段耗时] 会话 ${sessionId} — ${prepTimings.join(' | ')}`)
+  }
 
   // Agent mode: start (or resume) the run record + live trace. Also load the
   // persisted per-project "always allow" list for the approval checks below.
@@ -2642,6 +2698,56 @@ async function runAgentLoop(
     if (needs && (useChatStore.getState().toolAllowlist[projectPath] || []).includes(name)) needs = false
     return needs
   }
+
+  // ── Tool pipeline hooks (registered per run, disposed in the finally) ──
+  // Approval + checkpoint moved out of the tool loop into ToolExecutor
+  // pre-hooks, so every tool call funnels through the same pipeline stages.
+  // Hooks filter by ctx.sessionId: the executor is module-level and shared by
+  // parallel agent loops, so a hook must never prompt for another session.
+  const batchRejectedRef: { current: Set<string> } = { current: new Set() }
+  const assistantMsgIdRef: { current: string } = { current: '' }
+
+  disposeApprovalHook = toolExecutor.registerPreHook(createApprovalPreHook({
+    sessionId,
+    batchRejectedRef,
+    needsApproval,
+    getPreview: (tc) => toolExecutor.getPreview(tc),
+    isAborted: () => abortController.signal.aborted,
+    // Show the per-tool approval dialog (project edit mode / batch / allowlist
+    // exemptions are all folded into needsApproval above). 60s auto-reject so
+    // the loop never hangs on a dangling dialog.
+    onDialog: async (tc, preview) => {
+      touchActivity() // waiting on the user ≠ model silence
+      useChatStore.setState({ pendingApproval: { sessionId, toolCall: tc, preview } })
+
+      // Reject any previous pending approval for this session to prevent
+      // dangling promises (each session waits on its own resolve slot)
+      if (_approvalResolves.has(sessionId)) {
+        _approvalResolves.get(sessionId)!(false)
+        _approvalResolves.delete(sessionId)
+      }
+
+      return new Promise<boolean>((resolve) => {
+        _approvalResolves.set(sessionId, resolve)
+        setTimeout(() => {
+          if (_approvalResolves.get(sessionId) === resolve) {
+            _approvalResolves.delete(sessionId)
+            resolve(false)
+          }
+        }, 60000)
+      })
+    },
+  }))
+
+  disposeCheckpointHook = toolExecutor.registerPreHook(async (tc, ctx) => {
+    if (ctx.sessionId !== sessionId) return { allow: true }
+    // Snapshot the files a write tool is about to touch (revertable edits).
+    // Runs AFTER approval — a rejected call changes nothing, so no snapshot.
+    if (CHECKPOINT_TOOLS.has(tc.name)) {
+      await captureCheckpoint(sessionId, tc, assistantMsgIdRef.current)
+    }
+    return { allow: true }
+  })
 
   // Agent 工具调用轮数上限（设置里可配，默认 0 = 无限）。主流工具
   // （Cursor/Windsurf/Claude Code）不设常态上限——20 轮对多文件任务
@@ -2997,14 +3103,16 @@ async function runAgentLoop(
       // Read from THIS session — with parallel conversations getActiveSession()
       // may point at a different session the user switched to.
       const assistantMsgId = useChatStore.getState().sessions.find((x) => x.id === sessionId)?.messages.slice(-1)[0]?.id || ''
+      // The checkpoint pre-hook attaches this round's snapshots to this message.
+      assistantMsgIdRef.current = assistantMsgId
 
       let planSubmitted = false
 
       // Agent mode: offer one batch-approval dialog per round (Windsurf/Cursor
       // style) instead of interrupting on every write tool. Choosing "全部批准"
       // sets batchApproved for the rest of this run; "全部拒绝" marks this
-      // round's tools as rejected; "逐个确认" falls through to per-tool dialogs.
-      let batchRejectedIds = new Set<string>()
+      // round's tools as rejected; "逐个确认" falls through to per-tool dialogs
+      // (handled by the approval pre-hook in ToolExecutor).
       if (agentMode === 'agent' && !useChatStore.getState().batchApprovedBySession[sessionId]) {
         const batchTools = parsedToolCalls.filter((tc) => needsApproval(tc.name))
         if (batchTools.length > 0) {
@@ -3028,7 +3136,7 @@ async function runAgentLoop(
           if (decision === 'all') {
             useChatStore.getState().approveBatchRun(sessionId)
           } else if (decision === 'reject') {
-            batchRejectedIds = new Set(batchTools.map((t) => t.id))
+            batchRejectedRef.current = new Set(batchTools.map((t) => t.id))
           }
         }
       }
@@ -3063,7 +3171,9 @@ async function runAgentLoop(
       }
 
       const finalizeToolResult = (tc: ToolCall, result: ToolResult): void => {
-        useChatStore.getState().setTraceStatus(sessionId, tc.id, result.isError ? 'error' : 'success')
+        // A user-denied call shows 'rejected' (not 'error') in the trace —
+        // the pipeline marks denials via result.rejected.
+        useChatStore.getState().setTraceStatus(sessionId, tc.id, result.rejected ? 'rejected' : result.isError ? 'error' : 'success')
         touchActivity() // tool finished — the agent is working, not idle
         // 命令连续失败计数：run_command 失败/超时以 "Error:" 开头的文本返回，
         // ToolExecutor 未必置 isError —— 两种都算，供循环末尾的熔断使用。
@@ -3162,70 +3272,13 @@ async function runAgentLoop(
           continue
         }
 
-        // ── Batch-rejected tools (user declined the whole round) ──
-        if (batchRejectedIds.has(tc.id)) {
-          const result: ToolResult = {
-            toolCallId: tc.id,
-            name: tc.name,
-            result: '用户拒绝了此操作',
-            isError: true,
-          }
-          chatStore.appendToolResult(sessionId, assistantMsgId, result)
-          recordToolMessage(tc.id, result.result)
-          useChatStore.getState().setTraceStatus(sessionId, tc.id, 'rejected')
-          continue
-        }
-
-        // ── Checkpoint write tools before execution (revertable edits) ──
-        if (CHECKPOINT_TOOLS.has(tc.name)) {
-          await captureCheckpoint(sessionId, tc, assistantMsgId)
-        }
-
-        // Approval (per-tool) — project edit mode / batch / allowlist exemptions
-        // are all folded into the needsApproval() helper defined above.
-        if (needsApproval(tc.name)) {
-          const preview = toolExecutor.getPreview(tc)
-          touchActivity() // waiting on the user ≠ model silence
-          useChatStore.setState({ pendingApproval: { sessionId, toolCall: tc, preview } })
-
-          // Reject any previous pending approval for this session to prevent
-          // dangling promises (each session waits on its own resolve slot)
-          if (_approvalResolves.has(sessionId)) {
-            _approvalResolves.get(sessionId)!(false)
-            _approvalResolves.delete(sessionId)
-          }
-
-          const approved = await new Promise<boolean>((resolve) => {
-            _approvalResolves.set(sessionId, resolve)
-            // Auto-reject if the user never responds (60s), so the agent loop
-            // doesn't hang forever on a dangling approval dialog
-            setTimeout(() => {
-              if (_approvalResolves.get(sessionId) === resolve) {
-                _approvalResolves.delete(sessionId)
-                resolve(false)
-              }
-            }, 60000)
-          })
-
-          if (!approved) {
-            useChatStore.getState().setTraceStatus(sessionId, tc.id, 'rejected')
-            const result: ToolResult = {
-              toolCallId: tc.id,
-              name: tc.name,
-              result: '用户拒绝了此操作',
-              isError: true,
-            }
-            chatStore.appendToolResult(sessionId, assistantMsgId, result)
-            recordToolMessage(tc.id, result.result)
-            continue
-          }
-        }
-
-        // Execute the tool — run_subagent calls are deferred for parallel execution.
-        // 普通工具也收集为惰性 thunk（不在此处 await），整批收集完统一并发执行：
-        // 模型在同一响应里发出的多个独立工具调用（如 git_status + git_diff +
-        // 读多个文件）并行跑，避免逐个串行等待。检查点/审批仍在上方顺序进行，
-        // 只有执行阶段并行。
+        // ── Execute the tool (approval + checkpoint live in the ToolExecutor
+        // pipeline hooks registered above; denials come back as rejected
+        // results with the same '用户拒绝了此操作' text as before). ──
+        // run_subagent calls are deferred for parallel execution; 普通工具也
+        // 收集为惰性 thunk（不在此处 await），整批收集完统一并发执行：模型在同一
+        // 响应里发出的多个独立工具调用（如 git_status + git_diff + 读多个文件）
+        // 并行跑，避免逐个串行等待。只有执行阶段并行。
         const runContext = {
           sessionId,
           projectPath,
@@ -3386,8 +3439,20 @@ async function runAgentLoop(
     } else {
       // Structured, user-friendly error card instead of dumping the raw
       // upstream error (which may be a JSON body) into the chat as text.
-      const chatError = parseLLMError(error)
-      console.error('发送消息失败:', error instanceof Error ? error.message : 'Unknown error')
+      // Redact with the request's own secrets — a provider error body may echo
+      // the API key back (defense in depth on LLMClient's choke-point redact).
+      const chatError = parseLLMError(error, {
+        redact: {
+          apiKey: configGroup.apiKey,
+          baseUrl: configGroup.baseUrl,
+          customHeaders: configGroup.customHeaders,
+        },
+      })
+      console.error('发送消息失败:', redactSecrets(error instanceof Error ? error.message : 'Unknown error', {
+        apiKey: configGroup.apiKey,
+        baseUrl: configGroup.baseUrl,
+        customHeaders: configGroup.customHeaders,
+      }))
       chatStore.addMessage(sessionId, {
         role: 'assistant',
         content: chatError.message,
@@ -3399,6 +3464,10 @@ async function runAgentLoop(
       }
     }
   } finally {
+    // Unregister this run's pipeline hooks — the executor is shared across
+    // sessions, so a stale hook would prompt for another run's tool calls.
+    disposeApprovalHook()
+    disposeCheckpointHook()
     // Finalize the agent run record (status / counts) for the tasks panel
     if (runId) {
       // Don't let the finally block downgrade an errored run back to 'done' —

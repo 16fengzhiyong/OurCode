@@ -4,9 +4,12 @@ import {
   findKeepBoundary,
   buildSummaryBlock,
   isSummaryMessage,
+  getContextWindow,
+  DEFAULT_CONTEXT_WINDOW,
   SUMMARY_MARKER,
   CompactMessage,
 } from '@/services/llm/compaction'
+import { useConfigStore } from '@/stores/configStore'
 
 /**
  * Compaction logic tests — pure orchestration with a fake summarizer, so no
@@ -146,5 +149,25 @@ describe('maybeCompact', () => {
     )
     expect(result).not.toBeNull()
     expect(calls[0].history.length).toBeLessThan(500_000)
+  })
+})
+
+describe('getContextWindow', () => {
+  it('prefers a user-defined custom model window over the static table', () => {
+    const prev = useConfigStore.getState().customModels
+    useConfigStore.setState({ customModels: [{ id: 'my-ollama', name: 'my-ollama', provider: 'ollama', contextWindow: 8192, createdAt: 0 }] })
+    try {
+      expect(getContextWindow('my-ollama')).toBe(8192)
+    } finally {
+      useConfigStore.setState({ customModels: prev })
+    }
+  })
+
+  it('falls back to the static metadata table for known models', () => {
+    expect(getContextWindow('deepseek-chat')).toBe(200000)
+  })
+
+  it('falls back to the default for unknown models', () => {
+    expect(getContextWindow('totally-unknown-model-xyz')).toBe(DEFAULT_CONTEXT_WINDOW)
   })
 })

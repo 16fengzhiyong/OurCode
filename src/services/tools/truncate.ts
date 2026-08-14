@@ -22,6 +22,27 @@ export const DEFAULT_TOOL_OUTPUT_MAX_LINES = 3000
 /** Fraction of the budget given to the head preview (the rest goes to the tail). */
 const HEAD_FRACTION = 0.6
 
+/** True when the output exceeds the inline budget and should be spilled to
+ *  disk (full text saved; preview + locator returned) instead of truncated. */
+export function shouldSpill(text: string, limits?: ToolOutputLimits): boolean {
+  return text.length > (limits?.maxChars ?? DEFAULT_TOOL_OUTPUT_MAX_CHARS)
+}
+
+/** Build the inline preview for a spilled output: a bounded head plus a notice
+ *  carrying the locator, so the model can read the full text back with
+ *  read_file (the locator lives under userData, which is in the allowlist). */
+export function buildSpillPreview(text: string, locator: string, limits?: ToolOutputLimits): string {
+  const maxChars = limits?.maxChars ?? DEFAULT_TOOL_OUTPUT_MAX_CHARS
+  const headChars = Math.floor(maxChars * HEAD_FRACTION)
+  const head = text.slice(0, headChars)
+  const lines = countLines(text)
+  return `${head}\n${buildSpillNotice(text.length, lines, locator)}`
+}
+
+function buildSpillNotice(chars: number, lines: number, locator: string): string {
+  return `[…输出过大（共 ${chars} 字符 / ${lines} 行），完整内容已保存到:\n${locator}\n可用 read_file 读取该路径分页查看完整输出。]`
+}
+
 export function truncateToolOutput(text: string, limits?: ToolOutputLimits): string {
   const maxChars = limits?.maxChars ?? DEFAULT_TOOL_OUTPUT_MAX_CHARS
   const maxLines = limits?.maxLines ?? DEFAULT_TOOL_OUTPUT_MAX_LINES

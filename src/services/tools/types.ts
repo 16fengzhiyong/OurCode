@@ -9,6 +9,12 @@ export interface Tool {
   parameters: Record<string, any> // JSON Schema format
   execute: (args: Record<string, any>, context?: ToolExecutionContext) => Promise<string>
   requiresApproval?: boolean // Write operations need user confirmation
+  /** Wall-clock budget for one call (ms). When set, the executor runs the tool
+   *  with a deadline AbortSignal (cooperative abort) plus a hard race fallback,
+   *  so a hung tool returns a structured TOOL_TIMEOUT error instead of stalling
+   *  the whole agent loop. Tools with their own timeout (run_command, MCP) stay
+   *  unset — wrapping them would double-timeout. */
+  timeoutMs?: number
 }
 
 /** Runtime context passed to tools (used by run_subagent for usage attribution) */
@@ -36,6 +42,9 @@ export interface ToolResult {
   name: string
   result: string
   isError?: boolean
+  /** True when the call was DENIED by the user (approval) rather than failed —
+   *  the trace shows 'rejected' instead of 'error'. */
+  rejected?: boolean
 }
 
 /** Tool definition sent to LLM (OpenAI format) */

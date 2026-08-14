@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { truncateToolOutput, DEFAULT_TOOL_OUTPUT_MAX_CHARS } from '../services/tools/truncate'
+import { truncateToolOutput, shouldSpill, buildSpillPreview, DEFAULT_TOOL_OUTPUT_MAX_CHARS } from '../services/tools/truncate'
 import { ToolExecutor } from '../services/tools/ToolExecutor'
 import { ToolCall } from '../services/tools/types'
 
@@ -90,5 +90,23 @@ describe('ToolExecutor output funnel', () => {
     const res = await executor.execute(tc)
     expect(res.isError).toBeFalsy()
     expect(res.result).toBe('short result')
+  })
+})
+
+describe('shouldSpill / buildSpillPreview', () => {
+  it('shouldSpill is true only above the inline budget', () => {
+    expect(shouldSpill('short')).toBe(false)
+    expect(shouldSpill('x'.repeat(DEFAULT_TOOL_OUTPUT_MAX_CHARS))).toBe(false)
+    expect(shouldSpill('x'.repeat(DEFAULT_TOOL_OUTPUT_MAX_CHARS + 1))).toBe(true)
+  })
+
+  it('buildSpillPreview keeps a bounded head and carries the locator', () => {
+    const big = 'A'.repeat(DEFAULT_TOOL_OUTPUT_MAX_CHARS + 5000)
+    const preview = buildSpillPreview(big, '/userData/spill/sess/abc.txt')
+    expect(preview.length).toBeLessThan(DEFAULT_TOOL_OUTPUT_MAX_CHARS)
+    expect(preview).toContain('abc.txt')
+    expect(preview).toContain('read_file')
+    // the head content is preserved verbatim
+    expect(preview.startsWith('A'.repeat(Math.floor(DEFAULT_TOOL_OUTPUT_MAX_CHARS * 0.6)))).toBe(true)
   })
 })

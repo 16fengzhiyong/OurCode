@@ -153,6 +153,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Shell
   shellExec: (command: string, cwd?: string, options?: { timeoutMs?: number }) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_EXEC, command, cwd, options),
 
+  // Tool-output spill store — oversized tool results page through read_file
+  spillSave: (sessionId: string, text: string) => ipcRenderer.invoke('spill:save', sessionId, text),
+  spillDeleteSession: (sessionId: string) => ipcRenderer.invoke('spill:deleteSession', sessionId),
+
   // Web fetch (web_search / read_url tools)
   webFetch: (url: string, options?: { timeoutMs?: number; maxBytes?: number }) =>
     ipcRenderer.invoke('web:fetch', url, options),

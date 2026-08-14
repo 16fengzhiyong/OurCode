@@ -22,6 +22,7 @@ export function createToolRegistry(): Tool[] {
         const { readFile } = await import('@/services/tools/helpers')
         return readFile(args.path, args.startLine, args.endLine)
       },
+      timeoutMs: 60_000,
     },
     {
       name: 'read_multiple_files',
@@ -45,6 +46,7 @@ export function createToolRegistry(): Tool[] {
         const { readMultipleFiles } = await import('@/services/tools/helpers')
         return readMultipleFiles(Array.isArray(args.paths) ? args.paths.map(String) : [])
       },
+      timeoutMs: 60_000,
     },
     {
       name: 'list_directory',
@@ -517,6 +519,7 @@ export function createToolRegistry(): Tool[] {
         const { webSearch } = await import('@/services/tools/helpers')
         return webSearch(args.query)
       },
+      timeoutMs: 45_000,
     },
     {
       name: 'read_url',
@@ -537,6 +540,7 @@ export function createToolRegistry(): Tool[] {
         const { readUrl } = await import('@/services/tools/helpers')
         return readUrl(args.url, typeof args.prompt === 'string' && args.prompt.trim() ? args.prompt : undefined)
       },
+      timeoutMs: 45_000,
     },
 
     // ──────────────── Native git tools (Claude Code / Codex style) ─────────
@@ -560,6 +564,7 @@ export function createToolRegistry(): Tool[] {
         const { runGit } = await import('@/services/tools/helpers')
         return runGit(['status', '--porcelain=v1', '--branch'], context?.projectPath)
       },
+      timeoutMs: 30_000,
     },
     {
       name: 'git_diff',
@@ -592,6 +597,7 @@ export function createToolRegistry(): Tool[] {
         }
         return out
       },
+      timeoutMs: 60_000,
     },
     {
       name: 'git_log',
@@ -609,6 +615,7 @@ export function createToolRegistry(): Tool[] {
         const n = Math.min(Math.max(Number(args.maxCount) || 10, 1), 100)
         return runGit(['log', `-${n}`, '--oneline', '--decorate'], context?.projectPath)
       },
+      timeoutMs: 30_000,
     },
     {
       name: 'git_branch',
@@ -623,6 +630,7 @@ export function createToolRegistry(): Tool[] {
         const { runGit } = await import('@/services/tools/helpers')
         return runGit(['branch'], context?.projectPath)
       },
+      timeoutMs: 30_000,
     },
     {
       name: 'git_add',
@@ -647,6 +655,7 @@ export function createToolRegistry(): Tool[] {
           : ['add', '-A']
         return runGit(argv, context?.projectPath)
       },
+      timeoutMs: 30_000,
     },
     {
       name: 'git_commit',
@@ -675,6 +684,7 @@ export function createToolRegistry(): Tool[] {
         }
         return runGit(['commit', '-m', message], context?.projectPath)
       },
+      timeoutMs: 60_000,
     },
     {
       name: 'git_push',
@@ -706,6 +716,7 @@ export function createToolRegistry(): Tool[] {
         }
         return runGit(argv, context?.projectPath)
       },
+      timeoutMs: 60_000,
     },
     {
       name: 'git_split_commit',
@@ -766,6 +777,7 @@ export function createToolRegistry(): Tool[] {
         }
         return `已按功能提交 ${lines.length} 组：\n${lines.join('\n')}`
       },
+      timeoutMs: 120_000,
     },
   ]
 }
