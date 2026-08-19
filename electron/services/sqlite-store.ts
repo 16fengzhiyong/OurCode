@@ -86,6 +86,24 @@ export class SQLiteStore {
     if (!msgColumns.some((c: any) => c.name === 'tool_results')) {
       this.db.exec("ALTER TABLE chat_messages ADD COLUMN tool_results TEXT DEFAULT '[]'")
     }
+    // Add per-round LLM request timing/usage columns if missing (trajectory view:
+    // one assistant message = one LLM round; these persist the round's wall-clock
+    // timing and provider-reported tokens so the trace tab doesn't re-derive them)
+    if (!msgColumns.some((c: any) => c.name === 'request_started_at')) {
+      this.db.exec("ALTER TABLE chat_messages ADD COLUMN request_started_at INTEGER DEFAULT 0")
+    }
+    if (!msgColumns.some((c: any) => c.name === 'request_duration_ms')) {
+      this.db.exec("ALTER TABLE chat_messages ADD COLUMN request_duration_ms INTEGER DEFAULT 0")
+    }
+    if (!msgColumns.some((c: any) => c.name === 'request_tokens_in')) {
+      this.db.exec("ALTER TABLE chat_messages ADD COLUMN request_tokens_in INTEGER DEFAULT 0")
+    }
+    if (!msgColumns.some((c: any) => c.name === 'request_tokens_out')) {
+      this.db.exec("ALTER TABLE chat_messages ADD COLUMN request_tokens_out INTEGER DEFAULT 0")
+    }
+    if (!msgColumns.some((c: any) => c.name === 'ttft_ms')) {
+      this.db.exec("ALTER TABLE chat_messages ADD COLUMN ttft_ms INTEGER DEFAULT 0")
+    }
     // Add branch/pin/archive columns to chat_sessions if missing
     const sessColumns = this.db.prepare("PRAGMA table_info(chat_sessions)").all() as any[]
     if (!sessColumns.some((c: any) => c.name === 'active_branch_id')) {
@@ -431,6 +449,11 @@ export class SQLiteStore {
               : undefined,
             toolResults: toolResults?.length ? toolResults : undefined,
             toolCallId: msg.tool_call_id || (toolResults?.[0]?.toolCallId) || undefined,
+            requestStartedAt: msg.request_started_at || undefined,
+            requestDurationMs: msg.request_duration_ms || undefined,
+            ttftMs: msg.ttft_ms || undefined,
+            requestTokensIn: msg.request_tokens_in || undefined,
+            requestTokensOut: msg.request_tokens_out || undefined,
             createdAt: msg.created_at,
           }
         }),
@@ -539,8 +562,8 @@ export class SQLiteStore {
     // violation) rolled back the insert while the messages were already gone —
     // the session's entire history was silently wiped.
     const insertMsg = this.db.prepare(`
-      INSERT INTO chat_messages (id, session_id, role, content, sort_order, context_files, token_count, thinking, tool_calls, tool_results, edited_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO chat_messages (id, session_id, role, content, sort_order, context_files, token_count, thinking, tool_calls, tool_results, edited_at, request_started_at, request_duration_ms, request_tokens_in, request_tokens_out, ttft_ms, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 
     const replaceMessages = this.db.transaction((messages: ChatMessage[]) => {
@@ -558,6 +581,11 @@ export class SQLiteStore {
           JSON.stringify(msg.toolCalls || []),
           JSON.stringify(msg.toolResults || []),
           msg.editedAt || 0,
+          msg.requestStartedAt || 0,
+          msg.requestDurationMs || 0,
+          msg.requestTokensIn || 0,
+          msg.requestTokensOut || 0,
+          msg.ttftMs || 0,
           msg.createdAt
         )
       }

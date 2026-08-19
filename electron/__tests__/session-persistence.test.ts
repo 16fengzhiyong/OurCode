@@ -106,6 +106,51 @@ describe.skipIf(!sqliteUsable)('SQLiteStore session persistence', () => {
     expect(loaded.lastUserMessageAt).toBeUndefined()
   })
 
+  it('round-trips per-round request timing and per-tool timing on messages', () => {
+    const session = makeSession({
+      messages: [
+        {
+          id: 'm1',
+          role: 'user',
+          content: 'hi',
+          sortOrder: 0,
+          contextFiles: [],
+          tokenCount: 1,
+          createdAt: 1000,
+        },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: 'answer',
+          sortOrder: 1,
+          contextFiles: [],
+          tokenCount: 2,
+          createdAt: 2000,
+          toolCalls: [{ id: 'c1', name: 'read_file', arguments: { path: '/a.ts' }, startedAt: 2100 }],
+          toolResults: [{ toolCallId: 'c1', name: 'read_file', result: 'ok', startedAt: 2100, finishedAt: 2350, durationMs: 250 }],
+          requestStartedAt: 2000,
+          requestDurationMs: 500,
+          ttftMs: 120,
+          requestTokensIn: 100,
+          requestTokensOut: 20,
+        },
+      ],
+    })
+    store.saveSession(session)
+
+    const [loaded] = store.getSessions()
+    const asst = loaded.messages.find((m) => m.role === 'assistant')!
+    expect(asst.requestStartedAt).toBe(2000)
+    expect(asst.requestDurationMs).toBe(500)
+    expect(asst.ttftMs).toBe(120)
+    expect(asst.requestTokensIn).toBe(100)
+    expect(asst.requestTokensOut).toBe(20)
+    expect(asst.toolCalls![0].startedAt).toBe(2100)
+    expect(asst.toolResults![0].durationMs).toBe(250)
+    expect(asst.toolResults![0].startedAt).toBe(2100)
+    expect(asst.toolResults![0].finishedAt).toBe(2350)
+  })
+
   it('migrates old-schema databases by adding the two new columns', async () => {
     // Build a DB with the OLD chat_sessions schema (no new columns), insert a
     // row, then open it with SQLiteStore — migrateTables must add the columns

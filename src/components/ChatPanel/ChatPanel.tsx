@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import ChatMessages from './ChatMessages'
+import AgentTraceView from './AgentTraceView'
 import ChatInput from './ChatInput'
 import ChatSidebar from './ChatSidebar'
 import QuestionConfirmBar from './QuestionConfirmBar'
@@ -125,6 +126,7 @@ export default function ChatPanel() {
   const [showWorkflows, setShowWorkflows] = useState(false)
   const [showModelPicker, setShowModelPicker] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+  const [view, setView] = useState<'chat' | 'trace'>('chat')
 
   const agentMode = activeSession?.agentMode || 'chat'
   const projectEditMode = activeSession?.projectEditMode || 'confirm_before_change'
@@ -342,6 +344,26 @@ export default function ChatPanel() {
         <div className="flex-1 flex flex-col overflow-hidden">
           {activeSession ? (
             <>
+              {/* View tabs: 对话 / 轨迹 */}
+              <div className="shrink-0 px-3 pt-2 flex items-center gap-1.5 border-b border-nova-border">
+                <button
+                  onClick={() => setView('chat')}
+                  className={`px-3 py-1 text-xs rounded-full transition-all ${view === 'chat' ? 'bg-nova-accent/10 text-nova-accent font-medium' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
+                >
+                  {t('chat.modeChat')}
+                </button>
+                <button
+                  onClick={() => setView('trace')}
+                  className={`px-3 py-1 text-xs rounded-full transition-all ${view === 'trace' ? 'bg-nova-accent/10 text-nova-accent font-medium' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
+                >
+                  {t('agent.traceTab')}
+                </button>
+              </div>
+
+              {view === 'trace' ? (
+                <AgentTraceView />
+              ) : (
+                <>
               <ChatMessages />
 
               {/* Mode bar — chat / agent (planning is a read-only phase of agent mode) */}
@@ -440,6 +462,8 @@ export default function ChatPanel() {
 
               <ChatInput />
               <QuestionConfirmBar />
+                </>
+              )}
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center p-4">

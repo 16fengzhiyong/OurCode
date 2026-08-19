@@ -13,6 +13,16 @@ export interface ToolStepRowProps {
    *  session whose tool messages were stored standalone). Prevents an eternal
    *  spinner — renders a muted "not executed" state instead. */
   suspended?: boolean
+  /** Wall-clock duration of this tool call (ms) — shown as a small badge. */
+  durationMs?: number
+}
+
+/** Format a millisecond duration as a compact human string (e.g. 1.2s, 340ms). */
+export function formatMs(ms: number): string {
+  if (!Number.isFinite(ms)) return '—'
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+  return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`
 }
 
 const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
@@ -69,7 +79,7 @@ function summarizeResult(result: string, maxLen = 90): string {
  *  = Material 图标 + mono 工具名 + 琥珀色 key chip + 分隔线 + 状态，
  *  点击展开参数/完整结果。Pending 胶囊带蓝色描边与旋转 spinner。
  */
-export default function ToolStepRow({ toolCall, result, rejected, suspended = false }: ToolStepRowProps) {
+export default function ToolStepRow({ toolCall, result, rejected, suspended = false, durationMs }: ToolStepRowProps) {
   const [expanded, setExpanded] = useState(false)
   const t = useI18n()
 
@@ -123,6 +133,11 @@ export default function ToolStepRow({ toolCall, result, rejected, suspended = fa
         {key && (
           <span className="text-[12px] text-nova-text-muted truncate max-w-[100px]">
             {key}
+          </span>
+        )}
+        {durationMs != null && (
+          <span className="text-[11px] font-mono text-nova-text-muted/80 shrink-0" title={`${durationMs}ms`}>
+            {formatMs(durationMs)}
           </span>
         )}
         {/* Chevron — 展开/收起 */}
