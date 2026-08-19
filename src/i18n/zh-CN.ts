@@ -106,6 +106,7 @@ export const zhCN = {
   'activityBar.agent': 'Agent 任务',
   'activityBar.skills': '技能',
   'activityBar.usage': '使用统计',
+  'activityBar.office': '3D 智能办公室（目标模式可视化）',
   'activityBar.settings': '设置',
   'activityBar.account': '账户',
 
@@ -581,6 +582,15 @@ export const zhCN = {
   'agent.allowlistTitle': '已允许的工具（本项目）',
   'agent.allowlistEmpty': '尚未允许任何工具',
   'agent.clearAllowlist': '清空',
+  // ── 轨迹视图 ─────────────────────────────────────────────────────────
+  'agent.traceTab': '轨迹',
+  'agent.traceTurn': '轮',
+  'agent.traceRequest': '请求',
+  'agent.traceDuration': '耗时',
+  'agent.traceTokensIn': '输入',
+  'agent.traceTokensOut': '输出',
+  'agent.traceTtft': '首字延迟',
+  'agent.traceNoTiming': '—',
 
   // ── 使用统计 ─────────────────────────────────────────────────────────
   'usage.panelTitle': '使用统计',

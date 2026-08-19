@@ -153,6 +153,12 @@ export interface AgentTraceEntry {
   kind: AgentToolKind
   status: 'running' | 'success' | 'error' | 'rejected'
   summary: string
+  /** Wall-clock start of the tool call (ms epoch), captured when the call is
+   *  dispatched. Transient — mirrors the timing persisted on the message's
+   *  toolResults for the trajectory view. */
+  startedAt?: number
+  /** Wall-clock end of the tool call (ms epoch), set when its result lands. */
+  finishedAt?: number
 }
 
 // One tool call made by a sub-agent (transient, shown in SubAgentProgressBlock)
@@ -284,8 +290,8 @@ export interface ChatMessage {
   thinking?: string
   editedAt?: number
   createdAt: number
-  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, any> }>
-  toolResults?: Array<{ toolCallId: string; name: string; result: string; isError?: boolean }>
+  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, any>; startedAt?: number }>
+  toolResults?: Array<{ toolCallId: string; name: string; result: string; isError?: boolean; startedAt?: number; finishedAt?: number; durationMs?: number }>
   toolCallId?: string
   error?: ChatError
   // The agent run that produced this message (agent mode). Lets the header
@@ -293,6 +299,19 @@ export interface ChatMessage {
   // latest run — a completed reply must never re-badge when a later request
   // starts or errors in the same conversation.
   runId?: string
+  // ── Per-round LLM request timing/usage (assistant messages) ──────────────
+  // One assistant message = one LLM round. These fields persist the wall-clock
+  // timing and provider-reported token usage of the request that produced this
+  // message, so the trajectory view can render a request row per round without
+  // re-deriving it from usage_events. Absent on legacy messages and on user/
+  // tool messages.
+  requestStartedAt?: number
+  requestDurationMs?: number
+  /** Time-to-first-token (ms) — undefined when the provider streamed no token
+   *  (empty reply) or on legacy messages. */
+  ttftMs?: number
+  requestTokensIn?: number
+  requestTokensOut?: number
 }
 
 // Open File
@@ -488,6 +507,10 @@ export interface LLMStreamChunk {
   thinking?: string
   done: boolean
   toolCalls?: LLMToolCall[]
+  /** Provider finish/stop reason on the terminal chunk ('stop', 'length',
+   *  'tool_calls', …). Surfaced so callers can detect silent overflow
+   *  (finish_reason 'length' + zero output = input filled the window). */
+  finishReason?: string
   usage?: {
     promptTokens: number
     completionTokens: number
@@ -626,4 +649,31 @@ export interface UsageSummary {
   subagents: UsageRankRow[]
   mcp: UsageRankRow[]
   recent: UsageRecentRow[]
+}
+
+// ───────────────────────── 3D 办公室 × 目标模式 ─────────────────────────
+// 状态类型供 officeBridge（IDE）与 OfficeView 使用；场景为源码库化（vendored
+// office-v3），直接函数调用驱动，不再走 iframe/postMessage。
+
+/** 3D 场景 9 种工位状态（对应 office-v3 statusMeta 的 key）。 */
+export type OfficeStatus =
+  | 'working' | 'idle' | 'transfer' | 'thinking' | 'receiving'
+  | 'reviewing' | 'completed' | 'error' | 'offline'
+
+export interface OfficeLog {
+  t: string
+  k: string
+  title: string
+  desc: string
+}
+
+/** 一个工位的完整可视化状态。 */
+export interface OfficeAgentState {
+  id: number // 1..8
+  role: string
+  codeName: string
+  status: OfficeStatus
+  task: string
+  progress: number // 0-100
+  logs: OfficeLog[]
 }

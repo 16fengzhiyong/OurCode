@@ -26,7 +26,7 @@ interface UIState {
   // Sidebar
   isSidebarVisible: boolean
   sidebarWidth: number
-  activeSidebarTab: 'files' | 'git' | 'changes' | 'agent' | 'usage' | 'skills' | 'mcp'
+  activeSidebarTab: 'files' | 'git' | 'changes' | 'agent' | 'usage' | 'skills' | 'mcp' | 'office'
   rootPath: string | null
   recentProjects: string[]
   /** Last time each recent project was opened (ms epoch) — lets the project
@@ -103,7 +103,7 @@ interface UIState {
   // Actions
   toggleSidebar: () => void
   setSidebarWidth: (width: number) => void
-  setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'agent' | 'usage' | 'skills' | 'mcp') => void
+  setActiveSidebarTab: (tab: 'files' | 'git' | 'changes' | 'agent' | 'usage' | 'skills' | 'mcp' | 'office') => void
   setRootPath: (path: string | null) => void
   /** Remove a project from the list ("从列表中移除") — its sessions stay bound
    *  and reappear when the project is re-opened. Callers must ALSO roll the

@@ -109,6 +109,7 @@ export const enUS: Record<TranslationKey, string> = {
   'activityBar.agent': 'Agent Tasks',
   'activityBar.skills': 'Skills',
   'activityBar.usage': 'Usage',
+  'activityBar.office': '3D Office (Target Mode Visualizer)',
   'activityBar.settings': 'Settings',
   'activityBar.account': 'Account',
 
@@ -584,6 +585,15 @@ export const enUS: Record<TranslationKey, string> = {
   'agent.allowlistTitle': 'Allowed tools (this project)',
   'agent.allowlistEmpty': 'No tools allowed yet',
   'agent.clearAllowlist': 'Clear',
+  // ── Trajectory view ───────────────────────────────────────────────────
+  'agent.traceTab': 'Trace',
+  'agent.traceTurn': 'Turn',
+  'agent.traceRequest': 'Request',
+  'agent.traceDuration': 'Duration',
+  'agent.traceTokensIn': 'In',
+  'agent.traceTokensOut': 'Out',
+  'agent.traceTtft': 'TTFT',
+  'agent.traceNoTiming': '—',
 
   // ── Usage statistics ──────────────────────────────────────────────────
   'usage.panelTitle': 'Usage',

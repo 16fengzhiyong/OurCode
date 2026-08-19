@@ -9,7 +9,7 @@ export default function ActivityBar() {
   const isSidebarVisible = useUIStore((s) => s.isSidebarVisible)
   const t = useI18n()
 
-  const topIcons: Array<{ key: 'files' | 'git' | 'changes' | 'agent' | 'usage' | 'skills' | 'mcp'; titleKey: TranslationKey; icon: JSX.Element }> = [
+  const topIcons: Array<{ key: 'files' | 'git' | 'changes' | 'agent' | 'usage' | 'skills' | 'mcp' | 'office'; titleKey: TranslationKey; icon: JSX.Element }> = [
     {
       key: 'files',
       titleKey: 'activityBar.explorer' as TranslationKey,
@@ -53,6 +53,18 @@ export default function ActivityBar() {
           <path d="M12 8V4" />
           <circle cx="12" cy="3" r="1.2" />
           <path d="M9 13h.01M15 13h.01M9 17h6" />
+        </svg>
+      ),
+    },
+    {
+      key: 'office',
+      titleKey: 'activityBar.office' as TranslationKey,
+      icon: (
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 21V8l6-4 6 4v13" />
+          <path d="M16 21V5l4 3v13" />
+          <path d="M2 21h20" />
+          <path d="M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" />
         </svg>
       ),
     },
@@ -115,11 +127,11 @@ export default function ActivityBar() {
   ]
 
   const handleClick = (key: string) => {
-    // Sidebar panels (file change history / agent tasks / usage / skills / MCP): switch tab
-    if (key === 'changes' || key === 'agent' || key === 'usage' || key === 'skills' || key === 'mcp') {
+    // Sidebar panels (file change history / agent tasks / usage / skills / MCP / 3D office): switch tab
+    if (key === 'changes' || key === 'agent' || key === 'usage' || key === 'skills' || key === 'mcp' || key === 'office') {
       const ui = useUIStore.getState()
       if (!ui.isSidebarVisible) ui.toggleSidebar()
-      ui.setActiveSidebarTab(key as 'changes' | 'agent' | 'usage' | 'skills' | 'mcp')
+      ui.setActiveSidebarTab(key as 'changes' | 'agent' | 'usage' | 'skills' | 'mcp' | 'office')
       return
     }
     if (!isSidebarVisible) {

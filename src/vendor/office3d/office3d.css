@@ -1,0 +1,74 @@
+/* 3D 办公室视图（vendored office-v3）——所有选择器作用域在 #office3d-root 下，
+   避免与 IDE 全局样式冲突。悬浮标签/抽屉由 React 渲染，此处仅提供基础样式。 */
+
+#office3d-root,
+#office3d-root * {
+  box-sizing: border-box;
+}
+
+#office3d-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0b1220;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+#office3d-root .office3d-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+#office3d-root .office3d-stage canvas {
+  display: block;
+}
+
+/* 悬浮标签（世界坐标投影） */
+#office3d-root .office3d-tags {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#office3d-root .office3d-tag {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  display: none; /* 初始隐藏，由 rAF 投影循环按可见性控制（React 不参与 left/top/display） */
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  pointer-events: auto;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#office3d-root .office3d-tag:hover {
+  border-color: #38bdf8;
+}
+
+#office3d-root .office3d-tag.selected {
+  border-color: #38bdf8;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.4), 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+
+#office3d-root .office3d-tag-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}

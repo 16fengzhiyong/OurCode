@@ -18,6 +18,7 @@ import SkillRegistryModal from '../Skills/SkillRegistryModal'
 import ProblemsPanel from '../Editor/ProblemsPanel'
 import RecentFilesModal from '../Editor/RecentFilesModal'
 import DebugPanel from '../Editor/DebugPanel'
+import OfficeView from '../Office/OfficeView'
 import { useProblemsStore } from '@/stores/problemsStore'
 import { useRecentFilesStore } from '@/stores/recentFilesStore'
 import { useDebugStore } from '@/stores/debugStore'
@@ -35,6 +36,7 @@ export default function MainLayout() {
   // (notifications, context menus) or every editorStore keystroke/cursor move.
   const isSidebarVisible = useUIStore((s) => s.isSidebarVisible)
   const sidebarWidth = useUIStore((s) => s.sidebarWidth)
+  const activeSidebarTab = useUIStore((s) => s.activeSidebarTab)
   const chatWidth = useUIStore((s) => s.chatWidth)
   const isChatVisible = useUIStore((s) => s.isChatVisible)
   const isTerminalVisible = useUIStore((s) => s.isTerminalVisible)
@@ -210,89 +212,98 @@ export default function MainLayout() {
       <TitleBar />
       <div className="flex-1 h-full min-h-0 flex gap-2 overflow-hidden">
         <ActivityBar />
-        {isSidebarVisible && !(isNarrow && isChatVisible) && (
-          <div style={{ width: effectiveSidebarWidth }} className="shrink-0 relative">
-            <div className="h-full rounded-xl overflow-hidden glass-chrome"><Sidebar /></div>
-            <div
-              className="resizer absolute right-0 top-0 h-full z-10"
-              onMouseDown={(e) => handlePanelResize('sidebar', e)}
-            />
+        {activeSidebarTab === 'office' && isSidebarVisible ? (
+          /* 3D 办公室：整窗展示（替换侧栏 + 编辑器/聊天区），由 ActivityBar 切换离开 */
+          <div className="flex-1 h-full min-h-0 rounded-xl overflow-hidden glass-chrome">
+            <OfficeView />
           </div>
-        )}
-        <div className="flex-1 h-full min-h-0 flex flex-col gap-2 overflow-hidden">
-          <div className={`flex-1 h-full min-h-0 flex ${isNarrow ? 'flex-col' : ''} overflow-hidden`}>
-            {isEditorVisible && (
-              <>
-                {/* glass-flat (no backdrop-filter) instead of glass-chrome: on
-                    some Windows GPUs the OS cursor fails to composite over
-                    backdrop-filter regions, leaving the pointer invisible over
-                    the editor. The editor's content is opaque, so the blur
-                    behind it was invisible anyway. */}
-                <div className={`flex-1 h-full min-w-0 min-h-0 overflow-hidden flex rounded-xl glass-flat ${splitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}>
-                  {panelOrder.map((pid, index) => (
-                    <div key={pid} className="flex-1 h-full min-w-0 min-h-0 overflow-hidden flex flex-col" style={panelOrder.length > 1 && splitRatios[index - 1] ? { flex: `0 0 ${splitRatios[index - 1] * 100}%` } : undefined}>
-                      <TabBar panelId={pid} />
-                      <div className="flex-1 h-full min-h-0 flex flex-col"><EditorContainer panelId={pid} /></div>
-                      {index < panelOrder.length - 1 && (
-                        <div
-                          className={`${splitDirection === 'horizontal' ? 'w-1 cursor-col-resize hover:bg-nova-accent/30' : 'h-1 cursor-row-resize hover:bg-nova-accent/30'} bg-nova-border shrink-0`}
-                          onMouseDown={(e) => {
-                            e.preventDefault()
-                            const startPos = splitDirection === 'horizontal' ? e.clientX : e.clientY
-                            const container = (e.target as HTMLElement).parentElement
-                            if (!container) return
-                            const startSize = splitDirection === 'horizontal' ? container.offsetWidth : container.offsetHeight
-                            const handleMove = (ev: MouseEvent) => {
-                              const currentPos = splitDirection === 'horizontal' ? ev.clientX : ev.clientY
-                              const delta = currentPos - startPos
-                              const newSize = Math.max(200, startSize + delta)
-                              const parent = container.parentElement
-                              if (!parent) return
-                              const parentSize = splitDirection === 'horizontal' ? parent.offsetWidth : parent.offsetHeight
-                              const ratio = newSize / parentSize
-                              useEditorStore.getState().resizeSplit(index, Math.max(0.15, Math.min(0.85, ratio)))
-                            }
-                            const handleUp = () => {
-                              document.removeEventListener('mousemove', handleMove)
-                              document.removeEventListener('mouseup', handleUp)
-                              document.body.style.cursor = ''
-                              document.body.style.userSelect = ''
-                            }
-                            document.body.style.cursor = splitDirection === 'horizontal' ? 'col-resize' : 'row-resize'
-                            document.body.style.userSelect = 'none'
-                            document.addEventListener('mousemove', handleMove)
-                            document.addEventListener('mouseup', handleUp)
-                          }}
-                        />
-                      )}
+        ) : (
+          <>
+            {isSidebarVisible && !(isNarrow && isChatVisible) && (
+              <div style={{ width: effectiveSidebarWidth }} className="shrink-0 relative">
+                <div className="h-full rounded-xl overflow-hidden glass-chrome"><Sidebar /></div>
+                <div
+                  className="resizer absolute right-0 top-0 h-full z-10"
+                  onMouseDown={(e) => handlePanelResize('sidebar', e)}
+                />
+              </div>
+            )}
+            <div className="flex-1 h-full min-h-0 flex flex-col gap-2 overflow-hidden">
+              <div className={`flex-1 h-full min-h-0 flex ${isNarrow ? 'flex-col' : ''} overflow-hidden`}>
+                {isEditorVisible && (
+                  <>
+                    {/* glass-flat (no backdrop-filter) instead of glass-chrome: on
+                        some Windows GPUs the OS cursor fails to composite over
+                        backdrop-filter regions, leaving the pointer invisible over
+                        the editor. The editor's content is opaque, so the blur
+                        behind it was invisible anyway. */}
+                    <div className={`flex-1 h-full min-w-0 min-h-0 overflow-hidden flex rounded-xl glass-flat ${splitDirection === 'horizontal' ? 'flex-row' : 'flex-col'}`}>
+                      {panelOrder.map((pid, index) => (
+                        <div key={pid} className="flex-1 h-full min-w-0 min-h-0 overflow-hidden flex flex-col" style={panelOrder.length > 1 && splitRatios[index - 1] ? { flex: `0 0 ${splitRatios[index - 1] * 100}%` } : undefined}>
+                          <TabBar panelId={pid} />
+                          <div className="flex-1 h-full min-h-0 flex flex-col"><EditorContainer panelId={pid} /></div>
+                          {index < panelOrder.length - 1 && (
+                            <div
+                              className={`${splitDirection === 'horizontal' ? 'w-1 cursor-col-resize hover:bg-nova-accent/30' : 'h-1 cursor-row-resize hover:bg-nova-accent/30'} bg-nova-border shrink-0`}
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                const startPos = splitDirection === 'horizontal' ? e.clientX : e.clientY
+                                const container = (e.target as HTMLElement).parentElement
+                                if (!container) return
+                                const startSize = splitDirection === 'horizontal' ? container.offsetWidth : container.offsetHeight
+                                const handleMove = (ev: MouseEvent) => {
+                                  const currentPos = splitDirection === 'horizontal' ? ev.clientX : ev.clientY
+                                  const delta = currentPos - startPos
+                                  const newSize = Math.max(200, startSize + delta)
+                                  const parent = container.parentElement
+                                  if (!parent) return
+                                  const parentSize = splitDirection === 'horizontal' ? parent.offsetWidth : parent.offsetHeight
+                                  const ratio = newSize / parentSize
+                                  useEditorStore.getState().resizeSplit(index, Math.max(0.15, Math.min(0.85, ratio)))
+                                }
+                                const handleUp = () => {
+                                  document.removeEventListener('mousemove', handleMove)
+                                  document.removeEventListener('mouseup', handleUp)
+                                  document.body.style.cursor = ''
+                                  document.body.style.userSelect = ''
+                                }
+                                document.body.style.cursor = splitDirection === 'horizontal' ? 'col-resize' : 'row-resize'
+                                document.body.style.userSelect = 'none'
+                                document.addEventListener('mousemove', handleMove)
+                                document.addEventListener('mouseup', handleUp)
+                              }}
+                            />
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-                {isChatVisible && !isNarrow && (
-                  <div
-                    className="resizer"
-                    onMouseDown={(e) => handlePanelResize('chat', e)}
-                  />
+                    {isChatVisible && !isNarrow && (
+                      <div
+                        className="resizer"
+                        onMouseDown={(e) => handlePanelResize('chat', e)}
+                      />
+                    )}
+                  </>
                 )}
-              </>
-            )}
-            {isChatVisible && (
-              <div
-                style={isNarrow || !isEditorVisible ? undefined : { width: Math.min(chatWidth, Math.max(360, windowWidth - 100)) + 'px' }}
-                className={`h-full rounded-xl overflow-hidden glass-chrome ${isEditorVisible && !isNarrow ? 'shrink-0' : 'flex-1 min-w-0'} ${isNarrow ? 'flex-1 min-w-0' : ''}`}
-              ><ChatPanel /></div>
-            )}
-          </div>
-          {isProblemsOpen && (
-            <div className="shrink-0 rounded-xl overflow-hidden glass-chrome relative z-[6]" style={{ height: 160 }}><ProblemsPanel /></div>
-          )}
-          {isDebugOpen && (
-            <div className="shrink-0 rounded-xl overflow-hidden glass-chrome relative z-[6]" style={{ height: 200 }}><DebugPanel /></div>
-          )}
-          {isTerminalVisible && (
-            <div style={{ height: isCompact ? Math.min(terminalHeight, 180) : Math.min(terminalHeight, windowWidth < 800 ? 200 : 500) }} className="rounded-xl overflow-hidden glass-chrome shrink-0 relative z-[6]"><TerminalPanel rootPath={rootPath} /></div>
-          )}
-        </div>
+                {isChatVisible && (
+                  <div
+                    style={isNarrow || !isEditorVisible ? undefined : { width: Math.min(chatWidth, Math.max(360, windowWidth - 100)) + 'px' }}
+                    className={`h-full rounded-xl overflow-hidden glass-chrome ${isEditorVisible && !isNarrow ? 'shrink-0' : 'flex-1 min-w-0'} ${isNarrow ? 'flex-1 min-w-0' : ''}`}
+                  ><ChatPanel /></div>
+                )}
+              </div>
+              {isProblemsOpen && (
+                <div className="shrink-0 rounded-xl overflow-hidden glass-chrome relative z-[6]" style={{ height: 160 }}><ProblemsPanel /></div>
+              )}
+              {isDebugOpen && (
+                <div className="shrink-0 rounded-xl overflow-hidden glass-chrome relative z-[6]" style={{ height: 200 }}><DebugPanel /></div>
+              )}
+              {isTerminalVisible && (
+                <div style={{ height: isCompact ? Math.min(terminalHeight, 180) : Math.min(terminalHeight, windowWidth < 800 ? 200 : 500) }} className="rounded-xl overflow-hidden glass-chrome shrink-0 relative z-[6]"><TerminalPanel rootPath={rootPath} /></div>
+              )}
+            </div>
+          </>
+        )}
       </div>
       <StatusBar />
       <SettingsModal />
