@@ -97,6 +97,7 @@ export class OpenAIAdapter implements LLMAdapter {
           arguments: tc.function.arguments,
         },
       }))
+      const finishReason = data.choices?.[0]?.finish_reason || undefined
       yield {
         content,
         thinking: thinking || undefined,
@@ -104,7 +105,7 @@ export class OpenAIAdapter implements LLMAdapter {
         toolCalls,
         usage: mapOpenAiUsage(data.usage),
       }
-      yield { content: '', done: true }
+      yield { content: '', done: true, finishReason }
       return
     }
 
@@ -115,6 +116,9 @@ export class OpenAIAdapter implements LLMAdapter {
     // Usage arrives in a dedicated final chunk (empty choices) — capture it on
     // ANY chunk and surface it on the done yield, not just content chunks.
     let lastUsage: ParsedUsage | undefined
+    // finish_reason rides the terminal chunk; capture it and surface it on the
+    // done yield so callers can detect silent overflow (length + zero output).
+    let lastFinishReason: string | undefined
     // With stream_options.include_usage the usage chunk comes AFTER the
     // finish_reason chunk — so on tool_calls we must NOT return immediately:
     // keep reading until [DONE], accumulating usage, then emit the calls.
@@ -135,9 +139,9 @@ export class OpenAIAdapter implements LLMAdapter {
           const data = trimmed.slice(6)
           if (data === '[DONE]') {
             if (pendingToolCalls) {
-              yield { content: '', toolCalls: pendingToolCalls, done: true, usage: lastUsage }
+              yield { content: '', toolCalls: pendingToolCalls, done: true, usage: lastUsage, finishReason: lastFinishReason }
             } else {
-              yield { content: '', done: true, usage: lastUsage }
+              yield { content: '', done: true, usage: lastUsage, finishReason: lastFinishReason }
             }
             return
           }
@@ -184,6 +188,7 @@ export class OpenAIAdapter implements LLMAdapter {
             // When finish_reason is tool_calls, remember the accumulated calls
             // but keep reading — the usage chunk (include_usage) trails behind.
             const finishReason = json.choices?.[0]?.finish_reason
+            if (finishReason) lastFinishReason = finishReason
             if ((finishReason === 'tool_calls' || finishReason === 'function_call') && !pendingToolCalls) {
               pendingToolCalls = Array.from(toolCallsAcc.values()).map((tc) => ({
                 id: tc.id,

@@ -76,6 +76,7 @@ export class GroqAdapter implements LLMAdapter {
       // output. releaseLock in finally so an abort/early break releases the
       // reader (otherwise the underlying stream is never cancelled).
       const toolCallsAcc: Map<number, { id: string; name: string; arguments: string }> = new Map()
+      let lastFinishReason: string | undefined
 
       try {
         while (true) {
@@ -92,13 +93,14 @@ export class GroqAdapter implements LLMAdapter {
             const data = trimmed.slice(6)
             if (data === '[DONE]') {
               const toolCalls = toLlmToolCalls(toolCallsAcc)
-              yield { content: '', done: true, toolCalls: toolCalls.length > 0 ? toolCalls : undefined }
+              yield { content: '', done: true, toolCalls: toolCalls.length > 0 ? toolCalls : undefined, finishReason: lastFinishReason }
               return
             }
 
             try {
               const json = JSON.parse(data)
               const delta = json.choices?.[0]?.delta
+              if (json.choices?.[0]?.finish_reason) lastFinishReason = json.choices?.[0]?.finish_reason
 
               if (delta?.content) {
                 yield { content: delta.content, done: false }
@@ -129,7 +131,7 @@ export class GroqAdapter implements LLMAdapter {
           }
         }
 
-        yield { content: '', done: true }
+        yield { content: '', done: true, finishReason: lastFinishReason }
       } finally {
         reader.releaseLock()
       }
@@ -141,6 +143,7 @@ export class GroqAdapter implements LLMAdapter {
         content,
         done: true,
         usage: mapOpenAiUsage(json.usage),
+        finishReason: json.choices?.[0]?.finish_reason || undefined,
       }
     }
   }

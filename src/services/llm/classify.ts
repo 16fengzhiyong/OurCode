@@ -128,3 +128,27 @@ export function classifyLLMError(error: unknown): LLMErrorInfo {
 
   return { type: 'unknown', code, retryable: false, contextOverflow: false }
 }
+
+/**
+ * Detect context overflow from a SUCCESSFUL response (no error was thrown).
+ * Some providers (z.ai, Xiaomi MiMo, and self-hosted relays) either accept an
+ * oversized request silently or truncate the input to fill the window — neither
+ * surfaces as a thrown error, so the response shape must be checked directly.
+ * Mirrors Pi's `isContextOverflow` cases 2 & 3.
+ *
+ * - Silent accept: the provider reported input exceeding our configured window.
+ * - Length-stop truncation: finish_reason 'length' with zero output and input
+ *   filling the window — the model had no room left to generate.
+ */
+export function isSilentContextOverflow(params: {
+  finishReason?: string
+  /** Provider-side input size: prompt tokens plus separately-reported cache
+   *  (Anthropic style) when applicable — the size the provider actually saw. */
+  inputTokens: number
+  outputTokens: number
+  contextWindow: number
+}): boolean {
+  const { finishReason, inputTokens, outputTokens, contextWindow } = params
+  if (finishReason === 'length' && outputTokens === 0 && inputTokens >= Math.floor(contextWindow * 0.99)) return true
+  return inputTokens > contextWindow
+}

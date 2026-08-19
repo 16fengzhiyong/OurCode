@@ -13,7 +13,7 @@ import { t } from '@/i18n'
 import { getFileContent } from '@/editor/modelRegistry'
 import { sendLLMRequest, configureLLMCache, configureLLMRetry } from '@/services/llm/LLMClient'
 import { parseLLMError } from '@/services/llm/errors'
-import { classifyLLMError } from '@/services/llm/classify'
+import { classifyLLMError, isSilentContextOverflow } from '@/services/llm/classify'
 import { redactSecrets } from '@/services/llm/redact'
 import { maybeCompact, runSummarizer, buildSummaryBlock, getContextWindow, DEFAULT_COMPACTION_RATIO } from '@/services/llm/compaction'
 import { djb2Hash, toolSignature, rememberRequestSignature, getPreviousSignature, analyzeCacheBreak, recordCacheRead, hasSeenCacheRead } from '@/services/llm/cacheDiagnostics'
@@ -782,13 +782,25 @@ type RequestMessage = {
 // 提交」压到 ~20 轮），不是结果体积。
 const MAX_UNCOMPACTED_TOOL_RESULTS = 10
 const COMPACT_TOOL_RESULT_THRESHOLD = 12000 // 字符
+/** Head preview kept when an old oversized tool result is compacted — the file
+ *  path header + first lines so the model still knows what it was. The notice
+ *  points at precise retrieval instead of re-running the tool (the old
+ *  "重新调用对应工具读取" induced the re-read loop on long runs). */
+const COMPACTED_TOOL_PREVIEW_CHARS = 500
+
+/** Build the compacted form of an oversized tool result: a short head preview
+ *  plus a notice that steers the model to paged reads instead of re-running. */
+function buildCompactedToolResult(content: string): string {
+  const head = content.slice(0, COMPACTED_TOOL_PREVIEW_CHARS)
+  return `${head}\n\n[…该工具结果较长（共 ${content.length} 字符），后续内容已压缩以节省上下文。需要完整内容时，用 read_file 按 startLine/endLine 分页读取或 search_in_files 定向检索，不要整体重读。]`
+}
 
 /**
  * Estimate a stored conversation's FULL history size the way the live request
- * would see it — old oversized tool results are compacted to a short note just
- * like `compactToolResults` does on the request path. Used by the context
- * warning banner + status bar so the displayed "已使用 X%" reflects what the
- * model actually receives, not the raw (pre-compaction) history.
+ * would see it — old oversized tool results are compacted to a short preview +
+ * note just like `compactToolResults` does on the request path. Used by the
+ * context warning banner + status bar so the displayed "已使用 X%" reflects
+ * what the model actually receives, not the raw (pre-compaction) history.
  */
 export function estimateSessionHistoryTokens(messages: Array<{ role: string; content: string }>): number {
   const totalTools = messages.filter((m) => m.role === 'tool').length
@@ -798,11 +810,12 @@ export function estimateSessionHistoryTokens(messages: Array<{ role: string; con
     if (m.role === 'tool') {
       seen++
       // Mirror compactToolResults: only compact OLD oversized results (10 most
-      // recent kept verbatim); the compacted placeholder ≈ 40 tokens.
+      // recent kept verbatim); the compacted preview + notice is estimated at
+      // its real (bounded) size so the banner matches the request.
       const fromBack = totalTools - seen + 1
       const len = m.content?.length || 0
       sum += fromBack > MAX_UNCOMPACTED_TOOL_RESULTS && len > COMPACT_TOOL_RESULT_THRESHOLD
-        ? 40
+        ? estimateTokens(buildCompactedToolResult(m.content || ''))
         : estimateTokens(m.content || '')
     } else {
       sum += estimateTokens(m.content || '')
@@ -856,7 +869,7 @@ export function compactToolResults(messages: RequestMessage[]): RequestMessage[]
     if (fromBack > MAX_UNCOMPACTED_TOOL_RESULTS && m.content && m.content.length > COMPACT_TOOL_RESULT_THRESHOLD) {
       return {
         ...m,
-        content: `[…该工具结果较长（约 ${m.content.length} 字符），已压缩以节省上下文。需要细节请重新调用对应工具读取。]`,
+        content: buildCompactedToolResult(m.content),
       }
     }
     return m
@@ -1751,6 +1764,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       toolResults: msg.toolResults,
       createdAt: Date.now(),
       runId: msg.runId,
+      requestStartedAt: msg.requestStartedAt,
+      requestDurationMs: msg.requestDurationMs,
+      ttftMs: msg.ttftMs,
+      requestTokensIn: msg.requestTokensIn,
+      requestTokensOut: msg.requestTokensOut,
     }
 
     set((s) => ({
@@ -2908,6 +2926,12 @@ async function runAgentLoop(
       let reqCacheRead = 0
       let reqCacheWrite = 0
       let cacheHit: { savedTokensIn: number; savedTokensOut: number } | null = null
+      // finish_reason on the terminal chunk — used for silent-overflow detection
+      // (finish_reason 'length' + zero output = input filled the window).
+      let finishReason: string | undefined
+      // Wall-clock of the first emitted token — used to persist TTFT on the
+      // assistant message (0 when the round never emitted a token).
+      let firstTokenAt = 0
 
       // ── Streaming store updates: batch + throttle ─────────────────────────
       // Every SSE chunk used to trigger TWO separate zustand sets (activity +
@@ -2942,11 +2966,16 @@ async function runAgentLoop(
             // First real token (content or reasoning) — the TTFT wait is over.
             if (!roundStreamStarted && (chunk.content || chunk.thinking)) {
               roundStreamStarted = true
+              firstTokenAt = Date.now()
               setRunPhase('streaming')
             }
 
             if (chunk.toolCalls) {
               toolCalls = chunk.toolCalls
+            }
+
+            if (chunk.finishReason) {
+              finishReason = chunk.finishReason
             }
 
             // Real token usage reported by the provider (parsed by the adapters) —
@@ -2988,6 +3017,27 @@ async function runAgentLoop(
           if (await applyCompaction(true)) continue
         }
         throw requestError
+      }
+
+      // Silent context overflow: the provider ACCEPTED the request but either
+      // truncated it (finish_reason 'length' + zero output = no room left to
+      // generate) or reported input exceeding our configured window. These never
+      // surface as thrown errors (see classify.ts), so detect them from the
+      // response shape and run the same compact-and-retry-once path as the error
+      // branch above. Local cache replays are skipped — no real API response.
+      if (!cacheHit && compactionEnabled && !overflowCompactionAttempted) {
+        const cacheIsSeparate = configGroup.provider === 'anthropic' || configGroup.apiFormat === 'anthropic'
+        const inputTokens = reqTokensIn + (cacheIsSeparate ? reqCacheRead + reqCacheWrite : 0)
+        if (isSilentContextOverflow({ finishReason, inputTokens, outputTokens: reqTokensOut, contextWindow: compactionWindow })) {
+          overflowCompactionAttempted = true
+          usageEvents.push(makeLlmUsageEvent({
+            sessionId, projectPath, model, provider: configGroup.provider,
+            startedAt: reqStartedAt, durationMs: Date.now() - reqStartedAt,
+            tokensIn: reqTokensIn, tokensOut: reqTokensOut,
+            cacheReadTokens: reqCacheRead, cacheCreationTokens: reqCacheWrite,
+          }))
+          if (await applyCompaction(true)) continue
+        }
       }
 
       usageEvents.push(makeLlmUsageEvent({
@@ -3073,6 +3123,11 @@ async function runAgentLoop(
           content: fullContent,
           thinking: fullThinking || undefined,
           runId,
+          requestStartedAt: reqStartedAt,
+          requestDurationMs: Date.now() - reqStartedAt,
+          ttftMs: firstTokenAt ? firstTokenAt - reqStartedAt : undefined,
+          requestTokensIn: cacheHit ? 0 : reqTokensIn,
+          requestTokensOut: cacheHit ? 0 : reqTokensOut,
         })
         clearStream()
         break
@@ -3149,6 +3204,11 @@ async function runAgentLoop(
         thinking: fullThinking || undefined,
         toolCalls: parsedToolCalls,
         runId,
+        requestStartedAt: reqStartedAt,
+        requestDurationMs: Date.now() - reqStartedAt,
+        ttftMs: firstTokenAt ? firstTokenAt - reqStartedAt : undefined,
+        requestTokensIn: cacheHit ? 0 : reqTokensIn,
+        requestTokensOut: cacheHit ? 0 : reqTokensOut,
       })
       // Round committed — the tool rows below render from this message (with
       // live status via appendToolResult), so the stream's copy must not linger.
@@ -3238,6 +3298,22 @@ async function runAgentLoop(
         chatStore.addMessage(sessionId, { role: 'tool', content, toolCallId, runId })
       }
 
+      // Wall-clock start of each dispatched tool call, keyed by toolCallId —
+      // populated as the batch is dispatched and read back when each result
+      // finalizes, so the trajectory view gets a per-tool duration.
+      const toolStartedAtById = new Map<string, number>()
+      /** Attach wall-clock timing to a tool result before it's persisted. */
+      const withToolTiming = (tc: ToolCall, result: ToolResult) => {
+        const startedAt = toolStartedAtById.get(tc.id)
+        const finishedAt = Date.now()
+        return {
+          ...result,
+          startedAt,
+          finishedAt,
+          durationMs: startedAt != null ? finishedAt - startedAt : undefined,
+        }
+      }
+
       const finalizeToolResult = (tc: ToolCall, result: ToolResult): void => {
         // A user-denied call shows 'rejected' (not 'error') in the trace —
         // the pipeline marks denials via result.rejected.
@@ -3251,7 +3327,7 @@ async function runAgentLoop(
           if (failed) lastFailedCommand = String(tc.arguments?.command || '')
         }
         // Append the result inline to the assistant message for display
-        chatStore.appendToolResult(sessionId, assistantMsgId, result)
+        chatStore.appendToolResult(sessionId, assistantMsgId, withToolTiming(tc, result))
         recordToolMessage(tc.id, result.result)
         // Write tools changed files on disk — notify open editors to reload
         if (CHECKPOINT_TOOLS.has(tc.name) && tc.arguments?.path) {
@@ -3263,7 +3339,11 @@ async function runAgentLoop(
         if (abortController.signal.aborted) break
         touchActivity() // tool phase counts as activity, not model silence
 
-        // Execution trace entry (live tool-call status)
+        // Execution trace entry (live tool-call status) — record the wall-clock
+        // start here so withToolTiming can compute a per-tool duration when the
+        // result lands (concurrent tools each finalize on their own timeline).
+        const toolStartedAt = Date.now()
+        toolStartedAtById.set(tc.id, toolStartedAt)
         useChatStore.getState().appendTrace(sessionId, {
           id: uuidv4(),
           toolCallId: tc.id,
@@ -3271,6 +3351,7 @@ async function runAgentLoop(
           kind: getToolKind(tc.name),
           status: 'running',
           summary: summarizeToolCall(tc),
+          startedAt: toolStartedAt,
         })
 
         // ── manage_todo: update the visible todo list ──
@@ -3278,7 +3359,7 @@ async function runAgentLoop(
           const todos = normalizeTodos(tc.arguments.todos)
           chatStore.setTodos(sessionId, todos)
           const result = `任务列表已更新 (${todos.length} 项)`
-          chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
+          chatStore.appendToolResult(sessionId, assistantMsgId, withToolTiming(tc, { toolCallId: tc.id, name: tc.name, result }))
           recordToolMessage(tc.id, result)
           useChatStore.getState().setTraceStatus(sessionId, tc.id, 'success')
           continue
@@ -3302,7 +3383,7 @@ async function runAgentLoop(
             useChatStore.getState().setTraceStatus(sessionId, tc.id, 'success')
           }
           const result = '计划已提交，等待用户批准。'
-          chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
+          chatStore.appendToolResult(sessionId, assistantMsgId, withToolTiming(tc, { toolCallId: tc.id, name: tc.name, result }))
           recordToolMessage(tc.id, result)
           planSubmitted = true
           break
@@ -3334,7 +3415,7 @@ async function runAgentLoop(
             })
           })
           const result = `用户回答: ${answer}`
-          chatStore.appendToolResult(sessionId, assistantMsgId, { toolCallId: tc.id, name: tc.name, result })
+          chatStore.appendToolResult(sessionId, assistantMsgId, withToolTiming(tc, { toolCallId: tc.id, name: tc.name, result }))
           recordToolMessage(tc.id, result)
           useChatStore.getState().setTraceStatus(sessionId, tc.id, 'success')
           continue

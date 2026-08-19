@@ -77,6 +77,48 @@ describe('chatStore message management', () => {
     expect(msgs[1].tokenCount).toBeGreaterThan(0)
   })
 
+  it('addMessage carries per-round request timing/usage onto the message', () => {
+    makeSession()
+    useChatStore.getState().addMessage('s1', {
+      role: 'assistant',
+      content: 'done',
+      requestStartedAt: 1000,
+      requestDurationMs: 500,
+      ttftMs: 120,
+      requestTokensIn: 100,
+      requestTokensOut: 20,
+    })
+    const msg = useChatStore.getState().getActiveSession()!.messages[0]
+    expect(msg.requestStartedAt).toBe(1000)
+    expect(msg.requestDurationMs).toBe(500)
+    expect(msg.ttftMs).toBe(120)
+    expect(msg.requestTokensIn).toBe(100)
+    expect(msg.requestTokensOut).toBe(20)
+  })
+
+  it('appendToolResult persists per-tool timing on the assistant message', () => {
+    makeSession()
+    useChatStore.getState().addMessage('s1', {
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'c1', name: 'read_file', arguments: {} }],
+    })
+    const asstId = useChatStore.getState().getActiveSession()!.messages[0].id
+    useChatStore.getState().appendToolResult('s1', asstId, {
+      toolCallId: 'c1',
+      name: 'read_file',
+      result: 'ok',
+      startedAt: 100,
+      finishedAt: 250,
+      durationMs: 150,
+    } as any)
+    const msg = useChatStore.getState().getActiveSession()!.messages[0]
+    expect(msg.toolResults).toHaveLength(1)
+    expect(msg.toolResults![0].startedAt).toBe(100)
+    expect(msg.toolResults![0].finishedAt).toBe(250)
+    expect(msg.toolResults![0].durationMs).toBe(150)
+  })
+
   it('editMessage updates content, editedAt and persists', () => {
     makeSession()
     addUser('s1', 'old text')

@@ -12,7 +12,7 @@
  *   existing lossy trim, so behavior degrades to today's exactly.
  */
 
-import { ApiConfigGroup } from '@/types'
+import { ApiConfigGroup, LLMToolCall } from '@/types'
 import { lookupModelMetadata } from '@shared/constants'
 import { useConfigStore } from '@/stores/configStore'
 import { sendLLMRequest } from './LLMClient'
@@ -42,11 +42,24 @@ export const DEFAULT_COMPACTION_RATIO = 0.8
  *  summarizer call itself on very large contexts (e.g. 2M-token models). */
 const MAX_SUMMARIZE_CHARS = 400_000
 
+/** Fraction of the context window kept verbatim after compaction — the "recent
+ *  work" tail. Mainstream harnesses (Pi keeps ~20K, Grok compacts at 85%) keep
+ *  the most recent N tokens and summarize the older prefix, rather than keeping
+ *  everything after the last user message (which in a long agent run is the run
+ *  START and leaves the whole run un-compactable). */
+export const DEFAULT_KEEP_RECENT_RATIO = 0.2
+/** Absolute cap on the retained tail so a small model never keeps a huge tail. */
+const MAX_KEEP_RECENT_TOKENS = 24_000
+
 /** Message shape the compaction logic needs (compatible with the request
  *  message type, so the rebuilt array can be assigned back directly). */
 export interface CompactMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  /** Assistant tool-call declarations (present on request messages) — used to
+   *  extract the read/modified file lists appended to the summary. */
+  toolCalls?: LLMToolCall[]
+  toolCallId?: string
 }
 
 export interface CompactOptions {
@@ -58,6 +71,9 @@ export interface CompactOptions {
   signal?: AbortSignal
   contextWindow?: number
   ratio?: number
+  /** Tokens of the most-recent tail kept verbatim after compaction. Defaults to
+   *  DEFAULT_KEEP_RECENT_RATIO of the context window, capped. */
+  keepRecentTokens?: number
   /** Request payload tokens that ride along OUTSIDE the messages array (the
    *  tool definitions/schemas attached to the request body). The message-sum
    *  estimate would otherwise undercount the real request by exactly this
@@ -77,8 +93,8 @@ export interface CompactOptions {
 }
 
 export interface CompactResult {
-  /** Rebuilt request array: [system, summary, ...tail] — tail starts at the
-   *  current user turn, which is always kept verbatim. */
+  /** Rebuilt request array: [system, summary, ...tail] — tail is the most
+   *  recent ~keepRecentTokens work kept verbatim. */
   messages: CompactMessage[]
   /** The raw summary text (persist to ChatSession.summary as the next anchor). */
   summary: string
@@ -96,6 +112,38 @@ export function findKeepBoundary(messages: CompactMessage[]): number {
   return 0
 }
 
+/**
+ * Token-budget cut point for compaction: walk backward from the end, accumulate
+ * the token estimate of the tail, and cut at the latest safe boundary (a user
+ * or assistant message — never a tool message, which would split an assistant
+ * tool_calls → tool round-trip) once the tail meets `keepRecentTokens`.
+ *
+ * Unlike `findKeepBoundary`, this keeps the most RECENT work verbatim and lets
+ * the older prefix be summarized — so a single long agent run (whose only user
+ * message sits at the start) can still be compacted mid-way instead of growing
+ * past the model window un-trimmable.
+ */
+export function findCompactionCutPoint(
+  messages: CompactMessage[],
+  keepRecentTokens: number,
+  estimateTokens: (text: string) => number,
+): number {
+  if (messages.length <= 1) return 0
+  let accumulated = 0
+  let lastSafeBoundary = -1
+  for (let i = messages.length - 1; i >= 1; i--) {
+    const role = messages[i].role
+    if (role === 'user' || role === 'assistant') lastSafeBoundary = i
+    accumulated += estimateTokens(messages[i].content || '')
+    // Only cut once we've both met the budget AND found a safe boundary. A tail
+    // that ends in tool results must keep walking back to the assistant that
+    // owns them (never split a round-trip).
+    if (accumulated >= keepRecentTokens && lastSafeBoundary > 0) return lastSafeBoundary
+  }
+  // History is smaller than the budget — nothing to summarize.
+  return 1
+}
+
 export function buildSummaryBlock(summary: string): string {
   return `${SUMMARY_MARKER} 较早的对话已压缩为以下摘要，仅作背景参考：\n\n${summary}`
 }
@@ -104,6 +152,63 @@ export function buildSummaryBlock(summary: string): string {
  *  input — the previous summary is passed as the anchor instead). */
 export function isSummaryMessage(m: CompactMessage): boolean {
   return m.role === 'system' && m.content.startsWith(SUMMARY_MARKER)
+}
+
+/** Tools whose calls mark files as read / edited (drives the summary's
+ *  deterministic file lists, so the model knows what it already read/edited
+ *  even after the raw history is summarized away — no re-read loop). */
+const READ_TOOLS = new Set(['read_file', 'read_multiple_files'])
+const EDIT_TOOLS = new Set(['write_file', 'edit_file', 'multi_edit_file'])
+
+export interface FileOps {
+  read: Set<string>
+  edited: Set<string>
+}
+
+function parseToolArgs(toolCall: LLMToolCall): Record<string, unknown> {
+  try {
+    return JSON.parse(toolCall.function?.arguments || '{}')
+  } catch {
+    return {}
+  }
+}
+
+/** Extract read/edited file paths from assistant tool calls in a message list —
+ *  deterministic, unlike asking the summarizer to recall them. */
+export function extractFileOps(messages: CompactMessage[]): FileOps {
+  const read = new Set<string>()
+  const edited = new Set<string>()
+  for (const m of messages) {
+    if (m.role !== 'assistant' || !m.toolCalls) continue
+    for (const tc of m.toolCalls) {
+      const name = tc.function?.name || ''
+      if (READ_TOOLS.has(name)) {
+        const args = parseToolArgs(tc)
+        if (name === 'read_multiple_files' && Array.isArray(args.paths)) {
+          for (const p of args.paths) if (typeof p === 'string' && p) read.add(p)
+        } else if (typeof args.path === 'string' && args.path) {
+          read.add(args.path)
+        }
+      } else if (EDIT_TOOLS.has(name)) {
+        const args = parseToolArgs(tc)
+        if (name === 'multi_edit_file' && Array.isArray(args.edits)) {
+          for (const e of args.edits) if (e && typeof (e as { path?: unknown }).path === 'string' && (e as { path: string }).path) edited.add((e as { path: string }).path)
+        } else if (typeof args.path === 'string' && args.path) {
+          edited.add(args.path)
+        }
+      }
+    }
+  }
+  return { read, edited }
+}
+
+/** Format the deterministic read/edited file lists as a markdown section to
+ *  append to the summary. Empty string when there's nothing to list. */
+export function formatFileOps(readFiles: string[], editedFiles: string[]): string {
+  const parts: string[] = []
+  if (readFiles.length > 0) parts.push(`## 已读文件\n${readFiles.map((p) => `- ${p}`).join('\n')}`)
+  if (editedFiles.length > 0) parts.push(`## 已改文件\n${editedFiles.map((p) => `- ${p}`).join('\n')}`)
+  return parts.join('\n\n')
 }
 
 const SUMMARIZE_SYSTEM_PROMPT = `你是对话历史压缩器。把用户提供的对话历史压缩成一段结构化的中文摘要，供后续对话作为背景参考。
@@ -190,8 +295,16 @@ export async function maybeCompact(opts: CompactOptions): Promise<CompactResult 
   if (opts.signal?.aborted) return null
   if (opts.messages.length === 0) return null
 
-  const boundary = findKeepBoundary(opts.messages)
-  // Nothing before the current user turn (system prompt only) — nothing to summarize.
+  const contextWindow = opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW
+  const keepRecentTokens = opts.keepRecentTokens
+    ?? Math.min(MAX_KEEP_RECENT_TOKENS, Math.floor(contextWindow * DEFAULT_KEEP_RECENT_RATIO))
+
+  // Cut point = keep the most recent ~keepRecentTokens verbatim and summarize
+  // the older prefix. Using findKeepBoundary (last user message) here would
+  // leave a long agent run un-compactable, because its last user message is the
+  // run START. The token-budget cut slices mid-run at a safe boundary instead.
+  const boundary = findCompactionCutPoint(opts.messages, keepRecentTokens, opts.estimateTokens)
+  // Nothing before the cut point (system prompt only) — nothing to summarize.
   if (boundary <= 1) return null
 
   // Trigger only when the estimate CONFIRMS we're over the budget — under the
@@ -201,16 +314,15 @@ export async function maybeCompact(opts: CompactOptions): Promise<CompactResult 
   // reserved for this round's reply (thinking on reasoning models can exceed
   // the ratio's default headroom and overflow the window).
   if (!opts.force) {
-    const contextWindow = opts.contextWindow ?? DEFAULT_CONTEXT_WINDOW
     const ratio = opts.ratio ?? DEFAULT_COMPACTION_RATIO
     const budget = Math.floor(contextWindow * ratio) - (opts.outputReserve || 0)
     const total = opts.messages.reduce((sum, m) => sum + opts.estimateTokens(m.content), 0) + (opts.overheadTokens || 0)
     if (total <= budget) return null
   }
 
-  // History to summarize = everything between the system prompt and the
-  // current user turn. The previous summary message (if any) is excluded — it
-  // is passed as the anchor so summaries update instead of rewrite.
+  // History to summarize = everything between the system prompt and the cut
+  // point. The previous summary message (if any) is excluded — it is passed as
+  // the anchor so summaries update instead of rewrite.
   const history = opts.messages.slice(1, boundary).filter((m) => !isSummaryMessage(m))
   if (history.length === 0) return null
 
@@ -228,9 +340,18 @@ export async function maybeCompact(opts: CompactOptions): Promise<CompactResult 
   }
   if (!summary.trim()) return null
 
+  // Append the deterministic read/edited file lists so the model keeps knowing
+  // what it already touched after the raw tool results are summarized away.
+  const fileOps = extractFileOps(history)
+  const fileSection = formatFileOps(Array.from(fileOps.read), Array.from(fileOps.edited))
+  const finalSummary = summary.trim() + (fileSection ? `\n\n${fileSection}` : '')
+
   return {
-    messages: [opts.messages[0], { role: 'system', content: buildSummaryBlock(summary) }, ...opts.messages.slice(boundary)],
-    summary: summary.trim(),
-    boundaryCount: boundary - 1,
+    messages: [opts.messages[0], { role: 'system', content: buildSummaryBlock(finalSummary) }, ...opts.messages.slice(boundary)],
+    summary: finalSummary,
+    // Total session messages now covered by the summary = the previously
+    // summarized count plus the session messages summarized this round
+    // (the previous summary block itself is excluded from `history`).
+    boundaryCount: (opts.session.summaryMessageCount ?? 0) + history.length,
   }
 }
