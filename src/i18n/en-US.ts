@@ -807,7 +807,7 @@ export const enUS: Record<TranslationKey, string> = {
   'editor.splitLeftRight': 'Split Left/Right (Ctrl+\\)',
   'editor.splitUpDown': 'Split Up/Down',
   'editor.closePanel': 'Close this panel',
-  'editor.hideEditor': 'Close editor panel (reopens when opening a file)',
+  'editor.hideEditor': 'Close editor panel (clears all open files)',
   'editor.unsavedTitle': 'Unsaved Changes',
   'editor.unsavedMessage': '"{name}" has unsaved changes. Do you want to save them?',
   'editor.discardAndClose': "Don't Save, Close",

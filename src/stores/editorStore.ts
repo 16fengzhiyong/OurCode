@@ -188,6 +188,12 @@ interface EditorState {
   /** Close a panel and all its tabs — clean files close immediately, dirty
    *  ones prompt one at a time. Returns true when the panel was closed. */
   closePanelWithConfirm: (panelId: string) => Promise<boolean>
+  /** Close the WHOLE editor area: every tab across all panels (dirty files
+   *  prompt one at a time), clear the persisted session, then hide the editor.
+   *  The next time the editor area is opened it starts empty — no carried-over
+   *  files. Returns true when the area was closed; false when the user
+   *  cancelled a dirty-file prompt (nothing changes in that case). */
+  closeEditorArea: () => Promise<boolean>
   setActiveFile: (path: string, panelId?: string) => void
   newFile: () => string
   reorderTabs: (fromIndex: number, toIndex: number, panelId?: string) => void
@@ -710,7 +716,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
    *  closed. */
   closeFileWithConfirm: async (path, panelId) => {
     const file = get().openFiles.find((f) => f.path === path)
-    if (!file) return true
+    if (!file) {
+      // No loaded content — a stale tab left over by session restore (e.g. a
+      // filtered /untitled/ entry) that never became an openFiles entry. There
+      // is nothing to save or confirm; just drop the tab. Without this the tab
+      // survives every close and lingers in the persisted session forever.
+      if (panelId) get().closeFile(path, panelId)
+      else get().closeFileGlobally(path)
+      return true
+    }
     if (!file.isDirty) {
       if (panelId) get().closeFile(path, panelId)
       else get().closeFileGlobally(path)
@@ -749,6 +763,30 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     // All tabs are gone (or were never there) — drop the empty panel
     get().closePanel(panelId)
+    return true
+  },
+
+  /** Close the whole editor area (see interface doc). Scoped per-panel closes
+   *  let a file shared by two panels be prompted once per panel. */
+  closeEditorArea: async () => {
+    const panelIds = Object.keys(get().panels)
+    for (const pid of panelIds) {
+      const panel = get().panels[pid]
+      if (!panel) continue
+      for (const path of [...panel.tabOrder]) {
+        // A file open in another panel is only closed HERE — the other panel
+        // keeps its tab until its own turn comes around.
+        const shared = Object.values(get().panels).some((p) => p.id !== pid && p.tabOrder.includes(path))
+        const closed = await get().closeFileWithConfirm(path, shared ? pid : undefined)
+        if (!closed) return false // Save As cancelled / dirty prompt aborted
+      }
+    }
+    // Every tab is gone — the layout subscription already persisted an empty
+    // session, but clear the key explicitly so a stale write can never
+    // resurrect the previous tabs on the next launch.
+    try { localStorage.removeItem(SESSION_STORAGE_KEY) } catch { /* storage unavailable */ }
+    lastSessionSnapshot = ''
+    useUIStore.getState().setEditorVisible(false)
     return true
   },
 
@@ -1072,12 +1110,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
 
       // Apply the saved layout exactly — tab order, the active file per panel,
-      // and any split configuration.
+      // and any split configuration. Untitled entries are stripped from the
+      // restored tabOrder too (they were already excluded from `paths` above,
+      // but keeping them in tabOrder would let stale /untitled/ tabs linger in
+      // every later session snapshot — and survive closeFileWithConfirm).
+      const cleanPanels: Record<string, Panel> = {}
+      for (const [id, p] of Object.entries(saved.panels)) {
+        const tabOrder = (p.tabOrder || []).filter((path) => !path.startsWith('/untitled/'))
+        cleanPanels[id] = {
+          ...p,
+          tabOrder,
+          activeFilePath: p.activeFilePath && !p.activeFilePath.startsWith('/untitled/')
+            ? p.activeFilePath
+            : tabOrder[tabOrder.length - 1] || null,
+        }
+      }
       const panelOrder = saved.panelOrder.length > 0 ? saved.panelOrder : [initialPanelId]
       const activePanelId = saved.panels[saved.activePanelId] ? saved.activePanelId : (saved.panels[panelOrder[0]] ? panelOrder[0] : initialPanelId)
       const next = {
         ...get(),
-        panels: saved.panels,
+        panels: cleanPanels,
         panelOrder,
         activePanelId,
         splitDirection: saved.splitDirection || 'horizontal',

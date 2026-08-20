@@ -1,6 +1,6 @@
 {
   "name": "ourcode-ide",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "AI-powered code editor with multi-provider support and editable chat history",
   "main": "dist-electron/main.js",
   "scripts": {

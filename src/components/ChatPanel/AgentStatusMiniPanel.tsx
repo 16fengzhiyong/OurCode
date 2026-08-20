@@ -120,7 +120,8 @@ export default function AgentStatusMiniPanel({ sessionId }: { sessionId: string 
   const subagents = subagentEntries.map(([id, p]) => ({ id, ...p }))
 
   /* ── 收起胶囊态（默认）──
-     white capsule + hairline + smart_toy + 当前执行 todo（或 Agent 执行中）+ 绿点 + 3/4 + 箭头 */
+     white capsule + hairline + smart_toy + 当前执行 todo（或 Agent 执行中）+ 旋转进度图标 + 3/4 + 箭头。
+     胶囊内容实时跟随 session.todos —— 当前 in_progress 任务推进时文字随之切换。 */
   if (collapsed) {
     return (
       <button
@@ -138,7 +139,9 @@ export default function AgentStatusMiniPanel({ sessionId }: { sessionId: string 
             {executing ? t('agent.miniPanelRunning') : t('agent.miniPanelTitle')}
           </span>
         )}
-        {executing && <span className="w-[6px] h-[6px] rounded-full bg-success animate-pulse shrink-0" aria-hidden />}
+        {executing && (
+          <span className="material-symbols-outlined text-[12px] leading-none text-nova-accent animate-spin-slow shrink-0" aria-hidden>progress_activity</span>
+        )}
         {total > 0 && (
           <>
             <span className="w-px h-3 bg-nova-border mx-0.5 shrink-0" aria-hidden />

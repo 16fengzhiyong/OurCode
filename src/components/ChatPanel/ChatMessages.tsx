@@ -9,6 +9,37 @@ import { useI18n } from '@/i18n/useI18n'
 import { lookupModelMetadata } from '@/types'
 import type { ChatMessage as ChatMessageType } from '@/types'
 
+/** Drag handle for history reorder. ONLY the handle is draggable — making the
+ *  whole message row `draggable` in history-edit mode broke mouse text
+ *  selection (mousedown+move started a drag instead of selecting), so the text
+ *  couldn't be copied. Hover-revealed next to each row in edit mode. */
+function MessageDragHandle({
+  onDragStart,
+  onDragEnd,
+}: {
+  onDragStart: (e: React.DragEvent) => void
+  onDragEnd: (e: React.DragEvent) => void
+}) {
+  return (
+    <span
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className="absolute left-0.5 top-2 z-10 flex items-center justify-center w-5 h-6 cursor-grab active:cursor-grabbing text-nova-text-muted opacity-0 group-hover/row:opacity-70 hover:opacity-100 transition-opacity select-none"
+      title="拖动排序"
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+        <circle cx="9" cy="5" r="1.7" />
+        <circle cx="15" cy="5" r="1.7" />
+        <circle cx="9" cy="12" r="1.7" />
+        <circle cx="15" cy="12" r="1.7" />
+        <circle cx="9" cy="19" r="1.7" />
+        <circle cx="15" cy="19" r="1.7" />
+      </svg>
+    </span>
+  )
+}
+
 export default function ChatMessages() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // Derive the active session via id + find: the selector returns the session
@@ -360,12 +391,9 @@ export default function ChatMessages() {
           return (
             <div
               key={turn.message.id}
-              draggable={editEnabled}
-              onDragStart={editEnabled ? (e) => handleDragStart(originalIndex, e) : undefined}
               onDragOver={editEnabled ? (e) => handleDragOver(originalIndex, e) : undefined}
               onDrop={editEnabled ? (e) => handleDrop(originalIndex, e) : undefined}
-              onDragEnd={editEnabled ? handleDragEnd : undefined}
-              className={`chat-msg-row transition-all ${
+              className={`chat-msg-row relative group/row transition-all ${
                 dragIndex === originalIndex ? 'opacity-40' : ''
               } ${
                 overIndex === originalIndex && dragIndex !== null && dragIndex !== originalIndex
@@ -373,6 +401,12 @@ export default function ChatMessages() {
                   : ''
               }`}
             >
+              {editEnabled && (
+                <MessageDragHandle
+                  onDragStart={(e) => handleDragStart(originalIndex, e)}
+                  onDragEnd={handleDragEnd}
+                />
+              )}
               <ChatMessage
                 message={turn.message}
                 sessionId={activeSession.id}
@@ -394,12 +428,9 @@ export default function ChatMessages() {
         return (
           <div
             key={`turn-${firstId}`}
-            draggable={editEnabled}
-            onDragStart={editEnabled ? (e) => handleDragStart(originalIndex, e) : undefined}
             onDragOver={editEnabled ? (e) => handleDragOver(originalIndex, e) : undefined}
             onDrop={editEnabled ? (e) => handleDrop(originalIndex, e) : undefined}
-            onDragEnd={editEnabled ? handleDragEnd : undefined}
-            className={`chat-msg-row transition-all ${
+            className={`chat-msg-row relative group/row transition-all ${
               dragIndex === originalIndex ? 'opacity-40' : ''
             } ${
               overIndex === originalIndex && dragIndex !== null && dragIndex !== originalIndex
@@ -407,6 +438,12 @@ export default function ChatMessages() {
                 : ''
             }`}
           >
+            {editEnabled && (
+              <MessageDragHandle
+                onDragStart={(e) => handleDragStart(originalIndex, e)}
+                onDragEnd={handleDragEnd}
+              />
+            )}
             <div className="flex flex-col gap-1.5">
               {/* 聚合模式：整个 turn 渲染为一个 ChatMessage —— 多轮思考与
                   工具调用合并进单个「思考与执行过程」折叠块，最终回答在块下方。

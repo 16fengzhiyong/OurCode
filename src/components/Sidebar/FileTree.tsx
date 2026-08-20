@@ -7,6 +7,9 @@ import { useI18n } from '@/i18n/useI18n'
 
 interface FileTreeProps {
   rootPath: string
+  /** Bumped by the parent (tree-view header's refresh button) to force a full
+   *  tree reload — re-reads the root and every expanded directory. */
+  refreshSignal?: number
 }
 
 /** Per-project expanded-directory persistence: the tree's fold/unfold state
@@ -62,7 +65,7 @@ function saveExpandedDirs(rootPath: string, dirs: Set<string>): void {
   } catch { /* ignore */ }
 }
 
-function FileTree({ rootPath }: FileTreeProps) {
+function FileTree({ rootPath, refreshSignal }: FileTreeProps) {
   const [files, setFiles] = useState<FileEntry[]>([])
   // The root itself is always expanded; the rest of the fold state is restored
   // from this project's last visit.
@@ -132,11 +135,12 @@ function FileTree({ rootPath }: FileTreeProps) {
       if (!entry.isDirectory || !expandedDirsRef.current.has(entry.path)) continue
       const children = await loadFiles(entry.path)
       if (seq !== loadSeqRef.current) return // project switched mid-load — discard
-      setFiles((prev) => {
-        const next = [...prev]
-        updateEntryChildren(next, entry.path, children)
-        return next
-      })
+      // updateEntryChildren is a pure function — its RETURN VALUE is the new
+      // tree (a shallow copy never mutates the stored entries, so passing a
+      // fresh `[...prev]` copy and ignoring the result would silently drop the
+      // children and leave expanded folders empty). Pass it straight through,
+      // exactly like toggleDir does for one-off expansions.
+      setFiles((prev) => updateEntryChildren(prev, entry.path, children))
       // Nested expanded folders inside this one
       await loadExpandedChildren(children, seq)
     }
@@ -153,6 +157,18 @@ function FileTree({ rootPath }: FileTreeProps) {
     if (initial) setIsLoading(false)
     await loadExpandedChildren(rootEntries, seq)
   }, [rootPath, loadFiles, loadExpandedChildren])
+
+  // Parent-triggered manual refresh — the tree-view header's refresh button
+  // bumps `refreshSignal`. The ref starts at the CURRENT signal so a remount
+  // (re-entering the project after the user already hit refresh) doesn't fire a
+  // duplicate load — only a genuine bump triggers refreshTree.
+  const lastRefreshSignalRef = useRef(refreshSignal ?? 0)
+  useEffect(() => {
+    if (refreshSignal === undefined || refreshSignal === lastRefreshSignalRef.current) return
+    lastRefreshSignalRef.current = refreshSignal
+    void refreshTree()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshTree identity tracks rootPath, which the mount effect already handles
+  }, [refreshSignal])
 
   /** Surgically reload ONE directory's listing and merge it into the tree,
    *  keeping deeper expanded folders populated. Used for watcher events — a
@@ -172,21 +188,16 @@ function FileTree({ rootPath }: FileTreeProps) {
     if (!expandedDirsRef.current.has(dirPath)) return
     const children = await loadFiles(dirPath)
     if (seq !== loadSeqRef.current) return
-    setFiles((prev) => {
-      const next = [...prev]
-      updateEntryChildren(next, dirPath, children)
-      return next
-    })
+    setFiles((prev) => updateEntryChildren(prev, dirPath, children))
     await loadExpandedChildren(children, seq)
   }, [rootPath, loadFiles, loadExpandedChildren])
 
-  /** Watcher callback. Saving the file we're editing doesn't move the tree
-   *  entry (only name + git badge are shown, and git is polled separately), so
-   *  self-saves are skipped. Other changes refresh only the affected dir. */
+  /** Watcher callback. Saves are explicit now (autosave was removed), so there
+   *  is no per-keystroke event flood to filter — even files open in the editor
+   *  must refresh their directory (fresh git badges, new/deleted sibling
+   *  files). Bursts (git ops, build output) coalesce into one refresh via the
+   *  300ms debounce. */
   const handleFileChanged = useCallback((changedPath: string) => {
-    const openFiles = useEditorStore.getState().openFiles
-    if (openFiles.some((f) => f.path === changedPath)) return
-
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
     refreshTimerRef.current = setTimeout(() => {
       refreshDir(parentDir(changedPath))

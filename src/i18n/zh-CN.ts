@@ -804,7 +804,7 @@ export const zhCN = {
   'editor.splitLeftRight': '左右分屏 (Ctrl+\\)',
   'editor.splitUpDown': '上下分屏',
   'editor.closePanel': '关闭此分屏',
-  'editor.hideEditor': '关闭编辑面板（打开文件时自动恢复）',
+  'editor.hideEditor': '关闭编辑面板（清空所有打开的文件）',
   'editor.unsavedTitle': '未保存的更改',
   'editor.unsavedMessage': '文件 "{name}" 有未保存的更改。要保存这些更改吗？',
   'editor.discardAndClose': '不保存，关闭',

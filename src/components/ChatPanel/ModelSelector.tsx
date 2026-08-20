@@ -47,7 +47,16 @@ export default function ModelSelector() {
 
   const activeSession = getActiveSession()
   const activeGroup = getActiveConfigGroup()
-  const currentModel = activeSession?.model || activeGroup?.defaultModel || ''
+  // The session's OWN config group — the runtime model resolves from
+  // session.model || session.configGroup.defaultModel (chatStore), so the
+  // selector must follow the session's group, NOT the globally active one
+  // (they can diverge right after startup or a group switch — using the global
+  // group's defaultModel showed a freshly-added default as "current" even
+  // though the conversation still ran on its own group's model).
+  const sessionConfigGroup = useConfigStore((s) =>
+    activeSession ? s.configGroups.find((g) => g.id === activeSession.configGroupId) : undefined
+  )
+  const currentModel = activeSession?.model || sessionConfigGroup?.defaultModel || activeGroup?.defaultModel || ''
 
   // Filter models of the currently selected provider
   const filteredModels = useMemo(() => {

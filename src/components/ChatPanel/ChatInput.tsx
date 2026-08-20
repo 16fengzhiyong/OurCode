@@ -115,6 +115,12 @@ export default function ChatInput() {
   const [queuedHint, setQueuedHint] = useState(false)
   const [listening, setListening] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
+  /** Path of the 当前关注文件 anchor the user dismissed (✕). The anchor chip
+   *  is passive context — opening a file in the editor auto-shows it above the
+   *  input, which users read as "the file got added to the conversation". A
+   *  per-path dismiss lets them clear it; switching to another file re-shows
+   *  the anchor for the new file. */
+  const [dismissedActiveFile, setDismissedActiveFile] = useState<string | null>(null)
   const recognitionRef = useRef<{ stop: () => void } | null>(null)
   const t = useI18n()
 
@@ -596,15 +602,28 @@ export default function ChatInput() {
           上方一行紧凑标签，减少层数）；当前关注文件被动指示，点击跳转编辑器。 */}
       {(activeFilePath || contextFiles.length > 0) && (
         <div className="flex flex-wrap items-center gap-1.5 mb-2">
-          {activeFilePath && (
-            <button
-              onClick={() => { useEditorStore.getState().openFile(activeFilePath) }}
-              title={activeFilePath}
-              className="inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full bg-nova-surface border border-nova-border/60 hover:border-nova-accent/40 hover:bg-nova-hover/60 transition-colors max-w-[200px]"
+          {activeFilePath && activeFilePath !== dismissedActiveFile && (
+            <span
+              className="inline-flex items-center gap-0.5 pl-1.5 pr-1 py-0.5 rounded-full bg-nova-surface border border-nova-border/60 hover:border-nova-accent/40 hover:bg-nova-hover/60 transition-colors max-w-[240px]"
             >
-              <span className="material-symbols-outlined text-[12px] leading-none text-nova-accent shrink-0" aria-hidden>description</span>
-              <span className="font-mono text-[11px] text-nova-text-primary truncate">{activeFilePath.split(/[/\\]/).pop()}</span>
-            </button>
+              <button
+                onClick={() => { useEditorStore.getState().openFile(activeFilePath) }}
+                title={activeFilePath}
+                className="inline-flex items-center gap-1 min-w-0"
+              >
+                <span className="material-symbols-outlined text-[12px] leading-none text-nova-accent shrink-0" aria-hidden>description</span>
+                <span className="font-mono text-[11px] text-nova-text-primary truncate">{activeFilePath.split(/[/\\]/).pop()}</span>
+              </button>
+              <button
+                onClick={() => setDismissedActiveFile(activeFilePath)}
+                title={t('chat.removeFile')}
+                className="w-4 h-4 flex items-center justify-center rounded-full shrink-0 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+              >
+                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M1 1L7 7M7 1L1 7" />
+                </svg>
+              </button>
+            </span>
           )}
           {contextFiles.map((file) => (
             <FileChip

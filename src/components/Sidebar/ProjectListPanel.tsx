@@ -112,6 +112,8 @@ export default function ProjectListPanel() {
 
   const [searchQuery, setSearchQuery] = useState('')
   const [showMoreSessions, setShowMoreSessions] = useState<Set<string>>(new Set())
+  // Bumped by the tree header's refresh button — FileTree reloads on change.
+  const [refreshNonce, setRefreshNonce] = useState(0)
 
   // The "current project" follows the ACTIVE SESSION — opening a folder or
   // entering a project in the file tree only browses it, it doesn't select it.
@@ -370,6 +372,16 @@ export default function ProjectListPanel() {
             </button>
             <div className="flex items-center gap-0.5">
               <button
+                onClick={() => setRefreshNonce((n) => n + 1)}
+                className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+                title="刷新目录"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                </svg>
+              </button>
+              <button
                 onClick={handleNewSession}
                 className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
                 title={t('chat.newChat')}
@@ -392,7 +404,7 @@ export default function ProjectListPanel() {
         </header>
         {/* File tree */}
         <div className="flex-1 overflow-hidden">
-          <FileTree rootPath={activeProjectPath} />
+          <FileTree rootPath={activeProjectPath} refreshSignal={refreshNonce} />
         </div>
       </div>
     )

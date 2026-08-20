@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useEditorStore } from '@/stores/editorStore'
-import { useUIStore } from '@/stores/uiStore'
 import { getFileIconHTML } from '@/utils/fileIcons'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -26,7 +25,7 @@ export default function TabBar({ panelId }: TabBarProps) {
   const moveTabToPanel = useEditorStore((s) => s.moveTabToPanel)
   const saveFile = useEditorStore((s) => s.saveFile)
   const splitPanel = useEditorStore((s) => s.splitPanel)
-  const toggleEditorVisible = useUIStore((s) => s.toggleEditorVisible)
+  const closeEditorArea = useEditorStore((s) => s.closeEditorArea)
 
   const panel = panels[panelId]
   const tabOrder = panel?.tabOrder ?? []
@@ -235,7 +234,7 @@ export default function TabBar({ panelId }: TabBarProps) {
             </button>
           )}
           <button
-            onClick={toggleEditorVisible}
+            onClick={() => { void closeEditorArea() }}
             className="p-1.5 text-nova-text-muted hover:text-red-400 hover:bg-nova-hover rounded-full transition-colors"
             title={t('editor.hideEditor')}
           >
