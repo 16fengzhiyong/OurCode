@@ -100,7 +100,6 @@ export default function ChatPanel() {
   // changes) — the old getActiveSession() function selector never re-renders.
   const activeSession = useChatStore((s) => (s.activeSessionId ? s.sessions.find((x) => x.id === s.activeSessionId) ?? null : null))
   const createSession = useChatStore((s) => s.createSession)
-  const setAgentMode = useChatStore((s) => s.setAgentMode)
   const setProjectEditMode = useChatStore((s) => s.setProjectEditMode)
   const updateSessionParams = useChatStore((s) => s.updateSessionParams)
   const setTargetMode = useChatStore((s) => s.setTargetMode)
@@ -117,7 +116,6 @@ export default function ChatPanel() {
     activeSession ? s.configGroups.find((g) => g.id === activeSession.configGroupId) : undefined
   )
   const openSettings = useUIStore((s) => s.openSettings)
-  const rootPath = useUIStore((s) => s.rootPath)
   const openMemoryManager = useUIStore((s) => s.openMemoryManager)
   const t = useI18n()
   const isChatSessionListOpen = useUIStore((s) => s.isChatSessionListOpen)
@@ -128,7 +126,6 @@ export default function ChatPanel() {
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [view, setView] = useState<'chat' | 'trace'>('chat')
 
-  const agentMode = activeSession?.agentMode || 'chat'
   const projectEditMode = activeSession?.projectEditMode || 'confirm_before_change'
   const targetMode = activeSession?.targetMode === true
   // Current active role for the target-mode badge (v2 改动5): the newest
@@ -145,29 +142,6 @@ export default function ChatPanel() {
   // showing "选择模型" while the conversation actually ran on the default model.
   const activeModel = activeSession?.model || sessionConfigGroup?.defaultModel || ''
 
-  // Agent mode operates on the workspace, so it needs a project folder open.
-  // The agent loop resolves the workspace from the ACTIVE SESSION's projectPath
-  // first (getWorkspaceRoot → getCurrentProjectPath), so a session bound to a
-  // project can run agent mode even when the file tree isn't mounted — count
-  // that binding here, or restored agent sessions would degrade to chat mode
-  // whenever the tree hasn't re-opened yet.
-  const hasProject = Boolean(
-    rootPath ||
-      document.getElementById('file-tree-root')?.getAttribute('data-root-path') ||
-      activeSession?.projectPath
-  )
-  // Without a selected project only chat is allowed — never display agent as
-  // active (or let the user switch to it) when there is no workspace open.
-  const effectiveAgentMode = agentMode === 'agent' && hasProject ? 'agent' : 'chat'
-
-  const handleSwitchToAgent = () => {
-    if (!hasProject) {
-      useUIStore.getState().showNotification(t('chat.agentNeedsProject'), 'warning')
-      return
-    }
-    if (activeSession) setAgentMode(activeSession.id, 'agent')
-  }
-
   const handleNewSession = () => {
     if (activeConfigGroupId) {
       createSession(activeConfigGroupId)
@@ -179,11 +153,11 @@ export default function ChatPanel() {
   // While target mode is active, poll implementationStatus.md so the badge in
   // the mode bar stays in sync with the agent's own progress writes.
   useEffect(() => {
-    if (effectiveAgentMode !== 'agent' || !targetMode) return
+    if (!targetMode) return
     refreshTargetModeStatus()
     const timer = setInterval(refreshTargetModeStatus, 5000)
     return () => clearInterval(timer)
-  }, [effectiveAgentMode, targetMode, refreshTargetModeStatus])
+  }, [targetMode, refreshTargetModeStatus])
 
   return (
     <div className="h-full flex bg-transparent chat-accent">
@@ -344,16 +318,11 @@ export default function ChatPanel() {
         <div className="flex-1 flex flex-col overflow-hidden">
           {activeSession ? (
             <>
-              {/* View tabs: 对话 / 轨迹 */}
+              {/* 轨迹视图切换 — 会话默认即 agent 模式（对话/Agent 切换已移除），
+                  「轨迹」按钮切换查看 agent 执行日志 */}
               <div className="shrink-0 px-3 pt-2 flex items-center gap-1.5 border-b border-nova-border">
                 <button
-                  onClick={() => setView('chat')}
-                  className={`px-3 py-1 text-xs rounded-full transition-all ${view === 'chat' ? 'bg-nova-accent/10 text-nova-accent font-medium' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
-                >
-                  {t('chat.modeChat')}
-                </button>
-                <button
-                  onClick={() => setView('trace')}
+                  onClick={() => setView(view === 'trace' ? 'chat' : 'trace')}
                   className={`px-3 py-1 text-xs rounded-full transition-all ${view === 'trace' ? 'bg-nova-accent/10 text-nova-accent font-medium' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
                 >
                   {t('agent.traceTab')}
@@ -366,98 +335,68 @@ export default function ChatPanel() {
                 <>
               <ChatMessages />
 
-              {/* Mode bar — chat / agent (planning is a read-only phase of agent mode) */}
-              <div className="shrink-0 px-3 py-2 border-t border-nova-border flex items-center justify-between gap-1.5 bg-transparent">
-                {/* Chat / agent switch — hidden while target mode is running
-                    (the pill is the single control then) */}
-                {!targetMode && (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => setAgentMode(activeSession.id, 'chat')}
-                      className={`px-3 py-1 text-xs rounded-full transition-all ${effectiveAgentMode === 'chat' ? 'bg-nova-accent/10 text-nova-accent font-medium' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
-                      title={t('chat.chatModeHint')}
-                    >
-                      {t('chat.modeChat')}
-                    </button>
-                    <button
-                      onClick={handleSwitchToAgent}
-                      disabled={!hasProject}
-                      className={`px-3 py-1 text-xs rounded-full transition-all ${effectiveAgentMode === 'agent' ? 'bg-nova-accent/10 text-nova-accent font-medium' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'} ${!hasProject ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      title={hasProject ? t('chat.modeAgentHint') : t('chat.agentNeedsProject')}
-                    >
-                      {t('chat.modeAgent')}
-                    </button>
-                  </div>
-                )}
-                <div className="flex items-center gap-1.5">
-                  {/* Target-mode pill: only offered in agent mode — conversation
-                      mode has no target mode, so the pill stays hidden there.
-                      Oval toggle, green + pulsing while on. */}
-                  {effectiveAgentMode === 'agent' && (
-                    <button
-                      onClick={() => setTargetMode(activeSession.id, !targetMode)}
-                      className={`px-3 py-1 text-xs rounded-full border transition-all select-none whitespace-nowrap ${
-                        targetMode
-                          ? 'text-green-500 border-green-500/40 bg-green-500/10'
-                          : 'text-nova-text-muted border-nova-border hover:text-nova-text-primary hover:border-nova-accent/50'
-                      }`}
-                      title={t('chat.targetModeHint')}
-                    >
-                      {targetMode ? t('chat.targetModeOn') : t('chat.targetModeOff')}
-                      {targetMode && statusBadge(targetModeStatus) && (
-                        <span className="ml-1 text-green-300 font-medium">{statusBadge(targetModeStatus)}</span>
-                      )}
-                      {targetMode && activeTargetRole && (
-                        <span className="ml-1 text-green-300/80 font-medium">· {activeTargetRole}</span>
-                      )}
-                    </button>
+              {/* Mode bar — agent-only controls (planning is a read-only phase of agent mode) */}
+              <div className="shrink-0 px-3 py-2 border-t border-nova-border flex items-center justify-end gap-1.5 bg-transparent">
+                {/* Target-mode pill: agent runs autonomously until the user
+                    stops it. Oval toggle, green + pulsing while on. */}
+                <button
+                  onClick={() => setTargetMode(activeSession.id, !targetMode)}
+                  className={`px-3 py-1 text-xs rounded-full border transition-all select-none whitespace-nowrap ${
+                    targetMode
+                      ? 'text-green-500 border-green-500/40 bg-green-500/10'
+                      : 'text-nova-text-muted border-nova-border hover:text-nova-text-primary hover:border-nova-accent/50'
+                  }`}
+                  title={t('chat.targetModeHint')}
+                >
+                  {targetMode ? t('chat.targetModeOn') : t('chat.targetModeOff')}
+                  {targetMode && statusBadge(targetModeStatus) && (
+                    <span className="ml-1 text-green-300 font-medium">{statusBadge(targetModeStatus)}</span>
                   )}
-                  {/* 思考档位 — 目标模式与编辑模式之间：关闭/低/中/高/最高。
-                      关闭即不请求思考（reasoning 模型仍可能自行输出）；最高档在
-                      支持预算的 provider（Anthropic/Gemini）上调满 16384 token。 */}
-                  {effectiveAgentMode === 'agent' && (
-                    <select
-                      value={resolveThinkingLevel(activeSession.modelParams)}
-                      onChange={(e) =>
-                        updateSessionParams(activeSession.id, { thinkingLevel: e.target.value as 'off' | 'low' | 'medium' | 'high' | 'max' })
-                      }
-                      className="text-xs rounded-md px-2 py-1 border outline-none cursor-pointer transition-colors border-nova-border bg-nova-input-bg text-nova-text-primary hover:border-nova-accent focus:border-nova-accent"
-                      title={t('chat.thinkingLevelLabel')}
-                      style={{ backgroundImage: 'none' }}
-                    >
-                      <option value="off" title={t('chat.thinkingLevelOffHint')}>{t('chat.thinkingLevelOff')}</option>
-                      <option value="low" title={t('chat.thinkingLevelLowHint')}>{t('chat.thinkingLevelLow')}</option>
-                      <option value="medium" title={t('chat.thinkingLevelMediumHint')}>{t('chat.thinkingLevelMedium')}</option>
-                      <option value="high" title={t('chat.thinkingLevelHighHint')}>{t('chat.thinkingLevelHigh')}</option>
-                      <option value="max" title={t('chat.thinkingLevelMaxHint')}>{t('chat.thinkingLevelMax')}</option>
-                    </select>
+                  {targetMode && activeTargetRole && (
+                    <span className="ml-1 text-green-300/80 font-medium">· {activeTargetRole}</span>
                   )}
-                  {effectiveAgentMode === 'agent' && (
-                    <select
-                      value={projectEditMode}
-                      onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}
-                      className={`text-xs rounded-md px-2 py-1 border outline-none cursor-pointer transition-colors ${
-                        projectEditMode === 'full_access'
-                          ? 'border-orange-500/50 bg-orange-500/10 text-orange-400'
-                          : 'border-nova-border bg-nova-input-bg text-nova-text-primary hover:border-nova-accent focus:border-nova-accent'
-                      }`}
-                      title={t('chat.projectEditModeLabel')}
-                      style={{ backgroundImage: 'none' }}
-                    >
-                      <option value="confirm_before_change" title={t('chat.projectEditModeConfirmHint')}>{t('chat.projectEditModeConfirm')}</option>
-                      <option value="full_access" title={t('chat.projectEditModeFullHint')} className="text-orange-400">{t('chat.projectEditModeFull')}</option>
-                      {/* While target mode is on, its own workflow supersedes
-                          auto_edit / plan — only manual-confirm and full-access
-                          remain selectable. */}
-                      {!targetMode && (
-                        <>
-                          <option value="auto_edit" title={t('chat.projectEditModeAutoHint')}>{t('chat.projectEditModeAuto')}</option>
-                          <option value="plan" title={t('chat.projectEditModePlanHint')}>{t('chat.projectEditModePlan')}</option>
-                        </>
-                      )}
-                    </select>
+                </button>
+                {/* 思考档位 — 目标模式与编辑模式之间：关闭/低/中/高/最高。
+                    关闭即不请求思考（reasoning 模型仍可能自行输出）；最高档在
+                    支持预算的 provider（Anthropic/Gemini）上调满 16384 token。 */}
+                <select
+                  value={resolveThinkingLevel(activeSession.modelParams)}
+                  onChange={(e) =>
+                    updateSessionParams(activeSession.id, { thinkingLevel: e.target.value as 'off' | 'low' | 'medium' | 'high' | 'max' })
+                  }
+                  className="text-xs rounded-md px-2 py-1 border outline-none cursor-pointer transition-colors border-nova-border bg-nova-input-bg text-nova-text-primary hover:border-nova-accent focus:border-nova-accent"
+                  title={t('chat.thinkingLevelLabel')}
+                  style={{ backgroundImage: 'none' }}
+                >
+                  <option value="off" title={t('chat.thinkingLevelOffHint')}>{t('chat.thinkingLevelOff')}</option>
+                  <option value="low" title={t('chat.thinkingLevelLowHint')}>{t('chat.thinkingLevelLow')}</option>
+                  <option value="medium" title={t('chat.thinkingLevelMediumHint')}>{t('chat.thinkingLevelMedium')}</option>
+                  <option value="high" title={t('chat.thinkingLevelHighHint')}>{t('chat.thinkingLevelHigh')}</option>
+                  <option value="max" title={t('chat.thinkingLevelMaxHint')}>{t('chat.thinkingLevelMax')}</option>
+                </select>
+                <select
+                  value={projectEditMode}
+                  onChange={(e) => setProjectEditMode(activeSession.id, e.target.value as 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access')}
+                  className={`text-xs rounded-md px-2 py-1 border outline-none cursor-pointer transition-colors ${
+                    projectEditMode === 'full_access'
+                      ? 'border-orange-500/50 bg-orange-500/10 text-orange-400'
+                      : 'border-nova-border bg-nova-input-bg text-nova-text-primary hover:border-nova-accent focus:border-nova-accent'
+                  }`}
+                  title={t('chat.projectEditModeLabel')}
+                  style={{ backgroundImage: 'none' }}
+                >
+                  <option value="confirm_before_change" title={t('chat.projectEditModeConfirmHint')}>{t('chat.projectEditModeConfirm')}</option>
+                  <option value="full_access" title={t('chat.projectEditModeFullHint')} className="text-orange-400">{t('chat.projectEditModeFull')}</option>
+                  {/* While target mode is on, its own workflow supersedes
+                      auto_edit / plan — only manual-confirm and full-access
+                      remain selectable. */}
+                  {!targetMode && (
+                    <>
+                      <option value="auto_edit" title={t('chat.projectEditModeAutoHint')}>{t('chat.projectEditModeAuto')}</option>
+                      <option value="plan" title={t('chat.projectEditModePlanHint')}>{t('chat.projectEditModePlan')}</option>
+                    </>
                   )}
-                </div>
+                </select>
               </div>
 
               <ChatInput />

@@ -91,6 +91,10 @@ interface UIState {
   reorderProjects: (orderedPaths: string[]) => void
   /** Re-select the last opened project after a restart (persisted via localStorage) */
   restoreLastProject: () => Promise<void>
+  /** Ensure the app-owned default empty project exists and becomes the current
+   *  workspace — used on first launch so the user can chat (agent mode) before
+   *  opening any real folder. Idempotent. */
+  ensureDefaultProject: () => Promise<void>
 
   // Context Menu
   contextMenu: { x: number; y: number; items: ContextMenuItem[] } | null
@@ -431,6 +435,16 @@ export const useUIStore = create<UIState>((set, get) => ({
       return
     }
     set({ projectListView: 'tree', activeProjectPath: path, rootPath: path })
+  },
+
+  ensureDefaultProject: async () => {
+    // The main process creates the folder (idempotent) and returns its path.
+    // setRootPath registers it in the project list + authorize allowlist, so
+    // agent mode has a workspace to operate on right after launch.
+    try {
+      const path = await window.electronAPI?.ensureDefaultProject?.()
+      if (path) get().setRootPath(path)
+    } catch { /* a default project is best-effort — never block startup */ }
   },
 
   showContextMenu: (x, y, items) => set({ contextMenu: { x, y, items } }),

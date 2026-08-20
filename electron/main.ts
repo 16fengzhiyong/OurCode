@@ -1316,6 +1316,11 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('checkpoint:delete', async (_event, sessionId: string) => {
     store.deleteCheckpoints(sessionId)
+    store.deleteRevertedFiles(sessionId)
+  })
+
+  ipcMain.handle('checkpoint:listReverted', async (_event, sessionId: string) => {
+    return store.getRevertedFiles(sessionId)
   })
 
   // Revert a checkpoint: restore every snapshotted file (or delete it if it
@@ -1347,13 +1352,24 @@ function registerIpcHandlers(): void {
         console.error(`回滚 ${file.path} 失败:`, error.message)
       }
     }
-    // Notify open editors to reload the changed files
-    for (const file of target.files) {
-      broadcast('fs:fileChanged', file.path)
-    }
-    // Drop the snapshot from the DB — a reverted checkpoint must not come back
-    // on restart (the renderer already removed it from its in-memory list).
+    // Drop the snapshot from the DB FIRST — a reverted checkpoint must never
+    // survive, or it would come back on restart / session re-entry and show as
+    // "not reverted" even though the file on disk was already restored. The
+    // file-change notification below is best-effort and must not be able to
+    // skip this deletion: a broadcast over a closing window previously threw,
+    // leaving the file reverted but the checkpoint alive.
     store.deleteCheckpoint(target.id)
+    // Record the reverted files so the summary can still show them as「已回退」
+    // after the snapshot is gone (display-only, survives restart / re-entry).
+    store.addRevertedFiles(target.sessionId, target.files.map((f) => f.path))
+    // Notify open editors to reload the changed files (best-effort).
+    try {
+      for (const file of target.files) {
+        broadcast('fs:fileChanged', file.path)
+      }
+    } catch {
+      // Ignore notification failures — the revert itself is already complete.
+    }
     return { ok: true, restored }
   })
 
@@ -1562,6 +1578,19 @@ function registerIpcHandlers(): void {
   // App handlers
   ipcMain.handle('app:getPath', (_event, name: string) => {
     return app.getPath(name as any)
+  })
+
+  // The default empty project — a workspace the app owns so users can start an
+  // agent conversation before opening any real folder. Created lazily under the
+  // user's Documents directory (idempotent); reusing an existing folder of the
+  // same name is harmless.
+  ipcMain.handle('app:ensureDefaultProject', async () => {
+    const base = (() => {
+      try { return app.getPath('documents') } catch { /* ignore */ }
+    })()
+    const dir = join(base || app.getPath('home'), 'OurCode')
+    try { mkdirSync(dir, { recursive: true }) } catch { /* ignore */ }
+    return dir
   })
 
   ipcMain.handle('app:getPlatform', () => {

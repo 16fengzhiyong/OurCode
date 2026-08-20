@@ -82,22 +82,10 @@ const STREAM_FLUSH_MS = 50
 /** localStorage key for the last active chat session (restored on next launch) */
 const LAST_SESSION_KEY = 'lastActiveSessionId'
 
-/** localStorage keys that carry the user's last agent mode / project edit mode
- *  (完全访问 etc.) over to newly created sessions and NEW WINDOWS — the same
- *  cross-restart pattern as the last-model persistence in configStore. */
-const LAST_AGENT_MODE_KEY = 'lastAgentMode'
+/** localStorage key that carries the user's last project edit mode (完全访问
+ *  etc.) over to newly created sessions and NEW WINDOWS — the same cross-restart
+ *  pattern as the last-model persistence in configStore. */
 const LAST_PROJECT_EDIT_MODE_KEY = 'lastProjectEditMode'
-
-/** Last agent mode chosen by the user, or null when never set (fall back to the
- *  per-project default in createSession). */
-function getLastAgentMode(): 'chat' | 'agent' | null {
-  try {
-    const v = localStorage.getItem(LAST_AGENT_MODE_KEY)
-    return v === 'agent' || v === 'chat' ? v : null
-  } catch {
-    return null
-  }
-}
 
 /** Last project edit mode chosen by the user (手动确认/完全访问/自动编辑/计划). */
 function getLastProjectEditMode(): 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access' | null {
@@ -676,6 +664,8 @@ interface ChatState {
 
   // Checkpoints (AI edit snapshots) for the active session
   checkpoints: Checkpoint[]
+  // File paths whose changes have been reverted (display-only, survives restart)
+  revertedFiles: string[]
   loadCheckpoints: (sessionId: string) => Promise<void>
   revertCheckpoint: (checkpointId: string) => Promise<{ ok: boolean; restored: number; error?: string } | null>
 
@@ -693,8 +683,7 @@ interface ChatState {
    *  project's sessions stay stored and come back when it's re-opened. */
   rollActiveSessionAwayFrom: (projectPath: string) => void
 
-  // Agent mode (chat / agent) + plan approval
-  setAgentMode: (sessionId: string, mode: 'chat' | 'agent') => void
+  // Agent mode + plan approval
   setProjectEditMode: (sessionId: string, mode: 'confirm_before_change' | 'auto_edit' | 'plan' | 'full_access') => void
   // Target mode: the agent keeps working autonomously (auto-approve tool calls,
   // auto-continue after rounds are exhausted) until the user stops it.
@@ -1041,6 +1030,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   queuedMessagesBySession: {},
   inboundQueue: [],
   checkpoints: [],
+  revertedFiles: [],
   activeRuns: {},
   agentTraces: {},
   subagentProgress: {},
@@ -1373,18 +1363,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   loadCheckpoints: async (sessionId) => {
+    // Clear synchronously first so a previous session's list can't briefly
+    // leak into the new session's summary while the fetch is in flight (the
+    // checkpoints are filterable by sessionId, but revertedFiles are not).
+    set({ checkpoints: [], revertedFiles: [] })
     try {
       const checkpoints = await window.electronAPI.checkpointList(sessionId)
-      set({ checkpoints })
+      const revertedFiles = await window.electronAPI.checkpointListReverted(sessionId)
+      set({ checkpoints, revertedFiles })
     } catch {
-      set({ checkpoints: [] })
+      set({ checkpoints: [], revertedFiles: [] })
     }
   },
 
   revertCheckpoint: async (checkpointId) => {
-    const res = await window.electronAPI.checkpointRevert(checkpointId)
+    let res: { ok: boolean; restored: number; error?: string } | null = null
+    try {
+      res = await window.electronAPI.checkpointRevert(checkpointId)
+    } catch (error) {
+      // A transient IPC/main-process error must not abort the whole revert
+      // loop. Return a failed result instead of throwing, so callers keep
+      // reverting the remaining checkpoints and this file stays retryable —
+      // previously an exception here silently killed `handleRevertAll` and
+      // the file would never be marked "已回退".
+      res = { ok: false, restored: 0, error: error instanceof Error ? error.message : String(error) }
+    }
     if (res?.ok) {
-      set((s) => ({ checkpoints: s.checkpoints.filter((c) => c.id !== checkpointId) }))
+      set((s) => {
+        // Remove the consumed snapshot and remember its file paths as reverted,
+        // so the summary keeps the row (marked「已回退」) instead of dropping it.
+        const cp = s.checkpoints.find((c) => c.id === checkpointId)
+        const revertedPaths = (cp?.files || []).map((f) => f.path).filter(Boolean)
+        return {
+          checkpoints: s.checkpoints.filter((c) => c.id !== checkpointId),
+          revertedFiles: Array.from(new Set([...s.revertedFiles, ...revertedPaths])),
+        }
+      })
     }
     return res ?? null
   },
@@ -1394,8 +1408,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const sessions = await window.electronAPI.getSessions()
       // 旧数据回填 lastUserMessageAt：从最后一条用户消息推导，避免升级后
       // 排序/显示时间回退到 updatedAt（会被 agent 活动刷新而跳动）。
+      // agentMode 也一律归一为 'agent'——chat 模式已移除，升级前的旧会话
+      // （可能存着 'chat'）重新加载后同样按 agent 模式运行。
       const normalized = sessions.map((s) => ({
         ...s,
+        agentMode: 'agent' as const,
         lastUserMessageAt: s.lastUserMessageAt ?? deriveLastUserMessageAt(s),
       }))
       set({ sessions: normalized })
@@ -1450,11 +1467,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      // Inside a project the new chat defaults to agent mode (project-aware);
-      // outside any project it stays plain chat. The user's last choice
-      // (persisted on setAgentMode) carries over to new sessions, mirroring
-      // how the last-picked model is kept.
-      agentMode: rootPath ? (getLastAgentMode() ?? 'agent') : 'chat',
+      // Every conversation runs in agent mode now — the chat/agent toggle is
+      // gone. The session still records its workspace (or the default project)
+      // so the agent loop has somewhere to operate.
+      agentMode: 'agent',
       // The last edit mode (手动确认/完全访问/自动编辑/计划) also carries over —
       // opening a new window / chat keeps the mode the user had selected.
       projectEditMode: getLastProjectEditMode() ?? undefined,
@@ -1497,6 +1513,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ? newSessions[0]?.id || null
           : s.activeSessionId,
         checkpoints: s.activeSessionId === sessionId ? [] : s.checkpoints,
+        revertedFiles: s.activeSessionId === sessionId ? [] : s.revertedFiles,
         subagentProgress,
       }
     })
@@ -1527,7 +1544,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // chat panel shows its empty state). The removed project's sessions stay
       // stored and come back when the project is re-opened.
       localStorage.removeItem(LAST_SESSION_KEY)
-      set({ activeSessionId: null, checkpoints: [] })
+      set({ activeSessionId: null, checkpoints: [], revertedFiles: [] })
     }
   },
 
@@ -1582,18 +1599,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // ───────────── Agent mode / plan / todo ─────────────
-
-  setAgentMode: (sessionId, mode) => {
-    // Remember the choice so new sessions / new windows start with the same
-    // mode (mirrors the last-model persistence in configStore).
-    try { localStorage.setItem(LAST_AGENT_MODE_KEY, mode) } catch { /* ignore */ }
-    set((s) => ({
-      sessions: s.sessions.map((sess) =>
-        sess.id === sessionId ? { ...sess, agentMode: mode, updatedAt: Date.now() } : sess
-      ),
-    }))
-    get().saveSession(sessionId)
-  },
 
   setProjectEditMode: (sessionId, mode) => {
     try { localStorage.setItem(LAST_PROJECT_EDIT_MODE_KEY, mode) } catch { /* ignore */ }
@@ -1679,23 +1684,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().saveSession(sessionId)
 
     const planText = formatPlanText(session.planContent)
-    const isAgent = session.agentMode === 'agent'
     const activeRun = get().activeRuns[sessionId]
     // Plan-approved auto-approval (allowedPrompts-style): when the user opted
     // in on the plan card, the execution phase runs without per-tool dialogs —
     // the same per-run flag target mode uses. It is cleared when the run ends
     // (see the finally in runAgentLoop), so it never leaks into later runs.
-    if (opts?.autoApprove && isAgent) {
+    if (opts?.autoApprove) {
       set((s) => ({ batchApprovedBySession: { ...s.batchApprovedBySession, [sessionId]: true } }))
     }
     await runAgentLoop(sessionId, {
-      // Agent-mode sessions keep executing in agent mode; the read-only
-      // planning phase is lifted via planApproved. Tool approval follows the
-      // project edit mode (confirm / auto_edit / full_access) + target mode.
-      agentModeOverride: isAgent ? 'agent' : 'chat',
+      // Every session runs in agent mode; the read-only planning phase is
+      // lifted via planApproved. Tool approval follows the project edit mode
+      // (confirm / auto_edit / full_access) + target mode.
+      agentModeOverride: 'agent',
       extraSystemText: PLAN_APPROVED_PREFIX + planText,
       resumeRunId: activeRun?.sessionId === sessionId ? activeRun.runId : undefined,
-      planApproved: isAgent,
+      planApproved: true,
     })
   },
 
@@ -2074,7 +2078,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       createdAt: now,
       updatedAt: now,
       lastUserMessageAt: deriveLastUserMessageAt({ ...session, messages: forkMessages }),
-      agentMode: session.agentMode,
+      agentMode: 'agent',
       projectEditMode: session.projectEditMode,
       todos: [],
       planStatus: 'none',
@@ -2180,7 +2184,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         updatedAt: Date.now(),
         // 导入的历史保留原消息时间——排序锚点从消息推导，而不是用导入时刻。
         lastUserMessageAt: deriveLastUserMessageAt(imported),
-        agentMode: 'chat',
+        agentMode: 'agent',
         todos: [],
         planStatus: 'none',
       }
@@ -2257,6 +2261,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       queuedMessagesBySession: {},
       inboundQueue: [],
       checkpoints: [],
+      revertedFiles: [],
       undoStack: [],
       activeRuns: {},
       agentTraces: {},
@@ -2351,21 +2356,21 @@ async function runAgentLoop(
   const configGroup = useConfigStore.getState().configGroups.find((g) => g.id === session.configGroupId)
   if (!configGroup) return
 
-  const agentMode = opts?.agentModeOverride || (session.agentMode === 'agent' ? 'agent' : 'chat')
+  const agentMode = opts?.agentModeOverride || 'agent'
   // Target mode: the agent runs the autonomous .ourcode/targemode/ workflow
   const targetMode = session.targetMode === true
 
   // Agent mode operates on the workspace, so a *currently selected* project
   // must be open. A session's historical projectPath does NOT count — without a
-  // project selected the session must stay plain chat (never run tool calls
-  // against a stale workspace path).
+  // project selected the session must not run tool calls against a stale
+  // workspace path. The app-owned default project is ensured at startup, so
+  // this only fires when the user removed it without opening another folder.
   if (agentMode === 'agent') {
     const hasProject = Boolean(
       document.getElementById('file-tree-root')?.getAttribute('data-root-path')
       || useUIStore.getState().rootPath
     )
     if (!hasProject) {
-      chatStore.setAgentMode(sessionId, 'chat')
       useUIStore.getState().showNotification('Agent 模式需要先打开一个项目文件夹', 'warning')
       return
     }

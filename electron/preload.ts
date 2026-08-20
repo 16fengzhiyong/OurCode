@@ -211,6 +211,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkpointCreate: (checkpoint: any) => ipcRenderer.invoke('checkpoint:create', checkpoint),
   checkpointDelete: (sessionId: string) => ipcRenderer.invoke('checkpoint:delete', sessionId),
   checkpointRevert: (checkpointId: string) => ipcRenderer.invoke('checkpoint:revert', checkpointId),
+  checkpointListReverted: (sessionId: string) => ipcRenderer.invoke('checkpoint:listReverted', sessionId),
 
   // MCP
   mcpListTools: () => ipcRenderer.invoke('mcp:listTools'),
@@ -230,6 +231,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // App
   getPath: (name: string) => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_PATH, name),
+  ensureDefaultProject: () => ipcRenderer.invoke('app:ensureDefaultProject'),
   getPlatform: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_PLATFORM),
   resolveEnvVar: (name: string) => ipcRenderer.invoke(IPC_CHANNELS.APP_RESOLVE_ENV_VAR, name),
   getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),

@@ -143,6 +143,7 @@ export interface ElectronAPI {
   checkpointCreate: (checkpoint: import('@shared/types').Checkpoint) => Promise<import('@shared/types').Checkpoint>
   checkpointDelete: (sessionId: string) => Promise<void>
   checkpointRevert: (checkpointId: string) => Promise<{ ok: boolean; restored: number; error?: string }>
+  checkpointListReverted: (sessionId: string) => Promise<string[]>
 
   // MCP (Model Context Protocol)
   mcpListTools: () => Promise<Array<{ server: string; name: string; description?: string; inputSchema?: Record<string, any> }>>
@@ -164,6 +165,8 @@ export interface ElectronAPI {
 
   // App
   getPath: (name: string) => Promise<string>
+  /** Ensure the app-owned default empty project exists and return its path. */
+  ensureDefaultProject: () => Promise<string>
   getPlatform: () => Promise<string>
   resolveEnvVar: (name: string) => Promise<string>
   getVersion: () => Promise<string>

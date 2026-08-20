@@ -191,13 +191,6 @@ test('聊天区视觉截图（极简纯净版）', async () => {
         // 消息左侧不应再有机器人头像（smart_toy 已移除；种子会话无子代理，
         // 若 DOM 里还出现说明头像没删干净）
         messageAvatarRemoved: !document.body.innerHTML.includes('smart_toy'),
-        // agent 模式：模式栏里 textContent 为 "Agent" 的胶囊按钮应带激活类
-        agentModeActive: (() => {
-          const btn = Array.from(document.querySelectorAll('button')).find(
-            (b) => b.textContent?.trim() === 'Agent' && b.className.includes('rounded-full'),
-          )
-          return btn ? btn.className.includes('bg-nova-accent/10') : null
-        })(),
       }
     })
     console.log('CHAT_VISUAL_STYLES', JSON.stringify(styles, null, 2))
@@ -218,8 +211,6 @@ test('聊天区视觉截图（极简纯净版）', async () => {
     expect(styles.panelBg).toBe('rgb(255, 255, 255)')
     expect(styles.msgPadX).toBe('24px')
     expect(styles.inputPadX).toBe('12px')
-    // 绑定 projectPath 的 agent 会话恢复后应显示为 Agent 模式（而非被降级）
-    expect(styles.agentModeActive).toBe(true)
     expect(styles.messageAvatarRemoved).toBe(true)
 
     await win.screenshot({ path: 'test-results/chat-visual-1-default.png' })

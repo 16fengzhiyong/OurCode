@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { Checkpoint } from '@/types'
 import { useChatStore } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
@@ -15,28 +15,44 @@ interface FileChangesSummaryProps {
 /** 会话结束后的「文件改动」汇总框 —— 中性灰 · 极简纯净版（Stitch 设计稿 V2
  *  落地方案）：slate 灰底 + 发丝线边框 + 圆角卡。头部左侧标题行可点击展开/
  *  收起文件列表，右侧放「回退全部改动」按钮（不出框）；文件行显示完整路径，
- *  行内 hover 浮现单个回退按钮，回退过的文件按钮消失（标「已回退」），全部
- *  回退后「回退全部改动」隐藏。改动数据来自 checkpoints（写文件前的快照）。
+ *  行内 hover 浮现单个回退按钮，回退过的文件行保留（标「已回退」）但按钮消失，
+ *  全部回退后「回退全部改动」隐藏。
  *
- *  父组件以 key={sessionId} 渲染本组件——切换会话即重新挂载，本地状态
- *  （已回退标记 / 累计文件列表）随之重置，无需内部监听会话 id。 */
+ *  文件列表与「已回退」状态都从 store 派生（checkpoints = 未回退的快照，
+ *  revertedFiles = 已回退的文件路径），不放在组件本地 state —— 否则切换会话
+ *  重新挂载时本地状态重置，回退过的文件会整框消失（或又显示成「未回退」）。 */
 export default function FileChangesSummary({ sessionId, checkpoints }: FileChangesSummaryProps) {
   const t = useI18n()
   const revertCheckpoint = useChatStore((s) => s.revertCheckpoint)
+  const revertedFiles = useChatStore((s) => s.revertedFiles)
   const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
   // 点「回退全部改动」先弹确认框（列文件 + 回退/保留），确认后才执行。
   const [confirmRevertAll, setConfirmRevertAll] = useState(false)
-  // 已回退的文件路径集合 —— 回退后行保留（标记已回退）但不显示回退按钮。
-  const [reverted, setReverted] = useState<Set<string>>(new Set())
-  // 本会话出现过的全部改动文件（去重，按首次出现顺序）。用状态累计而非每次
-  // 从 checkpoints 重算：回退成功后 checkpoint 会从 store 移除，若依赖实时
-  // checkpoints 推导列表，已回退的行会整行消失（与「保留行、只藏按钮」冲突）。
-  const [seenPaths, setSeenPaths] = useState<string[]>(() => {
+
+  // 本会话的检查点（父组件通常已按会话过滤，这里再兜底一次以防串会话）。
+  const sessionCheckpoints = useMemo(
+    () => checkpoints.filter((c) => c.sessionId === sessionId),
+    [checkpoints, sessionId],
+  )
+
+  // 仍可回退的文件路径（有未回退检查点即算可回退）。
+  const pendingPaths = useMemo(() => {
+    const set = new Set<string>()
+    for (const cp of sessionCheckpoints) {
+      for (const f of cp.files || []) {
+        if (f.path) set.add(f.path)
+      }
+    }
+    return set
+  }, [sessionCheckpoints])
+
+  // 本会话出现过的全部改动文件（去重）：检查点里的文件在前，已回退的文件补在
+  // 后面。回退后该文件从 checkpoints 移入 revertedFiles，因此行不会消失。
+  const allPaths = useMemo(() => {
     const seen = new Set<string>()
     const paths: string[] = []
-    for (const cp of checkpoints) {
-      if (cp.sessionId !== sessionId) continue
+    for (const cp of sessionCheckpoints) {
       for (const f of cp.files || []) {
         if (f.path && !seen.has(f.path)) {
           seen.add(f.path)
@@ -44,33 +60,14 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
         }
       }
     }
+    for (const p of revertedFiles) {
+      if (!seen.has(p)) {
+        seen.add(p)
+        paths.push(p)
+      }
+    }
     return paths
-  })
-
-  const sessionCheckpoints = useMemo(
-    () => checkpoints.filter((c) => c.sessionId === sessionId),
-    [checkpoints, sessionId],
-  )
-
-  // 继续对话产生的新改动：新增文件补进列表；被再次改动的文件（出现新的
-  // checkpoint）从「已回退」标记中移除，重新可回退。
-  const prevCpIdsRef = useRef<Set<string>>(new Set())
-  useEffect(() => {
-    const currentIds = new Set(sessionCheckpoints.map((c) => c.id))
-    const newCps = sessionCheckpoints.filter((c) => !prevCpIdsRef.current.has(c.id))
-    prevCpIdsRef.current = currentIds
-    if (newCps.length === 0) return
-    const newPaths = Array.from(new Set(
-      newCps.flatMap((c) => (c.files || []).map((f) => f.path).filter(Boolean)),
-    ))
-    if (newPaths.length === 0) return
-    setSeenPaths((prev) => Array.from(new Set([...prev, ...newPaths])))
-    setReverted((prev) => {
-      const next = new Set(prev)
-      for (const p of newPaths) next.delete(p)
-      return next
-    })
-  }, [sessionCheckpoints])
+  }, [sessionCheckpoints, revertedFiles])
 
   const openFile = (p: string) => useEditorStore.getState().openFile(p)
 
@@ -84,18 +81,15 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
     }
   }
 
-  const markReverted = (paths: string[]) => {
-    setReverted((prev) => {
-      const next = new Set(prev)
-      for (const p of paths) next.add(p)
-      return next
-    })
-  }
-
   /** 回退单个文件：回退所有包含该文件快照的检查点，返回该文件是否全部回退
    *  成功（任一 checkpoint 失败则该文件保持可回退，可重试）。 */
   const revertFile = async (path: string): Promise<boolean> => {
-    const cps = sessionCheckpoints.filter((cp) => (cp.files || []).some((f) => f.path === path))
+    // 从 store 读最新检查点（而非渲染闭包里的 memo）：回退一个文件会消耗掉
+    // 同时快照了其它文件的检查点，同批后续回退必须看到该检查点已消失，避免
+    // 重复回退同一个检查点（第二次会因「检查点不存在」而误判失败）。
+    const cps = useChatStore.getState().checkpoints
+      .filter((cp) => cp.sessionId === sessionId)
+      .filter((cp) => (cp.files || []).some((f) => f.path === path))
     if (cps.length === 0) return true
     let ok = 0
     for (const cp of cps) {
@@ -108,22 +102,16 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
   /** 确认弹窗里选「回退」后真正执行全部回退。 */
   const handleRevertAll = async () => {
     setConfirmRevertAll(false)
-    const pending = seenPaths.filter((p) => !reverted.has(p))
+    const pending = allPaths.filter((p) => pendingPaths.has(p))
     if (busy || pending.length === 0) return
     setBusy(true)
     try {
       let okFiles = 0
       let failedFiles = 0
-      const revertedPaths: string[] = []
       for (const p of pending) {
-        if (await revertFile(p)) {
-          okFiles++
-          revertedPaths.push(p)
-        } else {
-          failedFiles++
-        }
+        if (await revertFile(p)) okFiles++
+        else failedFiles++
       }
-      if (revertedPaths.length > 0) markReverted(revertedPaths)
       notify(okFiles, failedFiles)
     } finally {
       setBusy(false)
@@ -133,11 +121,10 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
   /** 回退单个文件：回退所有包含该文件快照的检查点（同一检查点可能还包了
    *  其它文件，语义与消息级「回滚修改」一致——恢复快照时刻的全部内容）。 */
   const handleRevertFile = async (path: string) => {
-    if (busy || reverted.has(path)) return
+    if (busy || !pendingPaths.has(path)) return
     setBusy(true)
     try {
       if (await revertFile(path)) {
-        markReverted([path])
         notify(1, 0)
       } else {
         notify(0, 1)
@@ -147,9 +134,9 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
     }
   }
 
-  if (seenPaths.length === 0) return null
+  if (allPaths.length === 0) return null
 
-  const pendingCount = seenPaths.filter((p) => !reverted.has(p)).length
+  const pendingCount = allPaths.filter((p) => pendingPaths.has(p)).length
 
   return (
     <div className="shrink-0 animate-fade-in bg-slate-50/50 dark:bg-white/5 rounded-xl border border-slate-200/60 dark:border-white/10 overflow-hidden">
@@ -163,7 +150,7 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
         >
           <span className="material-symbols-outlined text-[15px] leading-none text-slate-500 dark:text-nova-text-muted shrink-0" aria-hidden>description</span>
           <span className="text-sm font-medium text-slate-800 dark:text-nova-text-primary truncate">
-            {t('chat.filesChangedTitle', { count: seenPaths.length })}
+            {t('chat.filesChangedTitle', { count: allPaths.length })}
           </span>
           <span
             className={`material-symbols-outlined text-[18px] leading-none text-slate-400 dark:text-nova-text-muted shrink-0 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
@@ -191,7 +178,7 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
       {/* 回退全部 —— 确认弹窗（列文件 + 回退/保留） */}
       {confirmRevertAll && (
         <RevertAllConfirmDialog
-          filePaths={seenPaths.filter((p) => !reverted.has(p))}
+          filePaths={allPaths.filter((p) => pendingPaths.has(p))}
           onRevert={() => void handleRevertAll()}
           onKeep={() => setConfirmRevertAll(false)}
           onClose={() => setConfirmRevertAll(false)}
@@ -202,8 +189,8 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
         <>
           {/* 文件列表 —— 完整路径，行 hover 变白、图标转蓝 */}
           <div className="px-4 pb-3 pt-1.5 flex flex-col gap-1.5 border-t border-slate-200/60 dark:border-white/10">
-            {seenPaths.map((p) => {
-              const isReverted = reverted.has(p)
+            {allPaths.map((p) => {
+              const isReverted = !pendingPaths.has(p)
               return (
                 <div
                   key={p}

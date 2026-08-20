@@ -65,6 +65,11 @@ export default function App() {
       initTheme(useEditorStore.getState().preferences.theme)
       // Re-select the last opened project (if it still exists on disk)
       await useUIStore.getState().restoreLastProject()
+      // First launch (or no last project) — fall back to the app-owned default
+      // empty project so the user can chat in agent mode without opening a folder.
+      if (!useUIStore.getState().rootPath) {
+        await useUIStore.getState().ensureDefaultProject()
+      }
       // Restore the tabs open when the app last closed (hides the editor when
       // none were open — the chat panel fills the window instead)
       await useEditorStore.getState().restoreSession()

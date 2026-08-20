@@ -252,6 +252,16 @@ export class SQLiteStore {
         FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
       );
 
+      -- Lightweight record of files whose changes were reverted, so the file-
+      -- changes summary can still show them as「已回退」after the checkpoint
+      -- snapshot itself is deleted (and after restart / session re-entry).
+      CREATE TABLE IF NOT EXISTS reverted_files (
+        session_id TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        reverted_at INTEGER NOT NULL,
+        PRIMARY KEY (session_id, file_path)
+      );
+
       CREATE TABLE IF NOT EXISTS workflows (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -293,6 +303,7 @@ export class SQLiteStore {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON chat_messages(session_id, sort_order);
       CREATE INDEX IF NOT EXISTS idx_sessions_config ON chat_sessions(config_group_id);
       CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_reverted_files_session ON reverted_files(session_id, reverted_at);
       CREATE INDEX IF NOT EXISTS idx_usage_category_time ON usage_events(category, started_at);
       CREATE INDEX IF NOT EXISTS idx_usage_name ON usage_events(name);
       CREATE INDEX IF NOT EXISTS idx_cache_created ON llm_response_cache(created_at);
@@ -717,6 +728,29 @@ export class SQLiteStore {
     this.db.prepare('DELETE FROM checkpoints WHERE id = ?').run(id)
   }
 
+  // ─────────────── Reverted files (display-only, survives checkpoint delete) ─
+  getRevertedFiles(sessionId: string): string[] {
+    const rows = this.db.prepare(
+      'SELECT file_path FROM reverted_files WHERE session_id = ? ORDER BY reverted_at ASC'
+    ).all(sessionId) as any[]
+    return rows.map((r) => r.file_path)
+  }
+
+  addRevertedFiles(sessionId: string, filePaths: string[]): void {
+    const now = Date.now()
+    const insert = this.db.prepare(
+      'INSERT OR REPLACE INTO reverted_files (session_id, file_path, reverted_at) VALUES (?, ?, ?)'
+    )
+    for (const p of filePaths) {
+      if (!p) continue
+      insert.run(sessionId, p, now)
+    }
+  }
+
+  deleteRevertedFiles(sessionId: string): void {
+    this.db.prepare('DELETE FROM reverted_files WHERE session_id = ?').run(sessionId)
+  }
+
   // ───────────────────── Workflows (reusable prompt templates) ─────────────────────
   getWorkflows(): Workflow[] {
     const rows = this.db.prepare('SELECT * FROM workflows ORDER BY updated_at DESC').all() as any[]
@@ -913,6 +947,7 @@ export class SQLiteStore {
     this.db.exec('DELETE FROM user_preferences')
     this.db.exec('DELETE FROM memories')
     this.db.exec('DELETE FROM checkpoints')
+    this.db.exec('DELETE FROM reverted_files')
     this.db.exec('DELETE FROM workflows')
     this.db.exec('DELETE FROM usage_events')
   }

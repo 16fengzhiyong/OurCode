@@ -14,6 +14,7 @@ const mockApi = {
   saveSession: vi.fn(async () => {}),
   deleteSession: vi.fn(async () => {}),
   checkpointList: vi.fn(async () => []),
+  checkpointListReverted: vi.fn(async () => []),
   checkpointSave: vi.fn(async () => {}),
   checkpointDelete: vi.fn(async () => {}),
   spillDeleteSession: vi.fn(async () => {}),
@@ -207,7 +208,7 @@ describe('chatStore message management', () => {
     makeSession()
     const s = useChatStore.getState().getActiveSession()!
     expect(s.configGroupId).toBe('cfg-1')
-    expect(s.agentMode).toBe('chat')
+    expect(s.agentMode).toBe('agent')
     // 空白会话不落盘（避免"新建对话"堆积一堆空白会话），首条消息后才会持久化。
     expect(mockApi.saveSession).not.toHaveBeenCalled()
   })
@@ -623,13 +624,6 @@ describe('chatStore agent run state', () => {
     })
   })
 
-  it('setAgentMode persists the agent mode on the session', () => {
-    makeSession()
-    useChatStore.getState().setAgentMode('s1', 'agent')
-    expect(useChatStore.getState().sessions[0].agentMode).toBe('agent')
-    expect(useChatStore.getState().sessions[0].projectEditMode).toBeUndefined()
-  })
-
   it('setTargetMode persists the target mode on the session', () => {
     makeSession()
     useChatStore.getState().setTargetMode('s1', true)
@@ -638,8 +632,8 @@ describe('chatStore agent run state', () => {
     expect(useChatStore.getState().sessions[0].targetMode).toBe(false)
   })
 
-  it('createSession defaults to agent mode inside a project, chat outside', () => {
-    // Inside a project (open folder) → agent mode, bound to that project
+  it('createSession always runs in agent mode, bound to the current project', () => {
+    // Inside a project (open folder) → bound to that project
     useUIStore.getState().enterProject('/proj-a')
     useChatStore.getState().createSession('cfg-1')
     const inProject = useChatStore.getState().sessions[0]
@@ -657,11 +651,12 @@ describe('chatStore agent run state', () => {
     expect(followsSession.projectPath).toBe('/proj-a')
     expect(followsSession.agentMode).toBe('agent')
 
-    // No session-bound project AND no open folder → plain chat, unbound
+    // No session-bound project AND no open folder → still agent mode, unbound
+    // (the workspace falls back to the app-owned default project at startup).
     useChatStore.setState({ sessions: [], activeSessionId: null })
     useChatStore.getState().createSession('cfg-1')
     const outside = useChatStore.getState().sessions[0]
-    expect(outside.agentMode).toBe('chat')
+    expect(outside.agentMode).toBe('agent')
     expect(outside.projectPath).toBeUndefined()
   })
 
@@ -1170,8 +1165,7 @@ describe('chatStore session user-activity sort anchor', () => {
     expect(sessionLastUserActivity(loaded)).toBe(3_000)
   })
 
-  it('createSession seeds the last-picked agent/edit modes', () => {
-    localStorage.setItem('lastAgentMode', 'agent')
+  it('createSession seeds the last-picked edit mode and forces agent mode', () => {
     localStorage.setItem('lastProjectEditMode', 'full_access')
     try {
       useChatStore.getState().createSession('cfg-1', 'C:/proj')
@@ -1179,7 +1173,6 @@ describe('chatStore session user-activity sort anchor', () => {
       expect(s.agentMode).toBe('agent')
       expect(s.projectEditMode).toBe('full_access')
     } finally {
-      localStorage.removeItem('lastAgentMode')
       localStorage.removeItem('lastProjectEditMode')
     }
   })
