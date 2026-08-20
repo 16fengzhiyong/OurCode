@@ -318,25 +318,18 @@ export default function ChatPanel() {
         <div className="flex-1 flex flex-col overflow-hidden">
           {activeSession ? (
             <>
-              {/* 轨迹视图切换 — 会话默认即 agent 模式（对话/Agent 切换已移除），
-                  「轨迹」按钮切换查看 agent 执行日志 */}
-              <div className="shrink-0 px-3 pt-2 flex items-center gap-1.5 border-b border-nova-border">
-                <button
-                  onClick={() => setView(view === 'trace' ? 'chat' : 'trace')}
-                  className={`px-3 py-1 text-xs rounded-full transition-all ${view === 'trace' ? 'bg-nova-accent/10 text-nova-accent font-medium' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
-                >
-                  {t('agent.traceTab')}
-                </button>
-              </div>
-
               {view === 'trace' ? (
-                <AgentTraceView />
+                <div className="flex-1 min-h-0">
+                  <AgentTraceView />
+                </div>
               ) : (
-                <>
-              <ChatMessages />
+                <ChatMessages />
+              )}
 
-              {/* Mode bar — agent-only controls (planning is a read-only phase of agent mode) */}
-              <div className="shrink-0 px-3 py-2 border-t border-nova-border flex items-center justify-end gap-1.5 bg-transparent">
+              {/* Mode bar —— 左对齐单行：目标模式 / 思考等级 / 审批模式 / 轨迹。
+                  对话与轨迹视图都常驻（轨迹视图靠「轨迹」按钮切回对话）。
+                  轨迹按钮原在消息区上方的独立行，现并入本行最右侧。 */}
+              <div className="shrink-0 px-3 py-2 border-t border-nova-border flex items-center justify-start gap-1.5 bg-transparent">
                 {/* Target-mode pill: agent runs autonomously until the user
                     stops it. Oval toggle, green + pulsing while on. */}
                 <button
@@ -356,9 +349,9 @@ export default function ChatPanel() {
                     <span className="ml-1 text-green-300/80 font-medium">· {activeTargetRole}</span>
                   )}
                 </button>
-                {/* 思考档位 — 目标模式与编辑模式之间：关闭/低/中/高/最高。
-                    关闭即不请求思考（reasoning 模型仍可能自行输出）；最高档在
-                    支持预算的 provider（Anthropic/Gemini）上调满 16384 token。 */}
+                {/* 思考档位 — 关闭/低/中/高/最高。关闭即不请求思考（reasoning
+                    模型仍可能自行输出）；最高档在支持预算的 provider
+                    （Anthropic/Gemini）上调满 16384 token。 */}
                 <select
                   value={resolveThinkingLevel(activeSession.modelParams)}
                   onChange={(e) =>
@@ -397,10 +390,20 @@ export default function ChatPanel() {
                     </>
                   )}
                 </select>
+                {/* 轨迹视图切换 —— 与目标模式同一行，靠最右侧；点击在对话与
+                    agent 执行日志之间切换。 */}
+                <button
+                  onClick={() => setView(view === 'trace' ? 'chat' : 'trace')}
+                  className={`ml-auto px-3 py-1 text-xs rounded-full transition-all ${view === 'trace' ? 'bg-nova-accent/10 text-nova-accent font-medium' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}
+                >
+                  {t('agent.traceTab')}
+                </button>
               </div>
 
-              <ChatInput />
-              <QuestionConfirmBar />
+              {view !== 'trace' && (
+                <>
+                  <ChatInput />
+                  <QuestionConfirmBar />
                 </>
               )}
             </>
