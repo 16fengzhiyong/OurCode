@@ -47,6 +47,17 @@ export default function MainLayout() {
   const rootPath = useUIStore((s) => s.rootPath)
   const isEditorVisible = useUIStore((s) => s.isEditorVisible)
   const panelOrder = useEditorStore((s) => s.panelOrder)
+  // 有标签打开时编辑器区域才显示（空 TabBar + 空编辑区不占位）；一旦打开文件
+  // 就自动恢复。手动隐藏（toggleEditorVisible）仍优先——isEditorVisible 为
+  // false 时无论有没有文件都不显示。
+  // 注意判断依据是「各面板 tabOrder 里还有没有标签」，不是 openFiles 长度——
+  // closeFile 只把文件移出所在面板的 tabOrder，openFiles 里仍保留（文件可能
+  // 还在其它面板开着），用 openFiles 判断会让「关掉最后一个标签」后编辑器
+  // 仍显示空框。
+  const hasOpenTabs = useEditorStore((s) =>
+    s.panelOrder.some((pid) => (s.panels[pid]?.tabOrder?.length ?? 0) > 0),
+  )
+  const editorShown = isEditorVisible && hasOpenTabs
   const splitDirection = useEditorStore((s) => s.splitDirection)
   const splitRatios = useEditorStore((s) => s.splitRatios)
   const isProblemsOpen = useProblemsStore((s) => s.isOpen)
@@ -230,7 +241,7 @@ export default function MainLayout() {
             )}
             <div className="flex-1 h-full min-h-0 flex flex-col gap-2 overflow-hidden">
               <div className={`flex-1 h-full min-h-0 flex ${isNarrow ? 'flex-col' : ''} overflow-hidden`}>
-                {isEditorVisible && (
+                {editorShown && (
                   <>
                     {/* glass-flat (no backdrop-filter) instead of glass-chrome: on
                         some Windows GPUs the OS cursor fails to composite over
@@ -287,8 +298,8 @@ export default function MainLayout() {
                 )}
                 {isChatVisible && (
                   <div
-                    style={isNarrow || !isEditorVisible ? undefined : { width: Math.min(chatWidth, Math.max(360, windowWidth - 100)) + 'px' }}
-                    className={`h-full rounded-xl overflow-hidden glass-chrome ${isEditorVisible && !isNarrow ? 'shrink-0' : 'flex-1 min-w-0'} ${isNarrow ? 'flex-1 min-w-0' : ''}`}
+                    style={isNarrow || !editorShown ? undefined : { width: Math.min(chatWidth, Math.max(360, windowWidth - 100)) + 'px' }}
+                    className={`h-full rounded-xl overflow-hidden glass-chrome ${editorShown && !isNarrow ? 'shrink-0' : 'flex-1 min-w-0'} ${isNarrow ? 'flex-1 min-w-0' : ''}`}
                   ><ChatPanel /></div>
                 )}
               </div>

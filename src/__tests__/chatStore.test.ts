@@ -1303,3 +1303,35 @@ describe('chatStore rollActiveSessionAwayFrom (removed project fall-through)', (
     expect(useChatStore.getState().activeSessionId).toBeNull()
   })
 })
+
+describe('checkpoint reload across session switches (issue: box disappears on return)', () => {
+  beforeEach(() => {
+    mockApi.checkpointList.mockReset()
+    mockApi.checkpointList.mockImplementation(async (sessionId: string) => {
+      if (sessionId === 's1') {
+        return [{ id: 'cp1', sessionId: 's1', createdAt: 1, label: 'edit_file → a.ts', messageId: 'm1', files: [{ path: '/p/a.ts', content: 'x', existed: true }] }]
+      }
+      return []
+    })
+  })
+
+  it('reloads checkpoints when switching back to a session', async () => {
+    useChatStore.setState(initialState)
+    useChatStore.getState().setActiveSession('s1')
+    // wait for the async loadCheckpoints
+    await vi.waitFor(() => {
+      expect(useChatStore.getState().checkpoints.length).toBe(1)
+    })
+    // switch away to s2 (no checkpoints) — store should empty
+    useChatStore.getState().setActiveSession('s2')
+    await vi.waitFor(() => {
+      expect(useChatStore.getState().checkpoints.length).toBe(0)
+    })
+    // switch back to s1 — must reload from store backend
+    useChatStore.getState().setActiveSession('s1')
+    await vi.waitFor(() => {
+      expect(useChatStore.getState().checkpoints.length).toBe(1)
+    })
+    expect(useChatStore.getState().checkpoints[0].id).toBe('cp1')
+  })
+})

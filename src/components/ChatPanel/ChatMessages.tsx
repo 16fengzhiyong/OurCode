@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useChatStore, estimateContextTokens } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
 import ChatMessage from './ChatMessage'
+import FileChangesSummary from './FileChangesSummary'
 import ThinkingSection from './ThinkingSection'
 import { StreamingMarkdown } from '../Common/MarkdownRenderer'
 import BranchTreeModal from './BranchTreeModal'
@@ -21,6 +22,10 @@ export default function ChatMessages() {
   // at all; it only worked because of whole-store subscriptions elsewhere.)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const activeSession = useChatStore((s) => (s.activeSessionId ? s.sessions.find((x) => x.id === s.activeSessionId) ?? null : null))
+  // AI 写文件产生的回滚快照（会话级）——文件改动汇总框的数据源。
+  const sessionCheckpoints = useChatStore((s) =>
+    s.activeSessionId ? s.checkpoints.filter((c) => c.sessionId === s.activeSessionId) : [],
+  )
   const reorderMessages = useChatStore((s) => s.reorderMessages)
   const undoStack = useChatStore((s) => s.undoStack)
   const undoDelete = useChatStore((s) => s.undoDelete)
@@ -470,6 +475,17 @@ export default function ChatMessages() {
           </div>
         )
       })}
+
+      {/* 会话结束后的文件改动汇总框 —— 挂在会话末尾（最后一条消息下方），
+          说明 AI 对项目文件做了哪些改动，支持逐个/全部回退。运行期间不显示；
+          结束后（完成/停止/出错）只要有改动快照就展示。组件内部自行判断
+          无改动时返回 null；key=sessionId 保证切换会话时重建（重置已回退标记）。
+          与消息正文左对齐、限制宽度 —— 框不跨满左右。 */}
+      {!isThisSessionLoading && (
+        <div className="pr-4 max-w-[600px]">
+          <FileChangesSummary key={activeSession.id} sessionId={activeSession.id} checkpoints={sessionCheckpoints} />
+        </div>
+      )}
 
       {/* Live turn — only while the CURRENT LLM round is still streaming. Once
           the round commits (addMessage + clearStream in the agent loop) its

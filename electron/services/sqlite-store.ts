@@ -713,6 +713,10 @@ export class SQLiteStore {
     this.db.prepare('DELETE FROM checkpoints WHERE session_id = ?').run(sessionId)
   }
 
+  deleteCheckpoint(id: string): void {
+    this.db.prepare('DELETE FROM checkpoints WHERE id = ?').run(id)
+  }
+
   // ───────────────────── Workflows (reusable prompt templates) ─────────────────────
   getWorkflows(): Workflow[] {
     const rows = this.db.prepare('SELECT * FROM workflows ORDER BY updated_at DESC').all() as any[]

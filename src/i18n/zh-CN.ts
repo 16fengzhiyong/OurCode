@@ -401,6 +401,28 @@ export const zhCN = {
   'chat.usage.fileChangeCount': '{count} 个',
   'chat.usage.hint': '再次点击徽章关闭',
   'chat.usage.viewHint': '查看本次消耗详情',
+
+  // 会话结束后的文件改动汇总框（可回退 AI 产生的文件修改）
+  'chat.filesChangedTitle': '本次对话修改了 {count} 个文件',
+  'chat.filesChangedFooterHint': '撤销操作将回退这些文件在本次对话中产生的所有更改。',
+  'chat.filesChangedRevertAll': '回退全部改动',
+  'chat.filesChangedRevertFile': '回退此文件的改动',
+  'chat.filesChangedRevertedTag': '已回退',
+  'chat.filesChangedRevertAllBodyPre': '确定要回退以下 ',
+  'chat.filesChangedRevertAllBodySuffix': ' 个文件的改动吗？',
+  'chat.filesChangedRevertAllKeep': '保留改动',
+  'chat.filesChangedRevertAllConfirm': '回退',
+  'chat.filesChangedReverted': '已回退 {count} 个文件的改动',
+  'chat.filesChangedRevertFailed': '有 {count} 个文件的改动回退失败',
+  'chat.filesChangedEmpty': '已无待回退的改动',
+
+  // 重新生成前的确认弹窗（会话对文件有调整时）
+  'chat.regenerateConfirmTitle': '重新生成',
+  'chat.regenerateConfirmBodyPre': '这条回复修改了 ',
+  'chat.regenerateConfirmBodySuffix': ' 个文件，重新生成前要回退这些改动吗？',
+  'chat.regenerateRevertAndRun': '回退并重新生成',
+  'chat.regenerateKeepAndRun': '保留并重新生成',
+  'chat.regenerateRevertFailed': '回退改动失败：{error}',
   'chat.memoryScopeInProject': '→ {project}',
   'chat.branchFromMessage': '从此消息创建分支',
   'chat.branch': '分支',

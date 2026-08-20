@@ -1351,6 +1351,9 @@ function registerIpcHandlers(): void {
     for (const file of target.files) {
       broadcast('fs:fileChanged', file.path)
     }
+    // Drop the snapshot from the DB — a reverted checkpoint must not come back
+    // on restart (the renderer already removed it from its in-memory list).
+    store.deleteCheckpoint(target.id)
     return { ok: true, restored }
   })
 

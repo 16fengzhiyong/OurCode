@@ -12,6 +12,7 @@ import AgentProcessBlock from './AgentProcessBlock'
 import { PlanCard } from './AgentPanel'
 import ErrorCard from './ErrorCard'
 import MemoryPreviewModal from './MemoryPreviewModal'
+import RegenerateConfirmDialog from './RegenerateConfirmDialog'
 import FileChip from './FileChip'
 import { splitFileLinks } from '@/utils/fileRefs'
 import { useI18n } from '@/i18n/useI18n'
@@ -263,6 +264,7 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   const [remembered, setRemembered] = useState(false)
   const [isRemembering, setIsRemembering] = useState(false)
   const [previewMemory, setPreviewMemory] = useState<{ content: string; projectPath: string } | null>(null)
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false)
   const [usageOpen, setUsageOpen] = useState(false)
   const [usagePlacement, setUsagePlacement] = useState<'above' | 'below'>('above')
   const usageRef = useRef<HTMLSpanElement>(null)
@@ -356,6 +358,38 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   }
 
   const handleRegenerate = () => {
+    // 这条回复改动过文件时先弹确认窗（回退 / 保留），避免用户丢失想要的改动；
+    // 未改动文件则直接重新生成。
+    if (msgCheckpoints.length > 0) {
+      setConfirmRegenerate(true)
+    } else {
+      regenerateFromMessage(sessionId, message.id)
+    }
+  }
+
+  /** 回退这条回复改过的文件，然后重新生成；失败不回退（仅提示），照常重新生成。 */
+  const handleRegenerateRevert = async () => {
+    setConfirmRegenerate(false)
+    let failed = 0
+    let lastError = ''
+    for (const cp of msgCheckpoints) {
+      const res = await revertCheckpoint(cp.id)
+      if (!res?.ok) {
+        failed++
+        if (res?.error) lastError = res.error
+      }
+    }
+    if (failed > 0) {
+      useUIStore.getState().showNotification(
+        t('chat.regenerateRevertFailed', { error: lastError || String(failed) }),
+        'error',
+      )
+    }
+    regenerateFromMessage(sessionId, message.id)
+  }
+
+  const handleRegenerateKeep = () => {
+    setConfirmRegenerate(false)
     regenerateFromMessage(sessionId, message.id)
   }
 
@@ -483,6 +517,16 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
           projectPath={previewMemory.projectPath}
           onCancel={() => setPreviewMemory(null)}
           onSaved={handlePreviewSaved}
+        />
+      )}
+
+      {/* 重新生成确认 —— 这条回复改动过文件时弹出（回退 / 保留 / 取消） */}
+      {confirmRegenerate && msgCheckpoints.length > 0 && (
+        <RegenerateConfirmDialog
+          filePaths={msgCheckpoints.flatMap((cp) => (cp.files || []).map((f) => f.path))}
+          onKeep={handleRegenerateKeep}
+          onRevert={handleRegenerateRevert}
+          onClose={() => setConfirmRegenerate(false)}
         />
       )}
 

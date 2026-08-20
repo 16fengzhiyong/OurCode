@@ -404,6 +404,28 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.usage.fileChangeCount': '{count}',
   'chat.usage.hint': 'Click the badge again to close',
   'chat.usage.viewHint': 'View run usage',
+
+  // Post-conversation file-change summary box (revert AI edits)
+  'chat.filesChangedTitle': 'This conversation changed {count} file(s)',
+  'chat.filesChangedFooterHint': 'Undoing will revert all changes these files received during this conversation.',
+  'chat.filesChangedRevertAll': 'Revert all changes',
+  'chat.filesChangedRevertFile': 'Revert changes to this file',
+  'chat.filesChangedRevertedTag': 'Reverted',
+  'chat.filesChangedRevertAllBodyPre': 'Revert changes to these ',
+  'chat.filesChangedRevertAllBodySuffix': ' file(s)?',
+  'chat.filesChangedRevertAllKeep': 'Keep changes',
+  'chat.filesChangedRevertAllConfirm': 'Revert',
+  'chat.filesChangedReverted': 'Reverted changes to {count} file(s)',
+  'chat.filesChangedRevertFailed': 'Failed to revert {count} file(s)',
+  'chat.filesChangedEmpty': 'No pending changes to revert',
+
+  // Confirm dialog before regenerating (the session changed files)
+  'chat.regenerateConfirmTitle': 'Regenerate',
+  'chat.regenerateConfirmBodyPre': 'This reply changed ',
+  'chat.regenerateConfirmBodySuffix': ' file(s). Revert these changes before regenerating?',
+  'chat.regenerateRevertAndRun': 'Revert & Regenerate',
+  'chat.regenerateKeepAndRun': 'Keep & Regenerate',
+  'chat.regenerateRevertFailed': 'Failed to revert changes: {error}',
   'chat.memoryScopeInProject': '→ {project}',
   'chat.branchFromMessage': 'Create branch from this message',
   'chat.branch': 'Branch',

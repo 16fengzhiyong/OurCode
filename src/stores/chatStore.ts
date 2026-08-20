@@ -677,7 +677,7 @@ interface ChatState {
   // Checkpoints (AI edit snapshots) for the active session
   checkpoints: Checkpoint[]
   loadCheckpoints: (sessionId: string) => Promise<void>
-  revertCheckpoint: (checkpointId: string) => Promise<void>
+  revertCheckpoint: (checkpointId: string) => Promise<{ ok: boolean; restored: number; error?: string } | null>
 
   // Session management
   loadSessions: () => Promise<void>
@@ -1387,6 +1387,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (res?.ok) {
       set((s) => ({ checkpoints: s.checkpoints.filter((c) => c.id !== checkpointId) }))
     }
+    return res ?? null
   },
 
   loadSessions: async () => {
@@ -1412,6 +1413,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const target = restored || candidates[0]
         if (target) {
           set({ activeSessionId: target.id })
+          // 恢复会话后同步加载它的回滚快照（checkpoints）——否则应用重启后
+          // 「文件改动汇总框」会因 checkpoints 数组为空而不显示，直到用户
+          // 再次手动点击会话（setActiveSession）才加载。
+          get().loadCheckpoints(target.id)
           // Sync the provider group (header badge / model pill / status bar) to
           // the restored session's OWN group — the chat loop always resolves the
           // model from session.configGroupId, so without this the model display
