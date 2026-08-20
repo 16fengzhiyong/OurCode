@@ -5,7 +5,6 @@ import ChatMessage from './ChatMessage'
 import FileChangesSummary from './FileChangesSummary'
 import ThinkingSection from './ThinkingSection'
 import { StreamingMarkdown } from '../Common/MarkdownRenderer'
-import BranchTreeModal from './BranchTreeModal'
 import { TodoPanel } from './AgentPanel'
 import projectLogo from '@/assets/ourcode-logo.png'
 import { useI18n } from '@/i18n/useI18n'
@@ -29,7 +28,6 @@ export default function ChatMessages() {
   const reorderMessages = useChatStore((s) => s.reorderMessages)
   const undoStack = useChatStore((s) => s.undoStack)
   const undoDelete = useChatStore((s) => s.undoDelete)
-  const switchBranch = useChatStore((s) => s.switchBranch)
   // Loading / streaming state is per session — only the conversation the user
   // is viewing reacts to its own run; parallel sessions stream independently.
   const isThisSessionLoading = useChatStore((s) => !!activeSessionId && s.runningSessionIds.includes(activeSessionId))
@@ -71,7 +69,6 @@ export default function ChatMessages() {
   const [showUndoToast, setShowUndoToast] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [isSelectMode, setIsSelectMode] = useState(false)
-  const [showBranchTree, setShowBranchTree] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const t = useI18n()
 
@@ -329,44 +326,6 @@ export default function ChatMessages() {
             </>
           )}
         </div>
-      )}
-
-      {/* Branch switcher */}
-      {activeSession.branches && activeSession.branches.length > 0 && (
-        <div className="flex items-center gap-2 px-1">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-nova-text-muted">
-            <line x1="6" y1="3" x2="6" y2="15" />
-            <circle cx="18" cy="6" r="3" />
-            <circle cx="6" cy="18" r="3" />
-            <path d="M18 9a9 9 0 0 1-9 9" />
-          </svg>
-          <select
-            value={activeSession.activeBranchId || 'main'}
-            onChange={(e) => switchBranch(activeSession.id, e.target.value)}
-            className="bg-nova-hover text-nova-text-primary text-xs px-2 py-1 rounded border border-nova-border outline-none focus:border-nova-accent/50 cursor-pointer"
-          >
-            <option value="main">{t('chat.mainBranch')}</option>
-            {activeSession.branches.filter(b => b.id !== 'main').map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {branch.name}
-              </option>
-            ))}
-          </select>
-          <span className="text-[10px] text-nova-text-muted">
-            {t('chat.branchCount', { count: activeSession.branches.length })}
-          </span>
-          <button
-            onClick={() => setShowBranchTree(true)}
-            className="text-[10px] text-nova-accent hover:text-white transition-colors bg-nova-accent/15 px-2 py-0.5 rounded"
-            title={t('chat.branchTreeHint')}
-          >
-            {t('chat.branchView')}
-          </button>
-        </div>
-      )}
-
-      {showBranchTree && activeSession && (
-        <BranchTreeModal sessionId={activeSession.id} onClose={() => setShowBranchTree(false)} />
       )}
 
       {/* Agent todo (overview pinned above the conversation) */}

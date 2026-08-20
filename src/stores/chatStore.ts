@@ -722,9 +722,8 @@ interface ChatState {
   regenerateFromMessage: (sessionId: string, msgId: string) => Promise<void>
   stopGeneration: (sessionId: string) => void
 
-  // Branch operations
+  // Branch: fork the conversation into a new session (see implementation)
   createBranchFromMessage: (sessionId: string, messageId: string) => void
-  switchBranch: (sessionId: string, branchId: string) => void
 
   // Pin / Archive
   togglePin: (sessionId: string) => void
@@ -2047,7 +2046,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })
   },
 
-  // Branch: create a new branch from a specific message
+  // Branch: fork the conversation into a NEW session. Everything up to and
+  // including the clicked message carries over; everything after it is
+  // dropped — a fresh chat pre-seeded with the history the user wanted to
+  // keep (replaces the old in-session branch tree, which was confusing).
   createBranchFromMessage: (sessionId, messageId) => {
     const session = get().sessions.find((s) => s.id === sessionId)
     if (!session) return
@@ -2057,92 +2059,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const forkMessages = session.messages.slice(0, msgIndex + 1).map((m, i) => ({ ...m, sortOrder: i }))
 
-    const existingBranches = session.branches || []
-    const mainBranchId = 'main'
-    let branches: ChatBranch[]
-
-    if (!session.activeBranchId && existingBranches.length === 0) {
-      const mainBranch: ChatBranch = {
-        id: mainBranchId,
-        name: '主分支',
-        forkedFromMessageId: '',
-        messages: session.messages.map((m) => ({ ...m })),
-        createdAt: Date.now(),
-      }
-      branches = [mainBranch]
-    } else {
-      branches = existingBranches.map((b) =>
-        b.id === (session.activeBranchId || mainBranchId)
-          ? { ...b, messages: session.messages.map((m) => ({ ...m })) }
-          : b
-      )
-    }
-
-    const newBranchId = uuidv4()
-    const branchNumber = branches.length
-    const newBranch: ChatBranch = {
-      id: newBranchId,
-      name: `分支 ${branchNumber}`,
-      forkedFromMessageId: messageId,
+    const newId = uuidv4()
+    const now = Date.now()
+    // The fork is a brand-new session that happens to be pre-seeded: same
+    // config group / model / project binding, but no branch state, compaction
+    // summary, plan, or checkpoints of its own.
+    const forkedSession: ChatSession = {
+      id: newId,
+      title: session.title, // shares the beginning of the conversation
+      configGroupId: session.configGroupId,
+      model: session.model,
+      modelParams: session.modelParams,
       messages: forkMessages,
-      createdAt: Date.now(),
-    }
-    branches.push(newBranch)
-
-    set((s) => ({
-      sessions: s.sessions.map((sess) =>
-        sess.id === sessionId
-          ? {
-              ...sess,
-              messages: forkMessages,
-              activeBranchId: newBranchId,
-              branches,
-              updatedAt: Date.now(),
-            }
-          : sess
-      ),
-    }))
-    get().saveSession(sessionId)
-  },
-
-  // Branch: switch to a different branch
-  switchBranch: (sessionId, branchId) => {
-    const session = get().sessions.find((s) => s.id === sessionId)
-    if (!session) return
-
-    const mainBranchId = 'main'
-    const branches = session.branches || []
-
-    const currentActiveId = session.activeBranchId || mainBranchId
-    const updatedBranches = branches.map((b) =>
-      b.id === currentActiveId
-        ? { ...b, messages: session.messages.map((m) => ({ ...m })) }
-        : b
-    )
-
-    let targetMessages: ChatMessage[]
-    if (branchId === mainBranchId) {
-      const mainBranch = updatedBranches.find((b) => b.id === mainBranchId)
-      targetMessages = mainBranch ? mainBranch.messages.map((m) => ({ ...m })) : session.messages
-    } else {
-      const targetBranch = updatedBranches.find((b) => b.id === branchId)
-      targetMessages = targetBranch ? targetBranch.messages.map((m) => ({ ...m })) : session.messages
+      createdAt: now,
+      updatedAt: now,
+      lastUserMessageAt: deriveLastUserMessageAt({ ...session, messages: forkMessages }),
+      agentMode: session.agentMode,
+      projectEditMode: session.projectEditMode,
+      todos: [],
+      planStatus: 'none',
+      projectPath: session.projectPath,
+      // Carry over only the agent runs referenced by the carried messages so
+      // the token badges on those messages keep working.
+      agentRuns: session.agentRuns?.filter((r) => forkMessages.some((m) => m.runId === r.id)),
     }
 
     set((s) => ({
-      sessions: s.sessions.map((sess) =>
-        sess.id === sessionId
-          ? {
-              ...sess,
-              messages: targetMessages,
-              activeBranchId: branchId === mainBranchId ? undefined : branchId,
-              branches: updatedBranches,
-              updatedAt: Date.now(),
-            }
-          : sess
-      ),
+      sessions: [forkedSession, ...s.sessions],
+      activeSessionId: newId,
     }))
-    get().saveSession(sessionId)
+    localStorage.setItem(LAST_SESSION_KEY, newId)
+    get().saveSession(newId)
   },
 
   // Pin: toggle pin state
