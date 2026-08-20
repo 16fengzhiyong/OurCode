@@ -35,7 +35,7 @@ const TOOL_LABEL_KEYS: Record<string, TranslationKey> = {
 }
 
 /** Extract a compact display key from a tool call's arguments */
-function extractKey(tc: ToolStepRowProps['toolCall']): string {
+export function extractKey(tc: ToolStepRowProps['toolCall']): string {
   switch (tc.name) {
     case 'read_file':
     case 'write_file':

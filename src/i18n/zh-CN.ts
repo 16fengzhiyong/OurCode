@@ -602,6 +602,7 @@ export const zhCN = {
   'agent.traceTokensOut': '输出',
   'agent.traceTtft': '首字延迟',
   'agent.traceNoTiming': '—',
+  'agent.traceStats': '{records} 条记录 · {errors} 个工具报错',
 
   // ── 使用统计 ─────────────────────────────────────────────────────────
   'usage.panelTitle': '使用统计',

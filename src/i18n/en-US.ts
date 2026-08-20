@@ -605,6 +605,7 @@ export const enUS: Record<TranslationKey, string> = {
   'agent.traceTokensOut': 'Out',
   'agent.traceTtft': 'TTFT',
   'agent.traceNoTiming': '—',
+  'agent.traceStats': '{records} records · {errors} tool errors',
 
   // ── Usage statistics ──────────────────────────────────────────────────
   'usage.panelTitle': 'Usage',
