@@ -394,7 +394,6 @@ export const enUS: Record<TranslationKey, string> = {
 
   // Post-conversation file-change summary box (revert AI edits)
   'chat.filesChangedTitle': 'This conversation changed {count} file(s)',
-  'chat.filesChangedFooterHint': 'Undoing will revert all changes these files received during this conversation.',
   'chat.filesChangedRevertAll': 'Revert all changes',
   'chat.filesChangedRevertFile': 'Revert changes to this file',
   'chat.filesChangedRevertedTag': 'Reverted',

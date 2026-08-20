@@ -13,6 +13,7 @@ import { PlanCard } from './AgentPanel'
 import ErrorCard from './ErrorCard'
 import MemoryPreviewModal from './MemoryPreviewModal'
 import RegenerateConfirmDialog from './RegenerateConfirmDialog'
+import FileChangesSummary from './FileChangesSummary'
 import FileChip from './FileChip'
 import { splitFileLinks } from '@/utils/fileRefs'
 import { useI18n } from '@/i18n/useI18n'
@@ -28,6 +29,9 @@ interface ChatMessageProps {
   hideMeta?: boolean
   /** Hide the hover actions toolbar — only the last message of a turn shows it. */
   hideActions?: boolean
+  /** 会话文件改动汇总（「本次对话修改了 N 个文件」+ 回退全部改动）—— 仅会话
+   *  最后一条 assistant 消息在动作工具栏上方渲染（由 ChatMessages 传入）。 */
+  renderFileChanges?: boolean
   /** 聚合模式：同一气泡（turn）内全部 assistant 消息。传入时 `message` 约定为
    *  turn 的最后一条（最终回答 / run 徽章 / 编辑 / 操作均作用于它），思考与
    *  工具调用合并进单个「思考与执行过程」折叠块渲染。 */
@@ -258,7 +262,7 @@ function TokenUsagePopover({ run, model, placement = 'below' }: { run: AgentRun;
   )
 }
 
-function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onToggleSelect, hideMeta, hideActions, turnMessages }: ChatMessageProps) {
+function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onToggleSelect, hideMeta, hideActions, renderFileChanges, turnMessages }: ChatMessageProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
   const [remembered, setRemembered] = useState(false)
@@ -662,9 +666,18 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                     隐藏（重新生成/记住/分支/复制/Token 都不出现）；会话无论以
                     何种方式结束（完成/停止/出错/轮数耗尽/等待批准）都会恢复显示。 */}
                 {!isEditing && !hideActions && !isSessionRunning && (
-                  /* mockup「Action Bar」：hairline 顶部分隔线 + ghost 按钮，
-                     与正文隔开；hover 显现避免每屏 7 个动作的噪音。 */
-                  <div className={`flex flex-wrap items-center gap-1 mt-4 pt-3 border-t border-nova-border opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'justify-end' : 'justify-start'}`}>
+                  <>
+                    {/* 会话文件改动汇总 —— 仅最后一条 assistant 消息，挂在动作
+                        工具栏上方。常显但不抢眼（卡片透明、回退按钮灰色），
+                        hover 时才浮现卡片底色与按钮的红色。 */}
+                    {renderFileChanges && isAssistant && (
+                      <div className="max-w-[600px] pr-4 mt-4">
+                        <FileChangesSummary sessionId={sessionId} checkpoints={checkpoints} />
+                      </div>
+                    )}
+                    {/* mockup「Action Bar」：hairline 顶部分隔线 + ghost 按钮，
+                       与正文隔开；hover 显现避免每屏 7 个动作的噪音。 */}
+                    <div className={`flex flex-wrap items-center gap-1 mt-4 pt-3 border-t border-nova-border opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? 'justify-end' : 'justify-start'}`}>
                     {isExhausted && (
                       <GhostButton onClick={() => continueGeneration(sessionId)} title={t('chat.continueRun')} accent>
                         ▶ {t('chat.continueRun')}
@@ -748,6 +761,7 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
                       </span>
                     )}
                   </div>
+                  </>
                 )}
               </div>
             )}
@@ -772,6 +786,7 @@ function chatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps): 
   if (prev.isSelected !== next.isSelected) return false
   if (prev.hideMeta !== next.hideMeta) return false
   if (prev.hideActions !== next.hideActions) return false
+  if (prev.renderFileChanges !== next.renderFileChanges) return false
   const a = prev.turnMessages
   const b = next.turnMessages
   if (a === b) return true

@@ -391,7 +391,6 @@ export const zhCN = {
 
   // 会话结束后的文件改动汇总框（可回退 AI 产生的文件修改）
   'chat.filesChangedTitle': '本次对话修改了 {count} 个文件',
-  'chat.filesChangedFooterHint': '撤销操作将回退这些文件在本次对话中产生的所有更改。',
   'chat.filesChangedRevertAll': '回退全部改动',
   'chat.filesChangedRevertFile': '回退此文件的改动',
   'chat.filesChangedRevertedTag': '已回退',

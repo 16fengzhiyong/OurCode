@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useChatStore, estimateContextTokens } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
 import ChatMessage from './ChatMessage'
-import FileChangesSummary from './FileChangesSummary'
 import ThinkingSection from './ThinkingSection'
 import { StreamingMarkdown } from '../Common/MarkdownRenderer'
 import { TodoPanel } from './AgentPanel'
@@ -21,10 +20,6 @@ export default function ChatMessages() {
   // at all; it only worked because of whole-store subscriptions elsewhere.)
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const activeSession = useChatStore((s) => (s.activeSessionId ? s.sessions.find((x) => x.id === s.activeSessionId) ?? null : null))
-  // AI 写文件产生的回滚快照（会话级）——文件改动汇总框的数据源。
-  const sessionCheckpoints = useChatStore((s) =>
-    s.activeSessionId ? s.checkpoints.filter((c) => c.sessionId === s.activeSessionId) : [],
-  )
   const reorderMessages = useChatStore((s) => s.reorderMessages)
   const undoStack = useChatStore((s) => s.undoStack)
   const undoDelete = useChatStore((s) => s.undoDelete)
@@ -362,7 +357,7 @@ export default function ChatMessages() {
         </div>
       )}
 
-      {turns.map((turn) => {
+      {turns.map((turn, index) => {
         if (turn.kind === 'user') {
           // Find the real index in the unfiltered messages array for drag-drop
           const originalIndex = messages.findIndex((m) => m.id === turn.message.id)
@@ -398,6 +393,8 @@ export default function ChatMessages() {
         // the final answer rendered below it.
         const firstId = turn.messages[0].id
         const originalIndex = messages.findIndex((m) => m.id === firstId)
+        // 会话文件改动汇总只挂最后一条 assistant 消息（动作工具栏上方）。
+        const isLastTurn = index === turns.length - 1
         return (
           <div
             key={`turn-${firstId}`}
@@ -429,22 +426,15 @@ export default function ChatMessages() {
                 isSelectMode={isSelectMode}
                 isSelected={turn.messages.some((m) => selectedIds.has(m.id))}
                 onToggleSelect={(id) => toggleTurnSelection(turn.messages, id)}
+                renderFileChanges={isLastTurn}
               />
             </div>
           </div>
         )
       })}
 
-      {/* 会话结束后的文件改动汇总框 —— 挂在会话末尾（最后一条消息下方），
-          说明 AI 对项目文件做了哪些改动，支持逐个/全部回退。运行期间不显示；
-          结束后（完成/停止/出错）只要有改动快照就展示。组件内部自行判断
-          无改动时返回 null；key=sessionId 保证切换会话时重建（重置已回退标记）。
-          与消息正文左对齐、限制宽度 —— 框不跨满左右。 */}
-      {!isThisSessionLoading && (
-        <div className="pr-4 max-w-[600px]">
-          <FileChangesSummary key={activeSession.id} sessionId={activeSession.id} checkpoints={sessionCheckpoints} />
-        </div>
-      )}
+      {/* 会话文件改动汇总已移入最后一条 assistant 消息内（动作工具栏上方）——
+          ChatMessage 的 renderFileChanges 负责渲染，此处不再单独挂框。 */}
 
       {/* Live turn — only while the CURRENT LLM round is still streaming. Once
           the round commits (addMessage + clearStream in the agent loop) its

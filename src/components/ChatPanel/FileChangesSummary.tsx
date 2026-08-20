@@ -13,10 +13,11 @@ interface FileChangesSummaryProps {
 }
 
 /** 会话结束后的「文件改动」汇总框 —— 中性灰 · 极简纯净版（Stitch 设计稿 V2
- *  落地方案）：slate 灰底 + 发丝线边框 + 圆角卡。头部左侧标题行可点击展开/
- *  收起文件列表，右侧放「回退全部改动」按钮（不出框）；文件行显示完整路径，
- *  行内 hover 浮现单个回退按钮，回退过的文件行保留（标「已回退」）但按钮消失，
- *  全部回退后「回退全部改动」隐藏。
+ *  落地方案）：默认透明无边框、不抢眼（「回退全部改动」按钮也是中性灰），
+ *  鼠标指到整框时才浮现 slate 灰底 + 发丝线边框、按钮才显出红色。头部左侧
+ *  标题行可点击展开/收起文件列表，右侧放「回退全部改动」按钮（不出框）；
+ *  文件行显示完整路径，行内 hover 浮现单个回退按钮，回退过的文件行保留
+ *  （标「已回退」）但按钮消失，全部回退后「回退全部改动」隐藏。
  *
  *  文件列表与「已回退」状态都从 store 派生（checkpoints = 未回退的快照，
  *  revertedFiles = 已回退的文件路径），不放在组件本地 state —— 否则切换会话
@@ -139,7 +140,8 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
   const pendingCount = allPaths.filter((p) => pendingPaths.has(p)).length
 
   return (
-    <div className="shrink-0 animate-fade-in bg-slate-50/50 dark:bg-white/5 rounded-xl border border-slate-200/60 dark:border-white/10 overflow-hidden">
+    // 不抢眼：默认透明无边框（只有标题文字），hover 才浮现卡片底色与发丝线边框。
+    <div className="shrink-0 animate-fade-in rounded-xl border border-transparent hover:bg-slate-50/50 dark:hover:bg-white/5 hover:border-slate-200/60 dark:hover:border-white/10 transition-colors overflow-hidden">
       {/* 头部：左侧点击展开/收起，右侧「回退全部改动」（不出框） */}
       <div className="px-4 py-3 flex items-center gap-2">
         <button
@@ -163,10 +165,11 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
           <button
             onClick={() => setConfirmRevertAll(true)}
             disabled={busy}
-            className="inline-flex items-center justify-center gap-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors shrink-0 disabled:opacity-50"
+            // 默认中性灰（不抢眼），hover 才显红 —— 颜色只在鼠标指到时浮现。
+            className="inline-flex items-center justify-center gap-1.5 text-slate-500 hover:text-red-600 dark:text-nova-text-muted dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 border border-transparent hover:border-red-200 dark:hover:border-red-500/30 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors shrink-0 disabled:opacity-50"
           >
             {busy ? (
-              <span className="w-4 h-4 border-2 border-red-500/30 border-t-red-600 rounded-full animate-spin inline-block" />
+              <span className="w-4 h-4 border-2 border-slate-400/30 border-t-slate-600 dark:border-nova-text-muted/30 dark:border-t-nova-text-muted rounded-full animate-spin inline-block" />
             ) : (
               <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden>undo</span>
             )}
@@ -236,10 +239,6 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
                 </div>
               )
             })}
-          </div>
-          {/* 底部说明 */}
-          <div className="bg-white/50 dark:bg-white/5 border-t border-slate-200/60 dark:border-white/10 px-4 py-3">
-            <span className="text-[11px] text-slate-400 dark:text-nova-text-muted">{t('chat.filesChangedFooterHint')}</span>
           </div>
         </>
       )}
