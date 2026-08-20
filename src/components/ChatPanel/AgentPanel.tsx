@@ -140,13 +140,20 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
   // Approved — read-only record of the executed plan
   if (status === 'approved') {
     return (
-      <div className="rounded-xl border border-green-500/30 bg-green-500/5 overflow-hidden shrink-0">
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-green-500/20">
-          <span className="material-symbols-outlined text-[15px] leading-none text-[var(--green,#16a34a)]" aria-hidden>check_circle</span>
-          <span className="text-xs font-medium text-nova-text-primary">{title}</span>
-          <span className="ml-auto text-[10px] text-nova-text-muted">{t('agent.planApproved')}</span>
+      <div
+        role="region"
+        aria-label={title}
+        className="shrink-0 animate-fade-in bg-nova-surface border border-nova-border border-l-2 rounded-xl overflow-hidden shadow-sm"
+        style={{ borderLeftColor: 'var(--success, #16a34a)' }}
+      >
+        <div className="px-4 py-3 flex items-center gap-2 border-b border-nova-border bg-nova-hover/50">
+          <span className="material-symbols-outlined text-[18px] leading-none text-success shrink-0" aria-hidden>check_circle</span>
+          <span className="text-[13px] font-semibold text-nova-text-primary">{title}</span>
+          <span className="ml-auto text-[11px] px-2 py-0.5 rounded bg-success-10 text-success border border-success-20">
+            {t('agent.planApproved')}
+          </span>
         </div>
-        <div className="px-3 py-2">{renderSteps()}</div>
+        <div className="px-4 py-3">{renderSteps()}</div>
       </div>
     )
   }
@@ -154,19 +161,23 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
   // Canceled — the plan stays visible as a record, with a re-approve action
   if (status === 'canceled') {
     return (
-      <div className="rounded-xl border border-nova-border bg-nova-surface overflow-hidden shrink-0 opacity-85">
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-nova-border">
-          <span className="material-symbols-outlined text-[15px] leading-none text-nova-text-muted" aria-hidden>cancel</span>
-          <span className="text-xs font-medium text-nova-text-muted">{title}</span>
-          <span className="ml-auto text-[10px] text-nova-text-muted">{t('agent.planCanceled')}</span>
+      <div
+        role="region"
+        aria-label={title}
+        className="shrink-0 animate-fade-in bg-nova-surface border border-nova-border rounded-xl overflow-hidden shadow-sm opacity-90"
+      >
+        <div className="px-4 py-3 flex items-center gap-2 border-b border-nova-border bg-nova-hover/50">
+          <span className="material-symbols-outlined text-[18px] leading-none text-nova-text-muted shrink-0" aria-hidden>cancel</span>
+          <span className="text-[13px] font-semibold text-nova-text-muted">{title}</span>
+          <span className="ml-auto text-[11px] text-nova-text-muted">{t('agent.planCanceled')}</span>
         </div>
-        <div className="px-3 py-2">
+        <div className="px-4 py-3">
           {renderSteps()}
           <div className="flex items-center gap-2 mt-3">
             <button
               onClick={() => approvePlan(sessionId)}
               disabled={isRunning}
-              className="px-4 py-1.5 text-xs font-medium text-white rounded-md btn-plan-approve disabled:opacity-40 hover:opacity-90 transition-opacity"
+              className="px-3.5 py-1.5 text-[13px] font-medium text-white bg-nova-accent hover:opacity-90 rounded-lg transition-opacity disabled:opacity-40"
             >
               {t('agent.reapprovePlan')}
             </button>
@@ -177,20 +188,26 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
   }
 
   // pending_approval — the interactive approve / modify card
-  // (mockup「计划批准」: minimal-panel + 左侧深色竖条 + assignment 图标 +
-  //  深色「批准执行」主按钮 / 白底「修改计划」ghost 按钮)
-  // 左侧竖条用内联样式：.minimal-panel 的 border 简写（文件序靠后）会覆盖
-  // Tailwind 的 border-l-* 工具类，内联样式才能稳定生效。
+  // (mockup「计划批准」→ 极简纯净版 V2：白卡 + 发丝线边框 + 左侧 2px 电光蓝
+  //  边线 + 头部/操作条结构，与 ToolApprovalDialog / BatchApprovalDialog 等
+  //  内嵌决策卡同款；电光蓝「同意并执行」主按钮 / 白底「修改计划」ghost 按钮。)
   return (
-    <div className="minimal-panel shrink-0" style={{ borderLeft: '2px solid var(--text-primary)' }}>
-      <div className="flex items-center gap-2 px-4 pt-3.5 pb-2">
-        <span className="material-symbols-outlined text-[18px] leading-none text-nova-text-primary" aria-hidden>assignment</span>
+    <div
+      role="region"
+      aria-label={title}
+      className="shrink-0 animate-fade-in bg-nova-surface border border-nova-border border-l-2 rounded-xl overflow-hidden shadow-sm"
+      style={{ borderLeftColor: 'var(--accent)' }}
+    >
+      <div className="px-4 py-3 flex items-center gap-2 border-b border-nova-border bg-nova-hover/50">
+        <span className="material-symbols-outlined text-[18px] leading-none text-nova-accent shrink-0" aria-hidden>assignment</span>
         <span className="text-[13px] font-semibold text-nova-text-primary">{title}</span>
-        <span className="ml-auto text-[10px] text-nova-text-muted">{t('agent.awaitingApproval')}</span>
+        <span className="ml-auto text-[11px] px-2 py-0.5 rounded bg-nova-accent/5 text-nova-accent border border-nova-accent/10">
+          {t('agent.awaitingApproval')}
+        </span>
       </div>
-      <div className="px-4 pb-3.5">
+      <div className="px-4 py-3 flex flex-col gap-2.5">
         {renderSteps()}
-        <label className="flex items-center gap-2 mt-3 text-[11px] text-nova-text-muted cursor-pointer select-none">
+        <label className="flex items-center gap-1.5 text-[12px] text-nova-text-muted cursor-pointer select-none">
           <input
             type="checkbox"
             checked={autoApprove}
@@ -199,28 +216,21 @@ export function PlanCard({ sessionId }: { sessionId: string }) {
           />
           {t('agent.autoApproveAfterPlan')}
         </label>
-        <div className="flex items-center gap-2 mt-2">
-          <button
-            onClick={() => approvePlan(sessionId, { autoApprove })}
-            disabled={isRunning}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-white rounded-md btn-plan-approve disabled:opacity-40 hover:opacity-90 transition-opacity"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-            {t('agent.approveAndRun')}
-          </button>
-          <button
-            onClick={() => dismissPlan(sessionId)}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold text-nova-text-secondary rounded-md border border-nova-border bg-nova-surface hover:bg-nova-hover transition-colors"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-            </svg>
-            {t('agent.modifyPlan')}
-          </button>
-        </div>
+      </div>
+      <div className="px-4 py-3 border-t border-nova-border flex items-center justify-end gap-2 bg-nova-surface">
+        <button
+          onClick={() => dismissPlan(sessionId)}
+          className="px-3.5 py-1.5 text-[13px] font-medium text-nova-text-secondary border border-nova-border rounded-lg hover:bg-nova-hover transition-colors"
+        >
+          {t('agent.modifyPlan')}
+        </button>
+        <button
+          onClick={() => approvePlan(sessionId, { autoApprove })}
+          disabled={isRunning}
+          className="px-3.5 py-1.5 text-[13px] font-medium text-white bg-nova-accent hover:opacity-90 rounded-lg transition-opacity disabled:opacity-40"
+        >
+          {t('agent.approveAndRun')}
+        </button>
       </div>
     </div>
   )

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import ChatMessages from './ChatMessages'
+import AgentStatusMiniPanel from './AgentStatusMiniPanel'
 import AgentTraceView from './AgentTraceView'
 import ChatInput from './ChatInput'
 import ChatSidebar from './ChatSidebar'
 import QuestionConfirmBar from './QuestionConfirmBar'
+import InlineDecisionArea from './InlineDecisionArea'
 import ArenaModal from './ArenaModal'
 import WorkflowModal from './WorkflowModal'
 import ModelSelector from './ModelSelector'
@@ -315,7 +317,7 @@ export default function ChatPanel() {
         </div>
 
         {/* Chat Content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
           {activeSession ? (
             <>
               {view === 'trace' ? (
@@ -325,6 +327,16 @@ export default function ChatPanel() {
               ) : (
                 <ChatMessages />
               )}
+
+              {/* Agent status mini panel — floating top-left of the CHAT VIEW,
+                  pinned to the visible chat area (NOT the scrolling message
+                  list), so it stays put while the conversation scrolls. */}
+              {view === 'chat' && <AgentStatusMiniPanel sessionId={activeSession.id} />}
+
+              {/* 内嵌决策区 —— 询问选择 / 工具审批 / 重新生成 / 回退全部等框
+                  全部在对话面板内完成（不再弹窗），吸底展示在消息区最底部、
+                  模式栏（目标模式按钮）上方。 */}
+              <InlineDecisionArea />
 
               {/* Mode bar —— 左对齐单行：目标模式 / 思考等级 / 审批模式 / 轨迹。
                   对话与轨迹视图都常驻（轨迹视图靠「轨迹」按钮切回对话）。

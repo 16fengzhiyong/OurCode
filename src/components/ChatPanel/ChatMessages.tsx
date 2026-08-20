@@ -4,7 +4,6 @@ import { useEditorStore } from '@/stores/editorStore'
 import ChatMessage from './ChatMessage'
 import ThinkingSection from './ThinkingSection'
 import { StreamingMarkdown } from '../Common/MarkdownRenderer'
-import { TodoPanel } from './AgentPanel'
 import projectLogo from '@/assets/ourcode-logo.png'
 import { useI18n } from '@/i18n/useI18n'
 import { lookupModelMetadata } from '@/types'
@@ -322,9 +321,6 @@ export default function ChatMessages() {
           )}
         </div>
       )}
-
-      {/* Agent todo (overview pinned above the conversation) */}
-      <TodoPanel sessionId={activeSession.id} />
 
       {/* Context truncation warning — amber gradient banner (critical stays red) */}
       {tokenWarning && (

@@ -628,6 +628,22 @@ interface ChatState {
   /** Pending batch-approval dialog (agent mode: first round with write tools) */
   batchApproval: { sessionId: string; runId: string; tools: ToolCall[]; previews: string[] } | null
 
+  // ── Inline decision dock (docked above the mode bar, replaces popups) ──
+  /** Pending regenerate / revert-all confirmation rendered inline in the
+   *  conversation panel instead of a popup dialog. */
+  inlineConfirm:
+    | { type: 'regenerate'; sessionId: string; messageId: string; checkpointIds: string[]; filePaths: string[] }
+    | { type: 'revert_all'; sessionId: string; filePaths: string[] }
+    | null
+  requestRegenerateConfirm: (sessionId: string, messageId: string, checkpointIds: string[], filePaths: string[]) => void
+  requestRevertAllConfirm: (sessionId: string, filePaths: string[]) => void
+  dismissInlineConfirm: () => void
+  /** Revert a single file path in a session — reverts every checkpoint that
+   *  snapshotted it; true when all those checkpoints reverted cleanly. */
+  revertPathInSession: (sessionId: string, path: string) => Promise<boolean>
+  /** Revert a list of file paths; returns ok/failed counts for notifications. */
+  revertFilesByPaths: (sessionId: string, paths: string[]) => Promise<{ ok: number; failed: number }>
+
   // Agent run actions
   startAgentRun: (sessionId: string, task: string, opts?: { resumeRunId?: string }) => void
   setRunStatus: (runId: string, status: AgentRun['status'], patch?: Partial<AgentRun>) => void
@@ -1037,6 +1053,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   batchApprovedBySession: {},
   toolAllowlist: {},
   batchApproval: null,
+  inlineConfirm: null,
   targetModeStatus: null,
 
   approveToolCall: () => {
@@ -1241,6 +1258,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const next = Array.from(new Set([...list, toolName]))
     localStorage.setItem(key, JSON.stringify(next))
     set((s) => ({ toolAllowlist: { ...s.toolAllowlist, [rootPath]: next } }))
+  },
+
+  // ── Inline decision dock (docked above the mode bar, replaces popups) ──
+
+  requestRegenerateConfirm: (sessionId, messageId, checkpointIds, filePaths) =>
+    set({ inlineConfirm: { type: 'regenerate', sessionId, messageId, checkpointIds, filePaths } }),
+
+  requestRevertAllConfirm: (sessionId, filePaths) =>
+    set({ inlineConfirm: { type: 'revert_all', sessionId, filePaths } }),
+
+  dismissInlineConfirm: () => set({ inlineConfirm: null }),
+
+  revertPathInSession: async (sessionId, path) => {
+    // Read the freshest checkpoints from the store (not a render closure): the
+    // previous revert may have consumed a checkpoint that also snapshotted other
+    // files, so a later revert must see it already gone.
+    const cps = get().checkpoints
+      .filter((cp) => cp.sessionId === sessionId)
+      .filter((cp) => (cp.files || []).some((f) => f.path === path))
+    if (cps.length === 0) return true
+    let ok = 0
+    for (const cp of cps) {
+      const res = await get().revertCheckpoint(cp.id)
+      if (res?.ok) ok++
+    }
+    return ok === cps.length
+  },
+
+  revertFilesByPaths: async (sessionId, paths) => {
+    let okFiles = 0
+    let failedFiles = 0
+    for (const p of paths) {
+      if (await get().revertPathInSession(sessionId, p)) okFiles++
+      else failedFiles++
+    }
+    return { ok: okFiles, failed: failedFiles }
   },
 
   loadToolAllowlist: (projectPath) => {
@@ -2046,6 +2099,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         pendingQuestion: s.pendingQuestion?.sessionId === sessionId ? null : s.pendingQuestion,
         batchApproval: s.batchApproval?.sessionId === sessionId ? null : s.batchApproval,
         pendingApproval: s.pendingApproval?.sessionId === sessionId ? null : s.pendingApproval,
+        inlineConfirm: s.inlineConfirm?.sessionId === sessionId ? null : s.inlineConfirm,
       }
     })
   },
@@ -2269,6 +2323,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       batchApprovedBySession: {},
       toolAllowlist: {},
       batchApproval: null,
+      inlineConfirm: null,
     })
   },
 }))

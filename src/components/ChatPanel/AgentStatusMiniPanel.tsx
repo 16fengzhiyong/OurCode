@@ -1,0 +1,331 @@
+import { useEffect, useMemo, useState } from 'react'
+import { useChatStore } from '@/stores/chatStore'
+import { useI18n } from '@/i18n/useI18n'
+import type { SubAgentProgress, TodoItem } from '@/types'
+
+/**
+ * Agent 状态迷你面板 —— 对话面板左上角悬浮的极简纯净白小面板（V5 落地）。
+ *
+ * 收起态 = 一条白底胶囊（Agent · 绿点 · 3/4 · 箭头）；展开态 = 发丝线卡，
+ * 三个区块：计划（plan 文档，可展开/收起）/ 任务（todo 清单）/ 子智能体
+ * （每行右侧 > 展开该子 agent 的实时进度）。替代原 TodoPanel。
+ *
+ * 数据全部来自 chatStore（todos / planContent / subagentProgress），无新
+ * 持久化字段。默认收起，Agent 运行中自动展开（只扩不缩，结束后保持手动
+ * 状态 —— 与 SubAgentProgressBlock 的交互一致）。
+ */
+
+/** 状态图标 —— 仅运行中用 accent 强调，完成/待办保持中性（对齐 TodoPanel）。 */
+function TodoStatusIcon({ status }: { status: TodoItem['status'] }) {
+  if (status === 'completed') {
+    return (
+      <span className="material-symbols-outlined text-[16px] leading-none text-success shrink-0" aria-hidden>check_circle</span>
+    )
+  }
+  if (status === 'failed') {
+    return (
+      <span className="material-symbols-outlined text-[16px] leading-none text-error shrink-0" aria-hidden>close</span>
+    )
+  }
+  if (status === 'in_progress') {
+    return (
+      <span className="material-symbols-outlined text-[16px] leading-none animate-spin-slow text-nova-accent shrink-0" aria-hidden>progress_activity</span>
+    )
+  }
+  return (
+    <span className="material-symbols-outlined text-[16px] leading-none text-nova-text-muted opacity-60 shrink-0" aria-hidden>radio_button_unchecked</span>
+  )
+}
+
+/** 子智能体状态图标 —— 运行中旋转，成功对勾，失败红叉，其余中性。 */
+function SubagentStatusIcon({ status }: { status: SubAgentProgress['status'] }) {
+  if (status === 'running') {
+    return (
+      <span className="material-symbols-outlined text-[14px] leading-none animate-spin-slow text-nova-accent shrink-0" aria-hidden>progress_activity</span>
+    )
+  }
+  if (status === 'done') {
+    return (
+      <span className="material-symbols-outlined text-[14px] leading-none text-success shrink-0" aria-hidden>check_circle</span>
+    )
+  }
+  if (status === 'error') {
+    return (
+      <span className="material-symbols-outlined text-[14px] leading-none text-error shrink-0" aria-hidden>close</span>
+    )
+  }
+  return (
+    <span className="material-symbols-outlined text-[14px] leading-none text-nova-text-muted shrink-0" aria-hidden>stop_circle</span>
+  )
+}
+
+/** 子智能体状态文字。 */
+function subagentStatusLabel(status: SubAgentProgress['status'], t: (k: any) => string): string {
+  switch (status) {
+    case 'running': return t('agent.statusRunning')
+    case 'done': return t('agent.statusDone')
+    case 'error': return t('agent.statusError')
+    default: return t('agent.statusStopped')
+  }
+}
+
+export default function AgentStatusMiniPanel({ sessionId }: { sessionId: string }) {
+  const session = useChatStore((s) => s.sessions.find((x) => x.id === sessionId))
+  // 保留 toolCallId 作为行级展开的标识（subagentProgress 以父 run_subagent 的
+  // toolCallId 为 key）。
+  const subagentEntries = useChatStore((s) =>
+    Object.entries(s.subagentProgress).filter(([, p]) => p.sessionId === sessionId)
+  )
+  const isRunning = useChatStore((s) => s.runningSessionIds.includes(sessionId))
+  const t = useI18n()
+
+  const [collapsed, setCollapsed] = useState(true)
+  // 计划文档默认展开（V5：展开态直接展示 plan 文档，点图标收起）
+  const [planOpen, setPlanOpen] = useState(true)
+  // 当前展开进度详情的子智能体 toolCallId
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
+
+  const todos = session?.todos || []
+  const planContent = session?.planContent
+
+  // 运行中自动展开（只扩不缩）；结束后保持用户手动状态。
+  useEffect(() => {
+    if (isRunning) setCollapsed(false)
+  }, [isRunning])
+
+  // 解析 plan 文档（与 PlanCard 相同的 JSON 结构 {title, steps:[{summary,detail}]}）
+  const plan = useMemo(() => {
+    if (!planContent) return null
+    try {
+      const p = JSON.parse(planContent)
+      return {
+        title: (p && p.title) || t('agent.executePlan'),
+        steps: Array.isArray(p?.steps) ? p.steps : [],
+      }
+    } catch {
+      return { title: t('agent.executePlan'), steps: [] }
+    }
+  }, [planContent, t])
+
+  const done = todos.filter((x) => x.status === 'completed').length
+  const total = todos.length
+  // 执行状态：会话运行中，或有 in_progress 的 todo —— 胶囊需显示「执行中」
+  const executing = isRunning || todos.some((x) => x.status === 'in_progress')
+  // 当前正在执行的那一项 todo（胶囊直接显示它的内容）
+  const activeTodo = todos.find((x) => x.status === 'in_progress')
+
+  // 三者全空 → 不渲染（对齐原 TodoPanel 行为）
+  if (!session || (total === 0 && !planContent && subagentEntries.length === 0)) return null
+
+  const subagents = subagentEntries.map(([id, p]) => ({ id, ...p }))
+
+  /* ── 收起胶囊态（默认）──
+     white capsule + hairline + smart_toy + 当前执行 todo（或 Agent 执行中）+ 绿点 + 3/4 + 箭头 */
+  if (collapsed) {
+    return (
+      <button
+        onClick={() => setCollapsed(false)}
+        className="absolute left-6 top-4 z-10 flex items-center gap-1.5 h-8 px-2.5 rounded-full bg-nova-surface border border-nova-border shadow-sm hover:bg-nova-hover transition-colors cursor-pointer select-none"
+        title={t('agent.panelExpand')}
+      >
+        <span className="material-symbols-outlined text-[14px] leading-none text-nova-accent shrink-0" aria-hidden>smart_toy</span>
+        {executing && activeTodo ? (
+          <span className="text-[11.5px] font-medium text-nova-text-primary max-w-[180px] truncate leading-snug">
+            {activeTodo.content}
+          </span>
+        ) : (
+          <span className="text-[11.5px] font-medium text-nova-text-primary shrink-0">
+            {executing ? t('agent.miniPanelRunning') : t('agent.miniPanelTitle')}
+          </span>
+        )}
+        {executing && <span className="w-[6px] h-[6px] rounded-full bg-success animate-pulse shrink-0" aria-hidden />}
+        {total > 0 && (
+          <>
+            <span className="w-px h-3 bg-nova-border mx-0.5 shrink-0" aria-hidden />
+            <span className="font-mono text-[11px] text-success shrink-0">{done}/{total}</span>
+          </>
+        )}
+        <span className="material-symbols-outlined text-[12px] leading-none text-nova-text-muted shrink-0" aria-hidden>expand_more</span>
+      </button>
+    )
+  }
+
+  /* ── 展开态：发丝线卡 + 三区块 ── */
+  return (
+    <div className="absolute left-6 top-4 z-10 w-[340px] bg-nova-surface border border-nova-border rounded-xl shadow-sm overflow-hidden">
+      {/* 面板头一行：Agent 标题 + 绿点 + 3/4 + 收起成胶囊 */}
+      <div className="flex items-center gap-1.5 px-3 py-2">
+        <span className="material-symbols-outlined text-[15px] leading-none text-nova-accent shrink-0" aria-hidden>smart_toy</span>
+        <span className="text-[12px] font-semibold text-nova-text-primary shrink-0">
+          {executing ? t('agent.miniPanelRunning') : t('agent.miniPanelTitle')}
+        </span>
+        {executing && <span className="w-[6px] h-[6px] rounded-full bg-success animate-pulse" aria-hidden />}
+        <span className="ml-auto flex items-center gap-1.5 shrink-0">
+          {total > 0 && <span className="font-mono text-[11px] text-success">{done}/{total}</span>}
+          <button
+            onClick={() => setCollapsed(true)}
+            className="w-6 h-6 flex items-center justify-center rounded-md text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors cursor-pointer"
+            title={t('agent.panelCollapse')}
+          >
+            <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden>expand_less</span>
+          </button>
+        </span>
+      </div>
+
+      {/* ① 计划区 */}
+      {plan && (
+        <div className="border-t border-nova-border/60 px-3 pt-2 pb-2.5">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-nova-text-muted shrink-0">
+              {t('agent.miniPanelPlan')}
+            </span>
+            <button
+              onClick={() => setPlanOpen(!planOpen)}
+              className="w-5 h-5 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors cursor-pointer ml-auto"
+              title={planOpen ? t('agent.planCollapse') : t('agent.planExpand')}
+            >
+              <span className={`material-symbols-outlined text-[14px] leading-none transition-transform duration-200 ${planOpen ? '' : 'rotate-180'}`} aria-hidden>
+                expand_less
+              </span>
+            </button>
+          </div>
+          {planOpen && (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-start gap-1.5">
+                <span className="material-symbols-outlined text-[14px] leading-none text-nova-accent mt-[1px] shrink-0" aria-hidden>assignment</span>
+                <span className="text-[12.5px] font-semibold text-nova-text-primary leading-snug">{plan.title}</span>
+              </div>
+              {plan.steps.length > 0 ? (
+                <ol className="flex flex-col gap-1">
+                  {plan.steps.map((step: any, i: number) => (
+                    <li key={i} className="flex items-start gap-1.5 text-[11.5px]">
+                      <span className="shrink-0 w-4 h-4 rounded-full bg-nova-accent/15 text-nova-accent text-[9px] flex items-center justify-center font-medium mt-[1px]">
+                        {i + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-nova-text-primary leading-snug">{step?.summary || ''}</div>
+                        {step?.detail && <div className="text-[10.5px] text-nova-text-muted leading-snug">{step.detail}</div>}
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <pre className="text-[11px] text-nova-text-secondary whitespace-pre-wrap break-words">{planContent}</pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ② 任务区 */}
+      {total > 0 && (
+        <div className="border-t border-nova-border/60 px-3 pt-2 pb-2.5">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-nova-text-muted shrink-0">
+              {t('agent.miniPanelTasks')}
+            </span>
+            <span className="ml-auto font-mono text-[11px] text-success">{done}/{total}</span>
+          </div>
+          <div className="flex flex-col gap-0.5 max-h-40 overflow-y-auto">
+            {todos.map((todo) => (
+              <div
+                key={todo.id}
+                className={`flex items-center gap-2 px-1 py-[3px] rounded-md hover:bg-nova-hover transition-colors ${
+                  todo.status === 'completed'
+                    ? 'text-nova-text-muted line-through opacity-70'
+                    : todo.status === 'pending'
+                      ? 'text-nova-text-muted'
+                      : todo.status === 'in_progress'
+                        ? 'text-nova-text-primary font-medium'
+                        : 'text-nova-text-primary'
+                }`}
+              >
+                <TodoStatusIcon status={todo.status} />
+                <span className="min-w-0 flex-1 leading-snug text-[11.5px]">{todo.content}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ③ 子智能体区 */}
+      {subagents.length > 0 && (
+        <div className="border-t border-nova-border/60 px-3 pt-2 pb-2.5">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-nova-text-muted shrink-0">
+              {t('agent.miniPanelAgents')}
+            </span>
+            <span className="ml-auto w-[16px] h-[16px] rounded-full bg-success-10 text-success flex items-center justify-center font-mono text-[10px] font-bold">
+              {subagents.length}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            {subagents.map((sa) => {
+              const open = expandedAgent === sa.id
+              return (
+                <div key={sa.id} className="flex flex-col">
+                  <button
+                    onClick={() => setExpandedAgent(open ? null : sa.id)}
+                    className="flex items-center gap-2 py-[5px] px-1 -mx-1 rounded-md hover:bg-nova-hover transition-colors cursor-pointer select-none text-left"
+                  >
+                    <SubagentStatusIcon status={sa.status} />
+                    <span className="min-w-0 flex-1 truncate text-[11.5px] text-nova-text-primary">{sa.name}</span>
+                    <span
+                      className={`shrink-0 text-[10px] ${
+                        sa.status === 'running'
+                          ? 'text-nova-accent'
+                          : sa.status === 'done'
+                            ? 'text-success'
+                            : sa.status === 'error'
+                              ? 'text-error'
+                              : 'text-nova-text-muted'
+                      }`}
+                    >
+                      {subagentStatusLabel(sa.status, t)}
+                    </span>
+                    <span
+                      className={`material-symbols-outlined text-[14px] leading-none text-nova-text-muted shrink-0 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+                      aria-hidden
+                    >
+                      chevron_right
+                    </span>
+                  </button>
+                  {/* 行级展开：思考摘要 + 工具步骤 + 统计 */}
+                  {open && (
+                    <div className="ml-[26px] mb-1.5 bg-nova-hover/60 border border-nova-border/60 rounded-md px-2 py-1.5 flex flex-col gap-1">
+                      {sa.thinking && (
+                        <div className="text-[11px] text-nova-text-secondary leading-snug line-clamp-3 break-words">
+                          {sa.thinking}
+                        </div>
+                      )}
+                      {sa.steps.length > 0 && (
+                        <div className="flex flex-col gap-0.5 font-mono text-[11px] text-nova-text-muted">
+                          {sa.steps.map((st) => (
+                            <div key={st.id} className="flex items-center gap-1.5 min-w-0">
+                              {st.status === 'running' ? (
+                                <span className="material-symbols-outlined text-[12px] leading-none text-nova-accent animate-spin-slow shrink-0" aria-hidden>progress_activity</span>
+                              ) : st.status === 'error' ? (
+                                <span className="material-symbols-outlined text-[12px] leading-none text-error shrink-0" aria-hidden>close</span>
+                              ) : (
+                                <span className="material-symbols-outlined text-[12px] leading-none text-success shrink-0" aria-hidden>check</span>
+                              )}
+                              <span className="min-w-0 truncate">{st.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="pt-0.5 border-t border-nova-border/50 text-[10px] text-nova-text-muted font-mono">
+                        {t('chat.subagentToolCalls', { n: sa.toolCallCount })}
+                        {sa.tokenCount > 0 && <> · {t('chat.subagentTokens', { n: sa.tokenCount })}</>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

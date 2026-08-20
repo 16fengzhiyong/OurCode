@@ -1013,18 +1013,6 @@ textarea[data-ai-input] {
   --primary-container: #eff6ff;
 }
 
-/* ── 计划批准主按钮（mockup「批准执行」深色主按钮）──
-   浅色 = 深色 on-surface 底白字；深色模式回退 accent，保证对比度。 */
-.btn-plan-approve {
-  background: var(--text-primary, #0f172a);
-  color: var(--bg, #ffffff);
-}
-
-:root.dark .btn-plan-approve {
-  background: var(--accent, #4d94ff);
-  color: #ffffff;
-}
-
 /* ── 聊天输入框容器（mockup「极简纯净版」输入面板）──
    surface 底 + hairline 边框 + 轻阴影；聚焦时边框转 accent（浅色为亮蓝
    #3b82f6）+ 轻光晕。用 CSS 类而非内联 style，避免内联样式压过聚焦类。 */

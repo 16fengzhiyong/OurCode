@@ -12,7 +12,6 @@ import AgentProcessBlock from './AgentProcessBlock'
 import { PlanCard } from './AgentPanel'
 import ErrorCard from './ErrorCard'
 import MemoryPreviewModal from './MemoryPreviewModal'
-import RegenerateConfirmDialog from './RegenerateConfirmDialog'
 import FileChangesSummary from './FileChangesSummary'
 import FileChip from './FileChip'
 import { splitFileLinks } from '@/utils/fileRefs'
@@ -268,7 +267,6 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   const [remembered, setRemembered] = useState(false)
   const [isRemembering, setIsRemembering] = useState(false)
   const [previewMemory, setPreviewMemory] = useState<{ content: string; projectPath: string } | null>(null)
-  const [confirmRegenerate, setConfirmRegenerate] = useState(false)
   const [usageOpen, setUsageOpen] = useState(false)
   const [usagePlacement, setUsagePlacement] = useState<'above' | 'below'>('above')
   const usageRef = useRef<HTMLSpanElement>(null)
@@ -301,6 +299,7 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   // chunk of an unrelated/streaming session).
   const editMessage = useChatStore((s) => s.editMessage)
   const regenerateFromMessage = useChatStore((s) => s.regenerateFromMessage)
+  const requestRegenerateConfirm = useChatStore((s) => s.requestRegenerateConfirm)
   const createBranchFromMessage = useChatStore((s) => s.createBranchFromMessage)
   const continueGeneration = useChatStore((s) => s.continueGeneration)
   const checkpoints = useChatStore((s) => s.checkpoints)
@@ -362,39 +361,20 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   }
 
   const handleRegenerate = () => {
-    // 这条回复改动过文件时先弹确认窗（回退 / 保留），避免用户丢失想要的改动；
-    // 未改动文件则直接重新生成。
+    // 这条回复改动过文件时改为内嵌确认（回退 / 保留）—— 确认卡吸底展示在
+    // 消息区最底部、模式栏（目标模式按钮）上方，不再弹窗；未改动文件则直接
+    // 重新生成。确认与执行（回退 / 保留并重新生成）由 RegenerateConfirmDialog
+    // 读取 chatStore.inlineConfirm 完成。
     if (msgCheckpoints.length > 0) {
-      setConfirmRegenerate(true)
+      requestRegenerateConfirm(
+        sessionId,
+        message.id,
+        msgCheckpoints.map((cp) => cp.id),
+        msgCheckpoints.flatMap((cp) => (cp.files || []).map((f) => f.path)),
+      )
     } else {
       regenerateFromMessage(sessionId, message.id)
     }
-  }
-
-  /** 回退这条回复改过的文件，然后重新生成；失败不回退（仅提示），照常重新生成。 */
-  const handleRegenerateRevert = async () => {
-    setConfirmRegenerate(false)
-    let failed = 0
-    let lastError = ''
-    for (const cp of msgCheckpoints) {
-      const res = await revertCheckpoint(cp.id)
-      if (!res?.ok) {
-        failed++
-        if (res?.error) lastError = res.error
-      }
-    }
-    if (failed > 0) {
-      useUIStore.getState().showNotification(
-        t('chat.regenerateRevertFailed', { error: lastError || String(failed) }),
-        'error',
-      )
-    }
-    regenerateFromMessage(sessionId, message.id)
-  }
-
-  const handleRegenerateKeep = () => {
-    setConfirmRegenerate(false)
-    regenerateFromMessage(sessionId, message.id)
   }
 
   const handleCopy = () => {
@@ -524,15 +504,9 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
         />
       )}
 
-      {/* 重新生成确认 —— 这条回复改动过文件时弹出（回退 / 保留 / 取消） */}
-      {confirmRegenerate && msgCheckpoints.length > 0 && (
-        <RegenerateConfirmDialog
-          filePaths={msgCheckpoints.flatMap((cp) => (cp.files || []).map((f) => f.path))}
-          onKeep={handleRegenerateKeep}
-          onRevert={handleRegenerateRevert}
-          onClose={() => setConfirmRegenerate(false)}
-        />
-      )}
+      {/* 重新生成确认 —— 已改为内嵌决策区（InlineDecisionArea）吸底展示在
+          消息区最底部、模式栏上方，不再弹窗；此处由 requestRegenerateConfirm
+          把请求写入 chatStore.inlineConfirm。 */}
 
       {/* Batch select checkbox — only in history-edit mode */}
       {isSelectMode && editEnabled && (

@@ -2,9 +2,6 @@ import { useEffect, useState } from 'react'
 import MainLayout from './components/Layout/MainLayout'
 import ErrorBoundary from './components/Common/ErrorBoundary'
 import SessionEventNotifier from './components/Common/SessionEventNotifier'
-import ToolApprovalDialog from './components/ChatPanel/ToolApprovalDialog'
-import BatchApprovalDialog from './components/ChatPanel/BatchApprovalDialog'
-import QuestionDialog from './components/ChatPanel/QuestionDialog'
 import OnboardingModal from './components/Onboarding/OnboardingModal'
 import RestoreBackupsModal from './components/Editor/RestoreBackupsModal'
 import type { BackupEntry } from '@shared/types'
@@ -117,9 +114,6 @@ export default function App() {
     <ErrorBoundary>
       <SessionEventNotifier />
       <MainLayout />
-      <ToolApprovalDialog />
-      <BatchApprovalDialog />
-      <QuestionDialog />
       {ready && showOnboarding && <OnboardingModal onComplete={handleOnboardingComplete} />}
       {ready && pendingBackups.length > 0 && (
         <RestoreBackupsModal backups={pendingBackups} onClose={() => setPendingBackups([])} />

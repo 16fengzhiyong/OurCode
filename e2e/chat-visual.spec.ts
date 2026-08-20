@@ -144,10 +144,8 @@ test('聊天区视觉截图（极简纯净版）', async () => {
     // ── DOM 级验证：确认重构后的关键样式真实生效 ──
     const styles = await win.evaluate(() => {
       const cs = (el: Element | null, prop: string) => (el ? getComputedStyle(el).getPropertyValue(prop) : null)
-      const panels = document.querySelectorAll('.minimal-panel')
       const root = document.querySelector('.chat-accent') as HTMLElement | null
       const bubble = document.querySelector('.bubble-user') as HTMLElement | null
-      const planBtn = document.querySelector('.btn-plan-approve') as HTMLElement | null
       const inputBox = document.querySelector('.chat-input-box') as HTMLElement | null
       // 右侧面板主列（白底）
       const chatCol = document.querySelector('.chat-accent .bg-nova-surface') as HTMLElement | null
@@ -158,17 +156,19 @@ test('聊天区视觉截图（极简纯净版）', async () => {
       const toolChip = Array.from(document.querySelectorAll('button')).find((b) =>
         b.className.includes('rounded-md') && b.className.includes('border') && !!b.querySelector('.font-mono'),
       ) as HTMLElement | null
-      // 计划卡：minimal-panel 里左边框宽度为 2px 的那个（内联 borderLeft）
-      const planCard = Array.from(panels).find(
+      // 计划卡：极简纯净版 V2 内嵌决策卡 —— role=region 且左侧 2px 边线的那张
+      const planCard = Array.from(document.querySelectorAll('[role="region"]')).find(
         (p) => getComputedStyle(p).borderLeftWidth === '2px',
       ) as HTMLElement | null
+      // 计划批准主按钮：白卡内 bg-nova-accent 电光蓝按钮（「同意并执行」）
+      const planBtn = planCard ? planCard.querySelector('button.bg-nova-accent') : null
       return {
         hasChatAccentScope: !!root,
         chatAccent: root ? cs(root, '--accent') : null,
-        minimalPanelCount: panels.length,
-        panelBg: panels[0] ? cs(panels[0], 'background-color') : null,
-        panelBorder: panels[0] ? cs(panels[0], 'border-top-color') : null,
-        panelRadius: panels[0] ? cs(panels[0], 'border-radius') : null,
+        hasPlanCard: !!planCard,
+        planBg: planCard ? cs(planCard, 'background-color') : null,
+        planBorder: planCard ? cs(planCard, 'border-top-color') : null,
+        planRadius: planCard ? cs(planCard, 'border-radius') : null,
         thinkingHasPsychologyIcon: Array.from(document.querySelectorAll('.material-symbols-outlined')).some((el) => el.textContent?.includes('psychology')),
         // 思考块不应再是 minimal-panel 大框：psychology 图标所在容器应没有
         // 卡片边框（父级链上无 .minimal-panel）
@@ -188,25 +188,26 @@ test('聊天区视觉截图（极简纯净版）', async () => {
         inputPadX: inputWrap ? cs(inputWrap, 'padding-left') : null,
         toolChipBg: toolChip ? cs(toolChip, 'background-color') : null,
         toolChipBorder: toolChip ? cs(toolChip, 'border-top-color') : null,
-        // 消息左侧不应再有机器人头像（smart_toy 已移除；种子会话无子代理，
-        // 若 DOM 里还出现说明头像没删干净）
-        messageAvatarRemoved: !document.body.innerHTML.includes('smart_toy'),
+        // 消息左侧不应再有机器人头像（smart_toy 已从消息行移除；种子会话无子代理，
+        // 若消息滚动容器里还出现说明头像没删干净 —— 注意：AgentStatusMiniPanel
+        // 胶囊的 smart_toy 在容器外，不在此列）
+        messageAvatarRemoved: !(msgScroll ? msgScroll.innerHTML.includes('smart_toy') : false),
       }
     })
     console.log('CHAT_VISUAL_STYLES', JSON.stringify(styles, null, 2))
     // 断言核心样式
     expect(styles.hasChatAccentScope).toBe(true)
     expect(styles.chatAccent).toBe('#3b82f6')
-    expect(styles.minimalPanelCount).toBe(2)
-    expect(styles.panelBg).toBe('rgb(255, 255, 255)')
-    expect(styles.panelBorder).toBe('rgb(226, 232, 240)')
-    expect(styles.panelRadius).toBe('12px')
+    expect(styles.hasPlanCard).toBe(true)
+    expect(styles.planBg).toBe('rgb(255, 255, 255)')
+    expect(styles.planBorder).toBe('rgba(15, 23, 42, 0.08)')
+    expect(styles.planRadius).toBe('12px')
     expect(styles.thinkingHasPsychologyIcon).toBe(true)
     expect(styles.thinkingNotInPanel).toBe(true)
     expect(styles.bubbleBg).toBe('rgb(241, 245, 249)')
     expect(styles.bubbleBorder).toBe('rgba(0, 0, 0, 0)')
-    expect(styles.planBtnBg).toBe('rgb(15, 23, 42)')
-    expect(styles.planLeftBar).toBe('rgb(15, 23, 42)')
+    expect(styles.planBtnBg).toBe('rgb(59, 130, 246)')
+    expect(styles.planLeftBar).toBe('rgb(59, 130, 246)')
     expect(styles.inputRadius).toBe('12px')
     expect(styles.panelBg).toBe('rgb(255, 255, 255)')
     expect(styles.msgPadX).toBe('24px')

@@ -4,7 +4,6 @@ import { useChatStore } from '@/stores/chatStore'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
-import RevertAllConfirmDialog from './RevertAllConfirmDialog'
 
 interface FileChangesSummaryProps {
   sessionId: string
@@ -24,12 +23,13 @@ interface FileChangesSummaryProps {
  *  重新挂载时本地状态重置，回退过的文件会整框消失（或又显示成「未回退」）。 */
 export default function FileChangesSummary({ sessionId, checkpoints }: FileChangesSummaryProps) {
   const t = useI18n()
-  const revertCheckpoint = useChatStore((s) => s.revertCheckpoint)
+  const revertPathInSession = useChatStore((s) => s.revertPathInSession)
+  const requestRevertAllConfirm = useChatStore((s) => s.requestRevertAllConfirm)
   const revertedFiles = useChatStore((s) => s.revertedFiles)
   const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
-  // 点「回退全部改动」先弹确认框（列文件 + 回退/保留），确认后才执行。
-  const [confirmRevertAll, setConfirmRevertAll] = useState(false)
+  // 点「回退全部改动」改为内嵌确认（InlineDecisionArea 吸底展示在消息区最底部、
+  // 模式栏上方，不再弹窗），确认后才执行。
 
   // 本会话的检查点（父组件通常已按会话过滤，这里再兜底一次以防串会话）。
   const sessionCheckpoints = useMemo(
@@ -83,44 +83,11 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
   }
 
   /** 回退单个文件：回退所有包含该文件快照的检查点，返回该文件是否全部回退
-   *  成功（任一 checkpoint 失败则该文件保持可回退，可重试）。 */
-  const revertFile = async (path: string): Promise<boolean> => {
-    // 从 store 读最新检查点（而非渲染闭包里的 memo）：回退一个文件会消耗掉
-    // 同时快照了其它文件的检查点，同批后续回退必须看到该检查点已消失，避免
-    // 重复回退同一个检查点（第二次会因「检查点不存在」而误判失败）。
-    const cps = useChatStore.getState().checkpoints
-      .filter((cp) => cp.sessionId === sessionId)
-      .filter((cp) => (cp.files || []).some((f) => f.path === path))
-    if (cps.length === 0) return true
-    let ok = 0
-    for (const cp of cps) {
-      const res = await revertCheckpoint(cp.id)
-      if (res?.ok) ok++
-    }
-    return ok === cps.length
-  }
+   *  成功（任一 checkpoint 失败则该文件保持可回退，可重试）。委托给 store 的
+   *  revertPathInSession（从 store 读最新检查点，避免重复回退已被消耗的检查点）。 */
+  const revertFile = (path: string) => revertPathInSession(sessionId, path)
 
-  /** 确认弹窗里选「回退」后真正执行全部回退。 */
-  const handleRevertAll = async () => {
-    setConfirmRevertAll(false)
-    const pending = allPaths.filter((p) => pendingPaths.has(p))
-    if (busy || pending.length === 0) return
-    setBusy(true)
-    try {
-      let okFiles = 0
-      let failedFiles = 0
-      for (const p of pending) {
-        if (await revertFile(p)) okFiles++
-        else failedFiles++
-      }
-      notify(okFiles, failedFiles)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  /** 回退单个文件：回退所有包含该文件快照的检查点（同一检查点可能还包了
-   *  其它文件，语义与消息级「回滚修改」一致——恢复快照时刻的全部内容）。 */
+  /** 回退单个文件（行内回退按钮，非确认框）。 */
   const handleRevertFile = async (path: string) => {
     if (busy || !pendingPaths.has(path)) return
     setBusy(true)
@@ -163,7 +130,7 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
         </button>
         {pendingCount > 0 && (
           <button
-            onClick={() => setConfirmRevertAll(true)}
+            onClick={() => requestRevertAllConfirm(sessionId, allPaths.filter((p) => pendingPaths.has(p)))}
             disabled={busy}
             // 默认中性灰（不抢眼），hover 才显红 —— 颜色只在鼠标指到时浮现。
             className="inline-flex items-center justify-center gap-1.5 text-slate-500 hover:text-red-600 dark:text-nova-text-muted dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 border border-transparent hover:border-red-200 dark:hover:border-red-500/30 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors shrink-0 disabled:opacity-50"
@@ -178,15 +145,9 @@ export default function FileChangesSummary({ sessionId, checkpoints }: FileChang
         )}
       </div>
 
-      {/* 回退全部 —— 确认弹窗（列文件 + 回退/保留） */}
-      {confirmRevertAll && (
-        <RevertAllConfirmDialog
-          filePaths={allPaths.filter((p) => pendingPaths.has(p))}
-          onRevert={() => void handleRevertAll()}
-          onKeep={() => setConfirmRevertAll(false)}
-          onClose={() => setConfirmRevertAll(false)}
-        />
-      )}
+      {/* 回退全部 —— 确认已改为内嵌决策区（InlineDecisionArea 吸底展示在消息区
+          最底部、模式栏上方，不再弹窗）；此处只发起请求，确认与执行由
+          RevertAllConfirmDialog 读取 chatStore.inlineConfirm 完成。 */}
 
       {expanded && (
         <>
