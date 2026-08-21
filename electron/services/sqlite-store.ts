@@ -29,6 +29,10 @@ export class SQLiteStore {
 
     const dbPath = join(dbDir, 'ourcode.db')
     this.db = new Database(dbPath)
+    // WAL: better concurrency for the frequent session saves (agent runs write
+    // on every round / tool result) and lighter write amplification than the
+    // default rollback journal.
+    this.db.pragma('journal_mode = WAL')
     this.crypto = new CryptoService()
 
     this.initTables()
@@ -306,6 +310,7 @@ export class SQLiteStore {
       CREATE INDEX IF NOT EXISTS idx_reverted_files_session ON reverted_files(session_id, reverted_at);
       CREATE INDEX IF NOT EXISTS idx_usage_category_time ON usage_events(category, started_at);
       CREATE INDEX IF NOT EXISTS idx_usage_name ON usage_events(name);
+      CREATE INDEX IF NOT EXISTS idx_usage_started ON usage_events(started_at);
       CREATE INDEX IF NOT EXISTS idx_cache_created ON llm_response_cache(created_at);
     `)
   }
@@ -397,10 +402,19 @@ export class SQLiteStore {
   getSessions(): ChatSession[] {
     const sessions = this.db.prepare('SELECT * FROM chat_sessions ORDER BY updated_at DESC').all() as any[]
 
+    // Load all messages in one query and bucket by session, instead of one
+    // query per session (N+1) — opening the sidebar with many sessions used to
+    // run a SELECT per session on the main process.
+    const allMessages = this.db.prepare('SELECT * FROM chat_messages ORDER BY session_id, sort_order ASC').all() as any[]
+    const messagesBySession = new Map<string, any[]>()
+    for (const msg of allMessages) {
+      const bucket = messagesBySession.get(msg.session_id)
+      if (bucket) bucket.push(msg)
+      else messagesBySession.set(msg.session_id, [msg])
+    }
+
     return sessions.map(session => {
-      const messages = this.db.prepare(
-        'SELECT * FROM chat_messages WHERE session_id = ? ORDER BY sort_order ASC'
-      ).all(session.id) as any[]
+      const messages = messagesBySession.get(session.id) || []
 
       // Parse branches JSON, decrypting message content in each branch
       let branches: ChatBranch[] = []
@@ -567,20 +581,36 @@ export class SQLiteStore {
       )
     }
 
-    // Insert messages — ATOMICALLY: deleting the old rows and inserting the new
-    // ones must be one transaction. Previously the DELETE auto-committed on its
-    // own and a failure mid-insert (bad renderer data → NOT NULL/constraint
-    // violation) rolled back the insert while the messages were already gone —
-    // the session's entire history was silently wiped.
-    const insertMsg = this.db.prepare(`
+    // Upsert messages in place instead of DELETE-all + re-INSERT-all. Agent runs
+    // persist the whole session on every round / tool result; the old path
+    // rewrote the entire message table each time (O(messages) DELETE + INSERT
+    // with index and WAL churn), so long sessions got progressively slower to
+    // save. Upserting keeps unchanged rows intact and only deletes rows that
+    // disappeared from the incoming list (message deleted / history edited).
+    const upsertMsg = this.db.prepare(`
       INSERT INTO chat_messages (id, session_id, role, content, sort_order, context_files, token_count, thinking, tool_calls, tool_results, edited_at, request_started_at, request_duration_ms, request_tokens_in, request_tokens_out, ttft_ms, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        session_id = excluded.session_id,
+        role = excluded.role,
+        content = excluded.content,
+        sort_order = excluded.sort_order,
+        context_files = excluded.context_files,
+        token_count = excluded.token_count,
+        thinking = excluded.thinking,
+        tool_calls = excluded.tool_calls,
+        tool_results = excluded.tool_results,
+        edited_at = excluded.edited_at,
+        request_started_at = excluded.request_started_at,
+        request_duration_ms = excluded.request_duration_ms,
+        request_tokens_in = excluded.request_tokens_in,
+        request_tokens_out = excluded.request_tokens_out,
+        ttft_ms = excluded.ttft_ms
     `)
 
     const replaceMessages = this.db.transaction((messages: ChatMessage[]) => {
-      if (existing) this.db.prepare('DELETE FROM chat_messages WHERE session_id = ?').run(id)
       for (const msg of messages) {
-        insertMsg.run(
+        upsertMsg.run(
           msg.id,
           id,
           msg.role,
@@ -599,6 +629,15 @@ export class SQLiteStore {
           msg.ttftMs || 0,
           msg.createdAt
         )
+      }
+      // Drop rows no longer present in the incoming list. Diffed in JS against
+      // the current rows so very long sessions don't hit SQLite's 999-parameter
+      // limit (a `NOT IN (...)` list of message ids would).
+      const kept = new Set(messages.map((m) => m.id))
+      const existingIds = this.db.prepare('SELECT id FROM chat_messages WHERE session_id = ?').all(id) as any[]
+      const delStmt = this.db.prepare('DELETE FROM chat_messages WHERE id = ?')
+      for (const row of existingIds) {
+        if (!kept.has(row.id)) delStmt.run(row.id)
       }
     })
 

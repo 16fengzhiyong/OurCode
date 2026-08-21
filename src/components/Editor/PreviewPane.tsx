@@ -20,7 +20,9 @@ interface PreviewPaneProps {
  *  Monaco model so the preview follows edits without saving. */
 export default function PreviewPane({ path, mode, refreshToken = 0 }: PreviewPaneProps) {
   if (mode === 'html') return <HtmlPreview path={path} refreshToken={refreshToken} />
-  if (mode === 'markdown') return <MarkdownPreview path={path} />
+  // key=path remounts the markdown preview per file so its debounce state
+  // (and the live-model content) never bleeds stale content across file switches.
+  if (mode === 'markdown') return <MarkdownPreview path={path} key={path} />
   return <ImagePreview path={path} />
 }
 
@@ -140,6 +142,23 @@ function HtmlPreview({ path, refreshToken }: { path: string; refreshToken: numbe
 
 function MarkdownPreview({ path }: { path: string }) {
   const content = useModelLiveContent(path) ?? ''
+  // Debounce the live markdown so rapid typing re-renders the whole document at
+  // most every ~300ms instead of per keystroke — re-parsing a large markdown
+  // file on every keypress froze the input. The first render is immediate; the
+  // component is remounted per file (key=path in PreviewPane), so a file switch
+  // shows the new content right away without any stale flash.
+  const [debouncedContent, setDebouncedContent] = useState(content)
+  const firstRef = useRef(true)
+  useEffect(() => {
+    if (firstRef.current) {
+      firstRef.current = false
+      setDebouncedContent(content)
+      return
+    }
+    const id = window.setTimeout(() => setDebouncedContent(content), LIVE_REFRESH_DEBOUNCE_MS)
+    return () => window.clearTimeout(id)
+  }, [content])
+
   const dirUrl = useMemo(() => dirUrlOf(path), [path])
 
   const rewriteImageSrc = useCallback(
@@ -149,7 +168,7 @@ function MarkdownPreview({ path }: { path: string }) {
 
   return (
     <div className="h-full overflow-y-auto px-6 py-4 bg-nova-bg">
-      <MarkdownRenderer content={content} rewriteImageSrc={rewriteImageSrc} />
+      <MarkdownRenderer content={debouncedContent} rewriteImageSrc={rewriteImageSrc} />
     </div>
   )
 }

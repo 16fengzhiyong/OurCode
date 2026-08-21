@@ -32,6 +32,8 @@ const BURST_WINDOW_MS = 1000
 const REBUILD_DEBOUNCE_MS = 400
 /** 同时保留的索引根数量上限（LRU 淘汰，防长会话里切项目把内存撑爆） */
 const MAX_ROOTS = 8
+/** 内容搜索每扫描多少个文件就 yield 一次事件循环，避免长搜索阻塞主进程 IPC */
+const YIELD_EVERY_FILES = 50
 
 /**
  * 路径规范化：统一分隔符为 `/`、去尾分隔符、小写。Windows 下 `\` 与 `/`
@@ -234,11 +236,18 @@ export class FileIndexService {
     idx.lastUsed = Date.now()
 
     const hits: IndexedContentHit[] = []
+    let filesSinceYield = 0
     for (const file of idx.files.values()) {
       if (!file.lines) continue
       if (matcher && !matcher(basename(file.abs))) continue
       hits.push(...this.matchLines(file.abs, file.lines, opts.caseSensitive, lowerQuery, lowerQuery.length, maxResults - hits.length))
       if (hits.length >= maxResults) break
+      // Yield to the event loop every N files so a large content search doesn't
+      // monopolise the main process (blocking all IPC) for seconds at a time.
+      if (++filesSinceYield >= YIELD_EVERY_FILES) {
+        filesSinceYield = 0
+        await new Promise((resolve) => setImmediate(resolve))
+      }
     }
     return hits
   }
