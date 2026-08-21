@@ -249,6 +249,21 @@ export default function GitDiffEditor({ diff, onClose }: GitDiffEditorProps) {
     })
   }, [makeWidget])
 
+  // Coalesce widget rebuilds into one pass per animation frame: a single git
+  // action triggers setValue on both models (→ onDidUpdateDiff) plus a parsed /
+  // isStaged state change (→ the effect below), each of which used to tear down
+  // and recreate every gutter widget. With many changes that's hundreds of DOM
+  // nodes rebuilt 3× per action. rAF merges them into a single rebuild.
+  const widgetRefreshQueuedRef = useRef(false)
+  const scheduleWidgetRefresh = useCallback(() => {
+    if (widgetRefreshQueuedRef.current) return
+    widgetRefreshQueuedRef.current = true
+    requestAnimationFrame(() => {
+      widgetRefreshQueuedRef.current = false
+      refreshWidgets()
+    })
+  }, [refreshWidgets])
+
   // ── Monaco diff editor (created once; content syncs below) ────────────────
   useEffect(() => {
     const container = containerRef.current
@@ -277,7 +292,7 @@ export default function GitDiffEditor({ diff, onClose }: GitDiffEditorProps) {
 
     // Rebuild the gutter arrows whenever Monaco recomputes the diff (initial
     // computation, content updates, side-by-side ↔ inline toggles).
-    const onDiff = diffEditor.onDidUpdateDiff(() => refreshWidgets())
+    const onDiff = diffEditor.onDidUpdateDiff(() => scheduleWidgetRefresh())
 
     return () => {
       onDiff.dispose()
@@ -312,8 +327,8 @@ export default function GitDiffEditor({ diff, onClose }: GitDiffEditorProps) {
 
   // Rebuild arrows when the git state or parsed hunks change.
   useEffect(() => {
-    refreshWidgets()
-  }, [refreshWidgets, parsed, isStaged, untracked])
+    scheduleWidgetRefresh()
+  }, [scheduleWidgetRefresh, parsed, isStaged, untracked])
 
   // ── whole-file actions ────────────────────────────────────────────────────
 

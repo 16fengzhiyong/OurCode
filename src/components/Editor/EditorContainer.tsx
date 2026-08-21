@@ -172,6 +172,13 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
 
   // Reload open models when a file changes on disk (tool edits / checkpoint reverts)
   useEffect(() => {
+    // Per-path debounce: AI tools editing a large file emit several change
+    // events in quick succession (one per write step). Without coalescing each
+    // event triggers a full readFile → getValue comparison → setValue — an O(n)
+    // copy + a Monaco rebuild per step, which froze the editor while an agent
+    // edited a large file. Coalesce to at most one reload per path per ~300ms.
+    const reloadTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
     const reloadModel = (path: string) => {
       const model = getModel(path)
       if (!model || model.isDisposed()) return
@@ -180,11 +187,24 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
       // a CLEAN file still reload as before.
       const openFile = useEditorStore.getState().openFiles.find((f) => f.path === path)
       if (openFile?.isDirty) return
-      window.electronAPI.readFile(path).then(({ content }) => {
-        if (!model.isDisposed() && model.getValue() !== content) {
-          model.setValue(content)
-        }
-      }).catch(() => { /* file may have been deleted */ })
+
+      const existing = reloadTimers.get(path)
+      if (existing) clearTimeout(existing)
+      reloadTimers.set(path, setTimeout(() => {
+        reloadTimers.delete(path)
+        // Re-check dirtiness after the debounce window — the user may have
+        // started typing while we were waiting, and reloading then would revert
+        // their edits.
+        const latest = useEditorStore.getState().openFiles.find((f) => f.path === path)
+        if (latest?.isDirty) return
+        window.electronAPI.readFile(path).then(({ content }) => {
+          // Length check short-circuits the O(n) getValue() copy+compare when
+          // the edit changed the file size (the common case for tool edits).
+          if (!model.isDisposed() && (model.getValueLength() !== content.length || model.getValue() !== content)) {
+            model.setValue(content)
+          }
+        }).catch(() => { /* file may have been deleted */ })
+      }, 300))
     }
     const unsubFs = window.electronAPI.onFileChanged((path) => reloadModel(path))
     const onLocal = (e: Event) => reloadModel((e as CustomEvent).detail)
@@ -192,6 +212,8 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     return () => {
       unsubFs()
       window.removeEventListener('ourcode:file-changed', onLocal)
+      for (const t of reloadTimers.values()) clearTimeout(t)
+      reloadTimers.clear()
     }
   }, [])
 
