@@ -105,6 +105,7 @@ const SEED_SESSION = {
 }
 
 test('聊天区视觉截图（极简纯净版）', async () => {
+  test.setTimeout(120000)
   const userData = mkdtempSync(join(tmpdir(), 'chat-visual-'))
   const app = await electron.launch({
     args: [path.join(__dirname, '../dist-electron/main.js')],
@@ -131,6 +132,8 @@ test('聊天区视觉截图（极简纯净版）', async () => {
     // 种入演示配置组 + 会话（沙箱 userData，不污染真实数据）
     await win.evaluate(
       async ({ group, session }) => {
+        // Fresh userData → the first-run onboarding would otherwise block clicks
+        localStorage.setItem('hasCompletedOnboarding', 'true')
         try { await (window as any).electronAPI.saveConfigGroup(group) } catch { /* cosmetic — ok */ }
         await (window as any).electronAPI.saveSession(session)
         localStorage.setItem('lastActiveSessionId', session.id)

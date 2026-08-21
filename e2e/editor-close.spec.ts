@@ -4,7 +4,38 @@ import { mkdtemp, writeFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
-/** Robustly find the main app window (not DevTools). */
+/** Dismiss the first-run onboarding modal. It mounts only AFTER the app's
+ *  async boot completes (which can take several seconds), so wait until the
+ *  splash is gone and no dialog shows for a moment before giving up. */
+async function dismissOnboarding(win: Page): Promise<void> {
+  let readyStreak = 0
+  for (let i = 0; i < 60; i++) {
+    const dialog = win.locator('[role="dialog"][aria-label="欢迎使用"]').first()
+    const visible = await dialog.isVisible({ timeout: 300 }).catch(() => false)
+    if (visible) {
+      readyStreak = 0
+      const skip = dialog.locator('button', { hasText: '跳过' }).first()
+      if (await skip.isVisible().catch(() => false)) {
+        await skip.click()
+        await win.waitForTimeout(400)
+        continue
+      }
+      await win.waitForTimeout(300)
+      continue
+    }
+    const splashGone = !(await win.locator('#splash-screen').isVisible().catch(() => false))
+    if (splashGone) {
+      readyStreak += 1
+      if (readyStreak >= 4) return
+    } else {
+      readyStreak = 0
+    }
+    await win.waitForTimeout(400)
+  }
+}
+
+/** Robustly find the main app window (not DevTools), dismissing the first-run
+ *  onboarding modal if it shows. */
 async function mainWindow(app: import('@playwright/test').ElectronApplication): Promise<Page> {
   let page: Page | null = null
   for (let i = 0; i < 40 && !page; i++) {
@@ -19,19 +50,33 @@ async function mainWindow(app: import('@playwright/test').ElectronApplication): 
     if (!page) await new Promise((r) => setTimeout(r, 500))
   }
   if (!page) throw new Error('main window not found')
+  await dismissOnboarding(page)
   return page
 }
 
 async function openProject(win: Page, app: import('@playwright/test').ElectronApplication, dir: string) {
+  await dismissOnboarding(win)
   await app.evaluate(({ dialog }, folder) => {
     ;(dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [folder] })
   }, dir)
   await win.keyboard.press('Control+o')
-  await win.waitForTimeout(1500)
-  const projName = dir.split(/[/\\]/).pop() || ''
-  const card = win.locator(`div.group:has-text("${projName}")`).first()
-  await expect(card).toBeVisible({ timeout: 8000 })
-  await card.dblclick()
+  // Opening a folder may land in the tree view of the previously active
+  // project — go back to the project list, then open the new folder's card
+  // (recent projects render as div.group cards). Re-press Ctrl+O in the loop:
+  // the first press can be lost while the window is still settling.
+  await expect(async () => {
+    await win.keyboard.press('Control+o')
+    await win.waitForTimeout(600)
+    const backBtn = win.locator('button:has-text("项目列表")').first()
+    if (await backBtn.isVisible().catch(() => false)) {
+      await backBtn.click()
+      await win.waitForTimeout(400)
+    }
+    const projName = dir.split(/[/\\]/).pop() || ''
+    await expect(win.locator(`div.group:has-text("${projName}")`).first()).toBeVisible({ timeout: 4000 })
+  }).toPass({ timeout: 25000 })
+  await dismissOnboarding(win)
+  await win.locator(`div.group:has-text("${dir.split(/[/\\]/).pop()}")`).first().dblclick()
   await expect(win.locator('#file-tree-root >> text=a.ts').first()).toBeVisible({ timeout: 8000 })
 }
 

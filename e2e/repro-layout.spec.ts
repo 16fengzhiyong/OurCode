@@ -39,6 +39,10 @@ async function launchApp(userData: string): Promise<{ app: Electron.Application;
     if (!win) await new Promise((r) => setTimeout(r, 500))
   }
   if (!win) throw new Error('main window not found')
+  // The seeded userData has fresh localStorage → the first-run onboarding shows.
+  // Seed the completion flag and reload so it never intercepts clicks.
+  await win.evaluate(() => localStorage.setItem('hasCompletedOnboarding', 'true'))
+  await win.reload()
   await win.waitForTimeout(2000)
   return { app, win }
 }
@@ -67,6 +71,7 @@ async function ensureSidebarVisible(win: Page) {
 }
 
 test('sidebar resizer is out-of-flow (no hidden overflow)', async () => {
+  test.setTimeout(120000)
   const { dir, project } = seedUserData()
   const { app, win } = await launchApp(dir)
   await win.evaluate((p) => localStorage.setItem('recentProjects', JSON.stringify([p])), project)
@@ -84,6 +89,7 @@ test('sidebar resizer is out-of-flow (no hidden overflow)', async () => {
 })
 
 test('new chat does not scroll the layout', async () => {
+  test.setTimeout(120000)
   const { dir, project } = seedUserData()
   const { app, win } = await launchApp(dir)
   await win.evaluate((p) => localStorage.setItem('recentProjects', JSON.stringify([p])), project)

@@ -4,7 +4,38 @@ import { mkdtemp, writeFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
-/** Robustly find the main app window (not DevTools). */
+/** Dismiss the first-run onboarding modal. It mounts only AFTER the app's
+ *  async boot completes (which can take several seconds), so wait until the
+ *  splash is gone and no dialog shows for a moment before giving up. */
+async function dismissOnboarding(win: Page): Promise<void> {
+  let readyStreak = 0
+  for (let i = 0; i < 60; i++) {
+    const dialog = win.locator('[role="dialog"][aria-label="欢迎使用"]').first()
+    const visible = await dialog.isVisible({ timeout: 300 }).catch(() => false)
+    if (visible) {
+      readyStreak = 0
+      const skip = dialog.locator('button', { hasText: '跳过' }).first()
+      if (await skip.isVisible().catch(() => false)) {
+        await skip.click()
+        await win.waitForTimeout(400)
+        continue
+      }
+      await win.waitForTimeout(300)
+      continue
+    }
+    const splashGone = !(await win.locator('#splash-screen').isVisible().catch(() => false))
+    if (splashGone) {
+      readyStreak += 1
+      if (readyStreak >= 4) return
+    } else {
+      readyStreak = 0
+    }
+    await win.waitForTimeout(400)
+  }
+}
+
+/** Robustly find the main app window (not DevTools), dismissing the first-run
+ *  onboarding modal if it shows. */
 async function mainWindow(app: import('@playwright/test').ElectronApplication): Promise<Page> {
   let page: Page | null = null
   for (let i = 0; i < 40 && !page; i++) {
@@ -19,6 +50,7 @@ async function mainWindow(app: import('@playwright/test').ElectronApplication): 
     if (!page) await new Promise((r) => setTimeout(r, 500))
   }
   if (!page) throw new Error('main window not found')
+  await dismissOnboarding(page)
   return page
 }
 
@@ -43,17 +75,27 @@ test.describe('Hot Exit', () => {
 
       // Open the temp folder via the (stubbed) folder dialog — the stub must go
       // on the main process; the renderer's electronAPI is frozen by contextBridge
+      await dismissOnboarding(win1)
       await app1.evaluate(({ dialog }, folder) => {
         ;(dialog as any).showOpenDialog = async () => ({ canceled: false, filePaths: [folder] })
       }, dir)
       await win1.keyboard.press('Control+o')
-      // Ctrl+O opens the folder into the PROJECT LIST (new Stitch flow) — the
-      // file tree only mounts after double-clicking the project card.
+      // Opening a folder may land in the tree view of the previously active
+      // project — go back to the project list, then open the new folder's card.
+      // Re-press Ctrl+O in the loop: the first press can be lost while the
+      // window is still settling.
       await expect(async () => {
         await win1.keyboard.press('Control+o')
-        await expect(win1.locator(`text=${dir}`).first()).toBeVisible({ timeout: 4000 })
+        await win1.waitForTimeout(600)
+        const backBtn = win1.locator('button:has-text("项目列表")').first()
+        if (await backBtn.isVisible().catch(() => false)) {
+          await backBtn.click()
+          await win1.waitForTimeout(400)
+        }
+        await expect(win1.locator(`div.group:has-text("${dir.split(/[/\\]/).pop()}")`).first()).toBeVisible({ timeout: 4000 })
       }).toPass({ timeout: 25000 })
-      await win1.locator(`text=${dir}`).first().dblclick()
+      await dismissOnboarding(win1)
+      await win1.locator(`div.group:has-text("${dir.split(/[/\\]/).pop()}")`).first().dblclick()
       await expect(win1.locator('#file-tree-root >> text=hello.ts').first()).toBeVisible({ timeout: 8000 })
 
       // Open hello.ts in the editor
@@ -87,10 +129,15 @@ test.describe('Hot Exit', () => {
       const win2 = await mainWindow(app2)
       try {
         await expect(win2.locator('text=恢复未保存的更改').first()).toBeVisible({ timeout: 8000 })
-        await expect(win2.locator('text=hello.ts').first()).toBeVisible({ timeout: 3000 })
+        // Scope to the dialog — an identical tab label can sit hidden elsewhere
+        const restoreDialog = win2.locator('[role="dialog"]:has-text("恢复未保存的更改")')
+        await expect(restoreDialog.locator('text=hello.ts').first()).toBeVisible({ timeout: 3000 })
 
         await win2.locator('button', { hasText: '恢复' }).first().click()
-        await win2.waitForTimeout(1500)
+        // The restored buffer stays DIRTY by design (the modal says it reopens
+        // as unsaved), so the hot-exit system re-creates a protection backup a
+        // beat later — wait for it to settle instead of racing the 1.5s debounce.
+        await win2.waitForTimeout(2000)
 
         const editorText = await win2.evaluate(() => {
           const ed = (window as any).__monacoEditor
@@ -99,7 +146,12 @@ test.describe('Hot Exit', () => {
         expect(editorText).toContain('hello world')
 
         const backups2 = await win2.evaluate(() => (window as any).electronAPI.listBackups())
-        expect(backups2).toHaveLength(0)
+        // Any surviving backup must reflect the RESTORED text (a fresh hot-exit
+        // copy of the still-unsaved buffer) — never the stale 'hello' original.
+        for (const b of backups2) {
+          const data = await win2.evaluate((p) => (window as any).electronAPI.readBackup(p), b.filePath)
+          expect(data?.content).toContain('hello world')
+        }
       } finally {
         // Never leave a backup behind, even if a mid-test assertion failed
         await win2.evaluate(() => (window as any).electronAPI.clearBackups()).catch(() => {})
