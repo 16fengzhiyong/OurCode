@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
-import { useEditorStore } from '@/stores/editorStore'
 import { filterSlashCommands, buildSlashPrompt, getEditorSlashContext, getAllSlashCommands, SLASH_COMMANDS, SlashCommand } from '@/services/commands/slashCommands'
 import { takePendingVibeReplace } from '@/services/vibeReplace'
 import { useI18n } from '@/i18n/useI18n'
@@ -115,12 +114,6 @@ export default function ChatInput() {
   const [queuedHint, setQueuedHint] = useState(false)
   const [listening, setListening] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
-  /** Path of the 当前关注文件 anchor the user dismissed (✕). The anchor chip
-   *  is passive context — opening a file in the editor auto-shows it above the
-   *  input, which users read as "the file got added to the conversation". A
-   *  per-path dismiss lets them clear it; switching to another file re-shows
-   *  the anchor for the new file. */
-  const [dismissedActiveFile, setDismissedActiveFile] = useState<string | null>(null)
   const recognitionRef = useRef<{ stop: () => void } | null>(null)
   const t = useI18n()
 
@@ -180,9 +173,6 @@ export default function ChatInput() {
   })
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
   const rootPath = useUIStore((s) => s.rootPath)
-  // 当前关注文件 —— 输入框上方的被动上下文锚点（不加入本轮发送，点击跳转编辑器）
-  const activeFilePath = useEditorStore((s) => s.activeFilePath)
-  const openFilesCount = useEditorStore((s) => s.openFiles.length)
 
   // Auto-resize textarea
   useEffect(() => {
@@ -598,33 +588,9 @@ export default function ChatInput() {
 
   return (
     <div className="border-t border-nova-border p-3">
-      {/* 上下文锚点 + 附加文件 —— 合并为单行（主流工具如 Cursor 的做法：输入框
-          上方一行紧凑标签，减少层数）；当前关注文件被动指示，点击跳转编辑器。 */}
-      {(activeFilePath || contextFiles.length > 0) && (
+      {/* 附加文件 —— 输入框上方一行紧凑标签（仅用户主动附加的文件，随消息发送） */}
+      {contextFiles.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 mb-2">
-          {activeFilePath && activeFilePath !== dismissedActiveFile && (
-            <span
-              className="inline-flex items-center gap-0.5 pl-1.5 pr-1 py-0.5 rounded-full bg-nova-surface border border-nova-border/60 hover:border-nova-accent/40 hover:bg-nova-hover/60 transition-colors max-w-[240px]"
-            >
-              <button
-                onClick={() => { useEditorStore.getState().openFile(activeFilePath) }}
-                title={activeFilePath}
-                className="inline-flex items-center gap-1 min-w-0"
-              >
-                <span className="material-symbols-outlined text-[12px] leading-none text-nova-accent shrink-0" aria-hidden>description</span>
-                <span className="font-mono text-[11px] text-nova-text-primary truncate">{activeFilePath.split(/[/\\]/).pop()}</span>
-              </button>
-              <button
-                onClick={() => setDismissedActiveFile(activeFilePath)}
-                title={t('chat.removeFile')}
-                className="w-4 h-4 flex items-center justify-center rounded-full shrink-0 text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
-              >
-                <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                  <path d="M1 1L7 7M7 1L1 7" />
-                </svg>
-              </button>
-            </span>
-          )}
           {contextFiles.map((file) => (
             <FileChip
               key={file}
@@ -635,11 +601,6 @@ export default function ChatInput() {
               removeLabel={t('chat.removeFile')}
             />
           ))}
-          {activeFilePath && openFilesCount > 1 && (
-            <span className="text-[10px] text-nova-text-muted shrink-0">
-              {t('chat.contextOpenFiles', { count: openFilesCount - 1 })}
-            </span>
-          )}
         </div>
       )}
 
