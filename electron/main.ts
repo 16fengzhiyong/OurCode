@@ -163,8 +163,52 @@ function isSafeEnvVarName(name: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)
 }
 
+// ── Read-only git command cache ──────────────────────────────────────────────
+// StatusBar / FileTree / chatStore each poll git on their own timer (10s / 15s /
+// 30s), all issuing `git status` / `git rev-parse` / `git log` independently.
+// On a big repo a single `git status --porcelain` costs 0.5–5s and concurrent
+// git processes contend for `.git/index.lock`, so the main process dedupes and
+// serialises these read-only calls: within a TTL window the first request runs
+// git and the rest are served from cache. Mutating commands and anything with
+// stdin input bypass the cache. `gitExecRaw` (byte-exact blob reads for the
+// diff editor) is intentionally NOT cached so it always reflects the latest
+// working-tree state.
+const GIT_READ_ONLY_SUBCOMMANDS = new Set(['rev-parse', 'status', 'log'])
+const GIT_CACHE_TTL_MS = 5_000
+const GIT_CACHE_MAX_ENTRIES = 256
+
+interface GitCacheEntry {
+  at: number
+  promise: Promise<string>
+}
+
+const gitReadOnlyCache = new Map<string, GitCacheEntry>()
+
+function gitCacheKey(cwd: string, args: string[]): string {
+  return `${cwd}\u0000${args.join(' ')}`
+}
+
+function isReadOnlyGit(args: string[]): boolean {
+  return args.length > 0 && GIT_READ_ONLY_SUBCOMMANDS.has(args[0])
+}
+
 /** Execute a git command and return stdout */
 function gitExec(cwd: string, args: string[], input?: string): Promise<string> {
+  if (!input && isReadOnlyGit(args)) {
+    const key = gitCacheKey(cwd, args)
+    const now = Date.now()
+    const hit = gitReadOnlyCache.get(key)
+    if (hit && now - hit.at < GIT_CACHE_TTL_MS) return hit.promise
+    const promise = runGit(cwd, args, input, true)
+    gitReadOnlyCache.set(key, { at: now, promise })
+    // Simple FIFO eviction — the map preserves insertion order. The cache only
+    // ever holds a handful of entries per project, so this is a safety net.
+    if (gitReadOnlyCache.size > GIT_CACHE_MAX_ENTRIES) {
+      const oldestKey = gitReadOnlyCache.keys().next().value
+      if (oldestKey !== undefined) gitReadOnlyCache.delete(oldestKey)
+    }
+    return promise
+  }
   return runGit(cwd, args, input, true)
 }
 
@@ -783,12 +827,29 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('fs:watch', async (_event, path: string) => {
     registerRoot(path)
+    // Batch watcher events per root: a build (or install) emits hundreds of
+    // change events in quick succession; broadcasting each one as its own
+    // fs:fileChanged IPC message floods the renderer and forces a full
+    // file-tree refresh per event. Coalesce paths within a short window and
+    // flush them in one go. Heavily machine-generated dirs (dist/build/out/...)
+    // are already dropped at the watcher level, so this only smooths over the
+    // remaining burst of real source edits.
+    const pendingPaths = new Set<string>()
+    let flushTimer: NodeJS.Timeout | null = null
+    const flush = (): void => {
+      flushTimer = null
+      const changed = Array.from(pendingPaths)
+      pendingPaths.clear()
+      for (const changedPath of changed) {
+        broadcast('fs:fileChanged', changedPath)
+        // Keep the in-memory codebase index fresh (single-file edits update in
+        // place; event bursts debounce into a full rebuild)
+        fileIndex.onFileChanged(changedPath)
+      }
+    }
     fileSystem.watch(path, (changedPath) => {
-      // Notify all windows watching this project
-      broadcast('fs:fileChanged', changedPath)
-      // Keep the in-memory codebase index fresh (single-file edits update in
-      // place; event bursts debounce into a full rebuild)
-      fileIndex.onFileChanged(changedPath)
+      pendingPaths.add(changedPath)
+      if (flushTimer === null) flushTimer = setTimeout(flush, 150)
     })
     // Warm the search index in the background so the first search is already
     // served from memory; MCP servers load in parallel below.

@@ -466,7 +466,15 @@ export class FileSystemService {
     // main process and flood the renderer with change events during installs /
     // builds. The file tree still lists these directories (listDir is separate);
     // only change events for them are dropped.
-    const HEAVY_WATCH_DIRS = /(^|[/\\])(node_modules|\.git|\.hg|\.svn|\.idea|\.vscode|\.cache|__pycache__)([/\\]|$)/
+    //
+    // Build/output dirs (dist / build / out / coverage / release*) are included
+    // for the same reason: running a build emits hundreds/thousands of change
+    // events, which would otherwise spam the renderer with fs:fileChanged IPC
+    // and force a full file-tree refresh. This list is kept in sync with
+    // main.ts's DEFAULT_EXCLUDE_FOLDERS so the watcher and the search index
+    // agree on what is machine-generated (search index also excludes .next /
+    // .nuxt / .output / coverage, which are harmless here).
+    const HEAVY_WATCH_DIRS = /(^|[/\\])(node_modules|\.git|\.hg|\.svn|\.idea|\.vscode|\.cache|__pycache__|dist|build|out|coverage|\.next|\.nuxt|\.output|release(?:-[^/\\]+)?)([/\\]|$)/
 
     const watcher = watch(dirPath, {
       ignored: (p: string) => /(^|[/\\])\../.test(p) || HEAVY_WATCH_DIRS.test(p),

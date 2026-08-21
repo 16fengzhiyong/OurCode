@@ -46,8 +46,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('lsp:didChange', uri, version, text),
   lspStop: (uri: string) => ipcRenderer.invoke('lsp:stop', uri),
   onLspDiagnostics: (callback: (payload: { uri: string; diagnostics: Array<Record<string, unknown>> }) => void) => {
-    ipcRenderer.on('lsp:diagnostics', (_event, payload) => callback(payload))
-    return () => { ipcRenderer.removeAllListeners('lsp:diagnostics') }
+    const listener = (_event: any, payload: any) => callback(payload)
+    ipcRenderer.on('lsp:diagnostics', listener)
+    return () => { ipcRenderer.removeListener('lsp:diagnostics', listener) }
   },
 
   // Debug Adapter Protocol
@@ -61,13 +62,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   debugStepOut: () => ipcRenderer.invoke('debug:stepOut'),
   debugStop: () => ipcRenderer.invoke('debug:stop'),
   onDebugEvent: (event: 'stopped' | 'output' | 'terminated', callback: (body: Record<string, unknown>) => void) => {
-    ipcRenderer.on(`debug:${event}`, (_e, body) => callback(body))
-    return () => { ipcRenderer.removeAllListeners(`debug:${event}`) }
+    const listener = (_e: any, body: any) => callback(body)
+    ipcRenderer.on(`debug:${event}`, listener)
+    return () => { ipcRenderer.removeListener(`debug:${event}`, listener) }
   },
   onFileChanged: (callback: (path: string) => void) => {
-    ipcRenderer.on(IPC_CHANNELS.FS_FILE_CHANGED, (_event, path) => callback(path))
+    const listener = (_event: any, path: string) => callback(path)
+    ipcRenderer.on(IPC_CHANNELS.FS_FILE_CHANGED, listener)
     return () => {
-      ipcRenderer.removeAllListeners(IPC_CHANNELS.FS_FILE_CHANGED)
+      ipcRenderer.removeListener(IPC_CHANNELS.FS_FILE_CHANGED, listener)
     }
   },
 
@@ -121,9 +124,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openDevTools: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_DEV_TOOLS),
   openNewWindow: () => ipcRenderer.invoke('window:openNewWindow'),
   onMaximized: (callback: (isMaximized: boolean) => void) => {
-    ipcRenderer.on('window:maximized', (_event, isMaximized) => callback(isMaximized))
+    const listener = (_event: any, isMaximized: boolean) => callback(isMaximized)
+    ipcRenderer.on('window:maximized', listener)
     return () => {
-      ipcRenderer.removeAllListeners('window:maximized')
+      ipcRenderer.removeListener('window:maximized', listener)
     }
   },
 
@@ -138,13 +142,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   termDispose: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.TERM_DISPOSE, id),
   onTermData: (id: string, callback: (data: string) => void) => {
     const channel = `${IPC_CHANNELS.TERM_DATA}:${id}`
-    ipcRenderer.on(channel, (_event, data) => callback(data))
-    return () => { ipcRenderer.removeAllListeners(channel) }
+    const listener = (_event: any, data: string) => callback(data)
+    ipcRenderer.on(channel, listener)
+    return () => { ipcRenderer.removeListener(channel, listener) }
   },
   onTermExit: (id: string, callback: (code: number) => void) => {
     const channel = `${IPC_CHANNELS.TERM_EXIT}:${id}`
-    ipcRenderer.on(channel, (_event, code) => callback(code))
-    return () => { ipcRenderer.removeAllListeners(channel) }
+    const listener = (_event: any, code: number) => callback(code)
+    ipcRenderer.on(channel, listener)
+    return () => { ipcRenderer.removeListener(channel, listener) }
   },
 
   // Search
@@ -249,11 +255,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   downloadUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_DOWNLOAD),
   installUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_INSTALL),
   onUpdateStatus: (callback: (status: { state: string; version?: string; releaseNotes?: string; releaseDate?: string; message?: string }) => void) => {
-    ipcRenderer.on(IPC_CHANNELS.UPDATE_STATUS, (_event, status) => callback(status))
-    return () => { ipcRenderer.removeAllListeners(IPC_CHANNELS.UPDATE_STATUS) }
+    const listener = (_event: any, status: any) => callback(status)
+    ipcRenderer.on(IPC_CHANNELS.UPDATE_STATUS, listener)
+    return () => { ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_STATUS, listener) }
   },
   onUpdateProgress: (callback: (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => void) => {
-    ipcRenderer.on(IPC_CHANNELS.UPDATE_PROGRESS, (_event, progress) => callback(progress))
-    return () => { ipcRenderer.removeAllListeners(IPC_CHANNELS.UPDATE_PROGRESS) }
+    const listener = (_event: any, progress: any) => callback(progress)
+    ipcRenderer.on(IPC_CHANNELS.UPDATE_PROGRESS, listener)
+    return () => { ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_PROGRESS, listener) }
   },
 })
