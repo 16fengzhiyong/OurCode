@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, session, Notification, type WebContents, type IpcMainInvokeEvent } from 'electron'
-import { join, resolve, dirname, sep, relative, isAbsolute } from 'path'
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, session, Notification, protocol, type WebContents, type IpcMainInvokeEvent } from 'electron'
+import { join, resolve, dirname, sep, relative, isAbsolute, extname } from 'path'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { readFile } from 'fs/promises'
 import { is } from '@electron-toolkit/utils'
 import { exec, execFile, spawn } from 'child_process'
 import type { ExecFileOptions } from 'child_process'
@@ -72,6 +73,90 @@ function assertPathAllowed(p: string): void {
     throw new Error(`路径不在允许范围内: ${p}`)
   }
 }
+
+// ── Local file preview protocol (ourcode-file://) ──────────────────────────
+// The editor's preview panes (HTML browser preview / image preview) load local
+// files through this scheme so relative resources (css/js/img/fonts) resolve to
+// the filesystem, and the previewed HTML document gets its own permissive CSP
+// instead of inheriting the app's strict one. Only files under registered roots
+// are served. An optional in-memory buffer (preview:set) lets the HTML preview
+// show unsaved edits live without writing them to disk.
+const PREVIEW_SCHEME = 'ourcode-file'
+
+/** Preview buffers: path → in-memory content pushed by the renderer for live
+ *  HTML preview (unsaved edits). Cleared on save/close so disk is authoritative. */
+const previewBuffers = new Map<string, string>()
+
+const PREVIEW_MIME_TYPES: Record<string, string> = {
+  html: 'text/html', htm: 'text/html', xhtml: 'application/xhtml+xml',
+  css: 'text/css',
+  js: 'text/javascript', mjs: 'text/javascript', cjs: 'text/javascript',
+  json: 'application/json', map: 'application/json',
+  xml: 'application/xml',
+  txt: 'text/plain', md: 'text/markdown',
+  svg: 'image/svg+xml',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', bmp: 'image/bmp', ico: 'image/x-icon', avif: 'image/avif',
+  woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf',
+  mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg',
+  pdf: 'application/pdf',
+}
+
+function mimeTypeOf(path: string): string {
+  const ext = extname(path).toLowerCase().replace('.', '')
+  return PREVIEW_MIME_TYPES[ext] || 'application/octet-stream'
+}
+
+/** Decode an ourcode-file:// URL into an absolute filesystem path. The path
+ *  rides under the fixed `local` host (see previewFileUrl) so a Windows drive
+ *  letter stays in the pathname instead of being parsed as the host. */
+function previewUrlToPath(urlStr: string): string | null {
+  let u: URL
+  try {
+    u = new URL(urlStr)
+  } catch {
+    return null
+  }
+  if (u.hostname !== 'local' || !u.pathname) return null
+  const decoded = decodeURIComponent(u.pathname)
+  return process.platform === 'win32' ? decoded.replace(/^\//, '') : decoded
+}
+
+/** Permissive CSP for previewed HTML — the page is the user's own code running
+ *  in a sandboxed iframe, so scripts/styles/external CDNs behave like a browser. */
+const PREVIEW_HTML_CSP = "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; object-src 'none'"
+
+function registerPreviewProtocol(): void {
+  protocol.handle(PREVIEW_SCHEME, async (request) => {
+    const filePath = previewUrlToPath(request.url)
+    if (!filePath || !isPathAllowed(filePath)) {
+      return new Response('Not found', { status: 404 })
+    }
+    const headers: Record<string, string> = {
+      'content-type': mimeTypeOf(filePath),
+    }
+    if (headers['content-type'] === 'text/html') {
+      headers['content-security-policy'] = PREVIEW_HTML_CSP
+    }
+    // Live preview buffer wins over disk while the file has unsaved edits
+    const buffer = previewBuffers.get(filePath)
+    if (buffer !== undefined) {
+      return new Response(buffer, { headers })
+    }
+    try {
+      return new Response(await readFile(filePath), { headers })
+    } catch {
+      return new Response('Not found', { status: 404 })
+    }
+  })
+}
+
+/** Register the scheme as a standard, secure scheme so URL parsing matches
+ *  http(s) (host + pathname) and the preview origin is stable. Must run before
+ *  the app is ready. */
+protocol.registerSchemesAsPrivileged([
+  { scheme: PREVIEW_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
+])
 
 /** Validate an environment variable name (only plain identifiers may be resolved) */
 function isSafeEnvVarName(name: string): boolean {
@@ -256,8 +341,11 @@ function createWindow(): void {
     },
   })
 
-  // Open devtools in development
-  if (is.dev) {
+  // Open devtools in development. `is.dev` is true for ANY unpackaged app —
+  // including Playwright e2e runs against dist-electron/main.js — and a docked
+  // DevTools window squeezes the editor layout (which the e2e specs assert on).
+  // Auto-open only under the electron-vite dev server, the precise dev signal.
+  if (process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.webContents.openDevTools()
   }
 
@@ -638,6 +726,20 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('fs:abortWriteStream', async (_event, id: number) => {
     return fileSystem.abortWriteStream(id)
+  })
+
+  // File preview buffers — the renderer pushes live (unsaved) HTML content here
+  // so the ourcode-file:// protocol serves it to the preview iframe without
+  // writing to disk. Unauthorized paths are silently ignored (the protocol
+  // handler refuses to serve them anyway) rather than throwing to the renderer.
+  ipcMain.handle(IPC_CHANNELS.PREVIEW_SET, (_event, path: string, content: string) => {
+    if (!isPathAllowed(path)) return
+    previewBuffers.set(path, content)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.PREVIEW_CLEAR, (_event, path: string) => {
+    if (!isPathAllowed(path)) return
+    previewBuffers.delete(path)
   })
 
   ipcMain.handle('fs:listDir', async (_event, path: string) => {
@@ -1699,10 +1801,22 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 // App lifecycle
+
+// OURCODE_USER_DATA lets tests / multi-instance runs point the app at a
+// throwaway data dir instead of the real userData. Redirect the FULL Chromium
+// profile too (localStorage — editor session, recent projects, UI state —
+// lives there, not in the app's own stores), so the isolation is complete.
+// Must happen before the app is ready / Chromium initializes the profile.
+if (process.env.OURCODE_USER_DATA) {
+  app.setPath('userData', process.env.OURCODE_USER_DATA)
+}
+
 app.whenReady().then(() => {
+  // Local file preview protocol (ourcode-file://) — must be registered after
+  // the app is ready (scheme privileges were declared above, before ready)
+  registerPreviewProtocol()
+
   // Initialize services
-  // OURCODE_USER_DATA lets tests / multi-instance runs point the app at a
-  // throwaway data dir instead of the real userData.
   const userDataPath = process.env.OURCODE_USER_DATA || app.getPath('userData')
   // The renderer's skill/agent scanners discover global dirs in userData via
   // fs:listDir / fs:stat, so register them alongside user-opened workspaces.

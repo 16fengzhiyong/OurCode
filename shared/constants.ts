@@ -99,6 +99,10 @@ export const IPC_CHANNELS = {
   // Shell
   SHELL_EXEC: 'shell:exec',
 
+  // File preview (ourcode-file:// live preview buffers)
+  PREVIEW_SET: 'preview:set',
+  PREVIEW_CLEAR: 'preview:clear',
+
   // Auto Update
   UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',

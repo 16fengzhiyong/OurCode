@@ -876,6 +876,14 @@ export const zhCN = {
   'editor.quickOpenHint': '使用 {shortcut} 快速打开文件',
   'editor.openFolderHint': '或使用 {shortcut} 打开文件夹',
 
+  // ── 文件预览（HTML / Markdown / 图片） ──────────────────────────────────
+  'preview.edit': '编辑',
+  'preview.split': '分屏',
+  'preview.preview': '预览',
+  'preview.refresh': '刷新',
+  'preview.refreshHint': '重新加载预览',
+  'preview.liveHint': '编辑时实时刷新 · 保存后可浏览器打开',
+
   // ── 插件市场 ───────────────────────────────────────────────────────────
   'plugin.subtitle': '管理已安装的扩展或安装新扩展',
   'plugin.installedTab': '已安装 ({count})',

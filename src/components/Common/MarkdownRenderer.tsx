@@ -10,6 +10,10 @@ import { t, getLocale } from '@/i18n'
 
 interface MarkdownRendererProps {
   content: string
+  /** Optional: resolve a relative image href into an absolute URL before
+   *  rendering. The file preview uses this to point local images at the
+   *  ourcode-file:// protocol. Chat passes nothing (no file context). */
+  rewriteImageSrc?: (href: string) => string
 }
 
 // Custom renderer
@@ -29,13 +33,43 @@ renderer.code = function (...args: any[]) {
   return `<div class="code-block"><div class="code-header"><span class="code-lang">${language}</span><button class="copy-btn" data-copy title="${t('common.copy')}" aria-label="${t('common.copy')}"><span class="material-symbols-outlined" aria-hidden="true">content_copy</span></button></div><pre><code class="hljs language-${language}">${highlighted}</code></pre></div>`
 }
 
+/**
+ * A per-call renderer that rewrites relative image hrefs (file preview). The
+ * shared chat renderer stays untouched — chat has no file context to resolve
+ * against, and its global config must not change per-instance.
+ */
+function buildImageRewriterRenderer(resolveHref: (href: string) => string): InstanceType<typeof marked.Renderer> {
+  const r = new marked.Renderer()
+  // Preserve the code-block override (header + copy button) from the shared renderer
+  r.code = renderer.code
+  // Accepts both the newer object form {href, title, text} and the legacy
+  // (href, title, text) form, like the code override above.
+  r.image = function (...args: any[]) {
+    const first = args[0]
+    const href = typeof first === 'object' ? (first.href as string) : (args[0] as string)
+    const title = typeof first === 'object' ? (first.title as string | undefined) : (args[1] as string | undefined)
+    const text = typeof first === 'object' ? (first.text as string) : (args[2] as string)
+    const escapeAttr = (s: string) => s.replace(/"/g, '&quot;')
+    const titleAttr = title ? ` title="${escapeAttr(title)}"` : ''
+    return `<img src="${escapeAttr(resolveHref(href))}" alt="${escapeAttr(text)}"${titleAttr}>`
+  }
+  return r
+}
+
 marked.use({
   gfm: true,
   breaks: true,
   renderer,
 })
 
-export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
+// DOMPurify's default URI allowlist (http/https/ftp/mailto/...) drops custom
+// schemes. `ourcode-file:` is the app's own local-file protocol (only serves
+// files under the user's opened roots), so markdown file previews can reference
+// local images through it. Chat never produces such URLs — the extra entry is a
+// no-op there.
+const ALLOWED_URI_REGEXP = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|ourcode-file):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
+
+export default function MarkdownRenderer({ content, rewriteImageSrc }: MarkdownRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   const html = useMemo(() => {
@@ -45,16 +79,20 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
       // Whitelist a few rich-typography tags so AI answers can emit <mark>
       // highlights, <kbd> keys and <details>/<summary> collapsible panels —
       // nothing executable slips through (no onclick/onerror/script allowed).
-      return DOMPurify.sanitize(marked.parse(content) as string, {
+      const parsed = rewriteImageSrc
+        ? marked.parse(content, { renderer: buildImageRewriterRenderer(rewriteImageSrc) })
+        : marked.parse(content)
+      return DOMPurify.sanitize(parsed as string, {
         ADD_TAGS: ['mark', 'kbd', 'details', 'summary'],
         ADD_ATTR: ['open'],
+        ALLOWED_URI_REGEXP,
       })
     } catch {
       return DOMPurify.sanitize(`<p>${content}</p>`)
     }
     // Re-render the code-block Copy label when the language changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [content, getLocale()])
+  }, [content, rewriteImageSrc, getLocale()])
 
   // Event-delegated copy button (works under CSP, no inline handlers)
   useEffect(() => {

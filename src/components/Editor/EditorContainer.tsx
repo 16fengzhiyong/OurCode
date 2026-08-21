@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { monaco } from '@/editor/monacoSetup'
 import { useEditorStore } from '@/stores/editorStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -6,11 +6,13 @@ import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { registerModel, unregisterModel, getModel, getRegisteredPaths, takeLoader, trackLoad, fileUri } from '@/editor/modelRegistry'
 import { ensureLanguageService, OURCODE_DARK_THEME, OURCODE_LIGHT_THEME } from '@/editor/monacoSetup'
+import { getFileViewMode, type FileViewMode } from '@/editor/fileViews'
 import { setPendingVibeReplace } from '@/services/vibeReplace'
 import { attachLsp, detachLsp } from '@/services/lsp/lspClient'
 import BreadcrumbBar from './BreadcrumbBar'
 import DiffView from './DiffView'
 import GitDiffEditor from './GitDiffEditor'
+import PreviewPane from './PreviewPane'
 import type { UserPreferences } from '@/types'
 import { useI18n } from '@/i18n/useI18n'
 import { t as moduleT } from '@/i18n'
@@ -23,6 +25,18 @@ const LARGE_FILE_OPTIMIZE_BYTES = 10 * 1024 * 1024
 // tab bar, status bar and the options effect — on every arrow key of a big
 // file). Restored when the file becomes active again.
 const fileCursors = new Map<string, { line: number; column: number }>()
+
+// Per-file preview layout (editor / split / preview), remembered across tab
+// switches — same pattern as fileCursors: module state, not the store.
+type PreviewLayout = 'editor' | 'split' | 'preview'
+const previewLayouts = new Map<string, PreviewLayout>()
+
+/** Default layout when a file's view mode has no remembered choice. Markdown
+ *  opens side-by-side (VS Code style); html/image open straight to the preview
+ *  (no split offered). */
+function defaultLayoutFor(mode: FileViewMode): PreviewLayout {
+  return mode === 'markdown' ? 'split' : 'preview'
+}
 
 /**
  * Editor options for a file. Large files get a reduced-feature preset (like VS
@@ -111,6 +125,45 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
   const showContextMenu = useUIStore((s) => s.showContextMenu)
   const uiTheme = useUIStore((s) => s.theme)
   const t = useI18n()
+
+  // ── Per-file preview views (html / markdown / image) ──────────────────────
+  // Files with a dedicated view mode get an extra preview surface next to (or
+  // instead of) the Monaco editor, plus a toolbar to pick the layout. The
+  // choice is remembered per path across tab switches. Only markdown supports
+  // side-by-side; html/image are either-or (editor or preview).
+  const viewMode = activeFilePath ? getFileViewMode(activeFilePath) : 'code'
+  const hasPreview = viewMode === 'html' || viewMode === 'markdown' || viewMode === 'image'
+  const [layout, setLayoutState] = useState<PreviewLayout>('split')
+  const [refreshToken, setRefreshToken] = useState(0)
+
+  useEffect(() => {
+    // A stale 'split' (e.g. remembered from a markdown tab) is clamped for
+    // non-split modes so the toolbar can never land on a layout it doesn't offer.
+    const remembered = previewLayouts.get(activeFilePath ?? '')
+    const initial = remembered ?? defaultLayoutFor(viewMode)
+    setLayoutState(viewMode === 'html' && initial === 'split' ? 'preview' : initial)
+  }, [activeFilePath, viewMode])
+
+  const setLayout = (l: PreviewLayout) => {
+    const clamped = viewMode === 'html' && l === 'split' ? 'preview' : l
+    setLayoutState(clamped)
+    if (activeFilePath) previewLayouts.set(activeFilePath, clamped)
+  }
+
+  // Image files have no text to edit — always preview-only. Code files keep
+  // the plain Monaco editor (showEditor defaults to true when no preview).
+  const showEditor = !hasPreview || (viewMode !== 'image' && layout !== 'preview')
+  const showPreview = hasPreview && layout !== 'editor'
+
+  // A Monaco editor hidden via display:none can render a blank frame when it
+  // comes back — force a relayout pass after the editor side toggles.
+  useEffect(() => {
+    if (!hasPreview) return
+    const editor = monacoRef.current
+    if (!editor) return
+    const id = window.requestAnimationFrame(() => editor.layout())
+    return () => window.cancelAnimationFrame(id)
+  }, [showEditor, hasPreview])
 
   // Reload open models when a file changes on disk (tool edits / checkpoint reverts)
   useEffect(() => {
@@ -394,20 +447,40 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
         </div>
       )}
       {!diffMode && <BreadcrumbBar />}
-      <div className="relative flex-1 min-h-0">
-        <div ref={editorRef} className="absolute inset-0" />
-        {!diffMode && activeFile?.isLoading && (activeFile.size ?? 0) > 1024 * 1024 && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-nova-bg/70 pointer-events-none">
-            <div className="w-8 h-8 rounded-full border-2 border-nova-accent border-t-transparent animate-spin" />
-            <div className="text-sm text-nova-text-secondary">
-              {t('editor.loadingFile', { percent: activeFile.loadProgress ?? 0 })}
+      {!diffMode && hasPreview && viewMode !== 'image' && (
+        <PreviewToolbar
+          mode={viewMode as 'html' | 'markdown'}
+          layout={layout}
+          onLayout={setLayout}
+          onRefresh={() => setRefreshToken((v) => v + 1)}
+        />
+      )}
+      <div className="relative flex-1 min-h-0 flex">
+        <div className={`relative min-w-0 flex-1 ${showEditor ? '' : 'hidden'}`}>
+          <div ref={editorRef} className="absolute inset-0" />
+          {!diffMode && activeFile?.isLoading && (activeFile.size ?? 0) > 1024 * 1024 && (
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-nova-bg/70 pointer-events-none">
+              <div className="w-8 h-8 rounded-full border-2 border-nova-accent border-t-transparent animate-spin" />
+              <div className="text-sm text-nova-text-secondary">
+                {t('editor.loadingFile', { percent: activeFile.loadProgress ?? 0 })}
+              </div>
+              <div className="w-48 h-1 bg-nova-hover rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-nova-accent rounded-full transition-all duration-150"
+                  style={{ width: `${activeFile.loadProgress ?? 0}%` }}
+                />
+              </div>
             </div>
-            <div className="w-48 h-1 bg-nova-hover rounded-full overflow-hidden">
-              <div
-                className="h-full bg-nova-accent rounded-full transition-all duration-150"
-                style={{ width: `${activeFile.loadProgress ?? 0}%` }}
-              />
-            </div>
+          )}
+        </div>
+        {showPreview && (
+          <div className="relative min-w-0 flex-1 border-l border-nova-border">
+            <PreviewPane
+              key={activeFilePath ?? ''}
+              path={activeFilePath ?? ''}
+              mode={viewMode}
+              refreshToken={refreshToken}
+            />
           </div>
         )}
         {diffMode && activeDiff && (
@@ -435,4 +508,64 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
 /** Format a byte count as an MB integer for the preview banner. */
 function formatMB(bytes: number | undefined): number {
   return Math.round((bytes ?? 0) / (1024 * 1024))
+}
+
+/** Toolbar above the editor for preview-capable files: pick the layout and,
+ *  for HTML, manually refresh the iframe. Only markdown offers side-by-side —
+ *  html is either editor or preview (no split). */
+function PreviewToolbar({
+  mode,
+  layout,
+  onLayout,
+  onRefresh,
+}: {
+  mode: 'html' | 'markdown'
+  layout: PreviewLayout
+  onLayout: (l: PreviewLayout) => void
+  onRefresh: () => void
+}) {
+  const t = useI18n()
+  const segments: Array<{ value: PreviewLayout; label: string }> = mode === 'html'
+    ? [
+        { value: 'editor', label: t('preview.edit') },
+        { value: 'preview', label: t('preview.preview') },
+      ]
+    : [
+        { value: 'editor', label: t('preview.edit') },
+        { value: 'split', label: t('preview.split') },
+        { value: 'preview', label: t('preview.preview') },
+      ]
+
+  return (
+    <div data-testid="preview-toolbar" className="shrink-0 flex items-center gap-2 px-3 h-9 border-b border-nova-border bg-nova-bg/60">
+      <div className="flex items-center rounded-md overflow-hidden border border-nova-border divide-x divide-nova-border">
+        {segments.map(({ value, label }) => (
+          <button
+            key={value}
+            onClick={() => onLayout(value)}
+            className={`px-2.5 py-1 text-xs transition-colors ${
+              layout === value
+                ? 'bg-nova-accent/20 text-nova-accent font-medium'
+                : 'text-nova-text-secondary hover:text-nova-text-primary hover:bg-nova-hover'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {mode === 'html' && (
+        <button
+          onClick={onRefresh}
+          title={t('preview.refreshHint')}
+          className="flex items-center gap-1 px-2 py-1 text-xs rounded-md text-nova-text-secondary hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+        >
+          <span aria-hidden>↻</span>
+          {t('preview.refresh')}
+        </button>
+      )}
+      <span className="ml-auto text-[11px] text-nova-text-muted hidden sm:block">
+        {t('preview.liveHint')}
+      </span>
+    </div>
+  )
 }

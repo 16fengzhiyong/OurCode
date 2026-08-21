@@ -71,6 +71,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
+  // File preview — push live (unsaved) HTML content into the ourcode-file://
+  // protocol's buffer so the preview iframe shows edits without a save
+  setPreviewContent: (path: string, content: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_SET, path, content),
+  clearPreviewContent: (path: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREVIEW_CLEAR, path),
+
   // Store
   getConfigGroups: () => ipcRenderer.invoke(IPC_CHANNELS.STORE_GET_CONFIG_GROUPS),
   saveConfigGroup: (group: any) => ipcRenderer.invoke(IPC_CHANNELS.STORE_SAVE_CONFIG_GROUP, group),

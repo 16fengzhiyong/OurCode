@@ -879,6 +879,14 @@ export const enUS: Record<TranslationKey, string> = {
   'editor.quickOpenHint': 'Use {shortcut} to quickly open a file',
   'editor.openFolderHint': 'Or use {shortcut} to open a folder',
 
+  // ── File preview (HTML / Markdown / image) ───────────────────────────────
+  'preview.edit': 'Edit',
+  'preview.split': 'Split',
+  'preview.preview': 'Preview',
+  'preview.refresh': 'Refresh',
+  'preview.refreshHint': 'Reload the preview',
+  'preview.liveHint': 'Live refresh on edit · open in browser after saving',
+
   // ── Plugin marketplace ─────────────────────────────────────────────────
   'plugin.subtitle': 'Manage installed extensions or install new ones',
   'plugin.installedTab': 'Installed ({count})',

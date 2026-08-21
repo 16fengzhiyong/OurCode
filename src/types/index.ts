@@ -48,6 +48,11 @@ export interface ElectronAPI {
   onDebugEvent: (event: 'stopped' | 'output' | 'terminated', callback: (body: Record<string, unknown>) => void) => () => void
   onFileChanged: (callback: (path: string) => void) => () => void
 
+  // File preview — live (unsaved) HTML content pushed into the ourcode-file://
+  // protocol's buffer so the preview iframe shows edits without a save
+  setPreviewContent: (path: string, content: string) => Promise<void>
+  clearPreviewContent: (path: string) => Promise<void>
+
   // Store
   getConfigGroups: () => Promise<import('@shared/types').ApiConfigGroup[]>
   saveConfigGroup: (group: any) => Promise<import('@shared/types').ApiConfigGroup>
