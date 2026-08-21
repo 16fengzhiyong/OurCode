@@ -209,6 +209,10 @@ function gitExec(cwd: string, args: string[], input?: string): Promise<string> {
     }
     return promise
   }
+  // A mutating git command (or one with stdin input) invalidates the cached
+  // read-only results, so the next status/log/rev-parse poll reflects the just-
+  // performed mutation instead of serving a snapshot from up to 5s ago.
+  gitReadOnlyCache.clear()
   return runGit(cwd, args, input, true)
 }
 
