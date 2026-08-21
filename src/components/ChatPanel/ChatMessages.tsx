@@ -56,39 +56,6 @@ export default function ChatMessages() {
   // Loading / streaming state is per session — only the conversation the user
   // is viewing reacts to its own run; parallel sessions stream independently.
   const isThisSessionLoading = useChatStore((s) => !!activeSessionId && s.runningSessionIds.includes(activeSessionId))
-  const stream = useChatStore((s) => (activeSessionId ? s.streamingBySession[activeSessionId] : undefined))
-  // Current agent-loop stage of this session (preparing / compacting / waiting
-  // / streaming) + when it started — the "正在…" placeholder below shows the
-  // real stage instead of a generic codebase-analysis label, with its own
-  // elapsed-seconds counter driven by the same `now` ticker as runElapsed.
-  const runPhase = useChatStore((s) => (activeSessionId ? s.runPhaseBySession[activeSessionId] : undefined))
-  // The live agent run of this session — used to show how many seconds the
-  // session has been running next to the "思考中…" pulse while it streams.
-  const activeRun = useChatStore((s) => (activeSessionId ? s.activeRuns[activeSessionId] : undefined))
-  // Idle clock: last time this session's agent produced any activity (chunk /
-  // tool step / dialog). When it stays silent for > 1 min a warning badge
-  // counts up the silence so the user knows the model is still "thinking".
-  const lastActivityAt = useChatStore((s) => (activeSessionId ? s.streamLastActivityBySession[activeSessionId] : undefined))
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!isThisSessionLoading) return
-    // Re-sync immediately on entering a run, then tick every second while the
-    // session runs. Deliberately NOT keyed on `lastActivityAt` — the stream's
-    // per-chunk activity updates (now throttled, but still ~20/s) would tear
-    // down and recreate this interval on every flush; the idleSeconds badge
-    // below just reads the latest activity timestamp against the ticking clock.
-    setNow(Date.now())
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [isThisSessionLoading])
-  const idleSeconds = lastActivityAt ? Math.max(0, Math.floor((now - lastActivityAt) / 1000)) : 0
-  // Elapsed seconds of the live run (0 until the run record exists) — the same
-  // `now` ticker above drives it, so the counter updates every second.
-  const liveRun = activeRun ? activeSession?.agentRuns?.find((r) => r.id === activeRun.runId) : undefined
-  const runElapsed = liveRun ? Math.max(0, Math.floor((now - liveRun.startedAt) / 1000)) : 0
-  // Seconds the session has spent in its CURRENT stage (resets on each phase
-  // transition). For 'waiting' this is the model's time-to-first-token.
-  const phaseElapsed = runPhase ? Math.max(0, Math.floor((now - runPhase.since) / 1000)) : 0
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [showUndoToast, setShowUndoToast] = useState(false)
@@ -133,6 +100,23 @@ export default function ChatMessages() {
   // pauses the auto-scroll until they return to the bottom.
   const prevLenRef = useRef(0)
   const prevSessionRef = useRef('')
+  const scrollToLatest = useCallback(() => {
+    const el = scrollRef.current
+    if (!el || !isNearBottomRef.current) return
+    // Instant jump (not smooth): during streaming this fires on every store
+    // flush (~20/s), and a smooth-scroll animation per flush fights the
+    // content growth and janks the main thread. The floating "back to latest"
+    // button keeps the smooth behavior for the one-off user action.
+    el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
+    // chat-msg-row uses content-visibility, so rows resolve their real
+    // height one frame after layout; nudge again if the first pass landed
+    // short so long histories still end up at the true bottom.
+    requestAnimationFrame(() => {
+      if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
+        el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
+      }
+    })
+  }, [])
   useEffect(() => {
     if (!activeSession) return
     const sid = activeSession.id
@@ -141,32 +125,45 @@ export default function ChatMessages() {
     const grew = len > prevLenRef.current
     prevSessionRef.current = sid
     prevLenRef.current = len
-    if (sessionChanged || grew || stream?.content) {
-      const el = scrollRef.current
-      if (!el) return
-      // Entering a session resets the reading position — always follow the new
-      // content; growth and streaming respect the user's scroll position.
-      if (sessionChanged) {
-        isNearBottomRef.current = true
-        setShowScrollToBottom(false)
-      } else if (!isNearBottomRef.current) {
-        return
-      }
-      // Instant jump (not smooth): during streaming this effect fires on every
-      // store flush (~20/s), and a smooth-scroll animation per flush fights the
-      // content growth and janks the main thread. The floating "back to latest"
-      // button keeps the smooth behavior for the one-off user action.
-      el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
-      // chat-msg-row uses content-visibility, so rows resolve their real
-      // height one frame after layout; nudge again if the first pass landed
-      // short so long histories still end up at the true bottom.
-      requestAnimationFrame(() => {
-        if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
-          el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
-        }
+    // Entering a session resets the reading position — always follow the new
+    // content; growth respects the user's scroll position.
+    if (sessionChanged) {
+      isNearBottomRef.current = true
+      setShowScrollToBottom(false)
+    }
+    if (sessionChanged || grew) scrollToLatest()
+  }, [activeSession, scrollToLatest])
+  // While the model streams, the live block grows at up to 20 Hz. The scroll
+  // must follow WITHOUT re-rendering the whole list, so this drives it through
+  // the store's raw subscribe (filtered to this session's stream content)
+  // instead of subscribing to the stream field — no React render is triggered.
+  // The actual scroll is deferred to the next animation frame: the subscription
+  // fires synchronously inside the store's set, BEFORE React commits the new
+  // DOM, so scrolling immediately would read a stale scrollHeight and miss the
+  // growth; by rAF time the DOM is updated and scrollToLatest lands on the true
+  // bottom. Deferring also coalesces multiple flushes per frame into one scroll.
+  useEffect(() => {
+    if (!activeSessionId) return
+    let lastContent = useChatStore.getState().streamingBySession[activeSessionId]?.content
+    let rafId: number | null = null
+    const scheduleScroll = () => {
+      if (rafId !== null) return
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null
+        scrollToLatest()
       })
     }
-  }, [activeSession, stream?.content])
+    const unsub = useChatStore.subscribe((state) => {
+      const content = state.streamingBySession[activeSessionId]?.content
+      if (content === lastContent) return
+      lastContent = content
+      scheduleScroll()
+    })
+    return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId)
+      unsub()
+    }
+  }, [activeSessionId, scrollToLatest])
 
   // Leaving history-edit mode resets any active batch selection.
   useEffect(() => {
@@ -236,6 +233,14 @@ export default function ChatMessages() {
   // render inline inside the assistant message's ToolStepRow.
   const messages = useMemo(() => activeSession?.messages || [], [activeSession?.messages])
   const visibleMessages = useMemo(() => messages.filter((m) => m.role !== 'tool'), [messages])
+  // Message id → index in the unfiltered array, for O(1) drag-drop lookups in
+  // the turn map below. findIndex per turn was O(turns×messages) recomputed on
+  // every streaming flush (~20/s); a Map is built once per messages change.
+  const messageIndex = useMemo(() => {
+    const idx = new Map<string, number>()
+    for (let i = 0; i < messages.length; i++) idx.set(messages[i].id, i)
+    return idx
+  }, [messages])
   const turns = useMemo(() => {
     // 连续 assistant 消息合并为一个气泡（turn），多轮思考与工具调用按真实
     // 顺序渲染进单个「思考与执行过程」折叠块（思考 → 文字 → 工具 → …），
@@ -387,7 +392,7 @@ export default function ChatMessages() {
       {turns.map((turn, index) => {
         if (turn.kind === 'user') {
           // Find the real index in the unfiltered messages array for drag-drop
-          const originalIndex = messages.findIndex((m) => m.id === turn.message.id)
+          const originalIndex = messageIndex.get(turn.message.id) ?? -1
           return (
             <div
               key={turn.message.id}
@@ -422,7 +427,7 @@ export default function ChatMessages() {
         // and tool calls merged into ONE 「思考与执行过程」collapse block, with
         // the final answer rendered below it.
         const firstId = turn.messages[0].id
-        const originalIndex = messages.findIndex((m) => m.id === firstId)
+        const originalIndex = messageIndex.get(firstId) ?? -1
         // 会话文件改动汇总只挂最后一条 assistant 消息（动作工具栏上方）。
         const isLastTurn = index === turns.length - 1
         return (
@@ -477,70 +482,15 @@ export default function ChatMessages() {
           When an assistant turn is already committed (earlier rounds of the same
           run), this round continues THAT bubble — avatar/header hidden and the
           streaming answer rendered in the same card, so a multi-round agent run
-          reads as ONE bubble instead of two. */}
-      {isThisSessionLoading && !isToolsExecuting && (
-        <div className="animate-fade-in">
-          <div className="min-w-0">
-            {!lastTurnIsAssistant && (
-              <div className="flex items-center gap-2 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
-                <span className="font-semibold text-[13px] text-nova-text-primary">OurCode AI</span>
-                <span className="flex items-center gap-1 text-nova-accent">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
-                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border">
-                    {t('chat.thinking')}…{runElapsed > 0 ? ` ${runElapsed}s` : ''}
-                  </span>
-                </span>
-              </div>
-            )}
-            {/* Idle warning — no data for > 1 min, keep counting up (the
-                stream's 10-min idle timeout aborts if nothing arrives) */}
-            {idleSeconds >= 60 && (
-              <div
-                className="flex items-center gap-1 text-nova-text-muted font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border mb-1.5 w-fit"
-                title={t('chat.idleWarning')}
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                  <circle cx="12" cy="12" r="10" />
-                  <polyline points="12 6 12 12 16 14" />
-                </svg>
-                {t('chat.idleCount', { minutes: Math.floor(idleSeconds / 60), seconds: idleSeconds % 60 })}
-              </div>
-            )}
-            {/* Thinking streams collapsed — the "思考中…" pulse line shows the
-                model is working without flooding the transcript with its raw
-                monologue; click to peek. Committed turns collapse into the
-                AgentProcessBlock below. */}
-            {stream?.thinking && <ThinkingSection thinking={stream.thinking} streaming />}
-            {stream?.content ? (
-              <div className="text-sm text-nova-text-primary leading-relaxed">
-                <StreamingMarkdown content={stream.content} />
-                <span className="animate-pulse-dot text-nova-accent">▋</span>
-              </div>
-            ) : !stream?.thinking ? (
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2 text-nova-text-muted text-sm">
-                  <div className="flex gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485' }} />
-                    <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.2s' }} />
-                    <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.4s' }} />
-                  </div>
-                  <span>{t('chat.thinking')}</span>
-                </div>
-                {/* 动作期状态反馈：真实阶段（准备上下文 / 压缩历史 / 等待模型首
-                    token）+ 该阶段已耗时，而非笼统的「正在根据代码库分析…」。
-                    无阶段时（理论上只有 loading 标记刚置位的瞬间）回落旧文案。 */}
-                <div className="pl-0.5 text-[11px] text-nova-text-muted/70">
-                  {runPhase?.phase === 'preparing' && t('chat.phasePreparing')}
-                  {runPhase?.phase === 'compacting' && t('chat.phaseCompacting')}
-                  {runPhase?.phase === 'waiting' && t('chat.phaseWaiting')}
-                  {(!runPhase || runPhase.phase === 'streaming') && t('chat.analyzing')}
-                  {runPhase?.detail ? ` · ${runPhase.detail}` : ''}
-                  {phaseElapsed > 0 ? ` ${phaseElapsed}s` : ''}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
+          reads as ONE bubble instead of two. Rendered as its own component so
+          the per-session stream fields (which churn ~20 Hz while streaming) and
+          the 1 s elapsed clock re-render only this subtree, never the list. */}
+      {activeSession && (
+        <LiveStreamBlock
+          sessionId={activeSession.id}
+          isToolsExecuting={isToolsExecuting}
+          lastTurnIsAssistant={lastTurnIsAssistant}
+        />
       )}
 
       <div ref={messagesEndRef} />
@@ -582,6 +532,127 @@ export default function ChatMessages() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** The in-flight LLM turn while the current round streams. Kept as its own
+ *  component so ONLY this small subtree subscribes to the per-session stream
+ *  fields (which change up to 20 Hz while streaming) and drives its own 1 s
+ *  elapsed clock — the historical message list must not re-render on every
+ *  flush. Renders null whenever the session isn't actively loading or tools
+ *  are still executing (their live rows live in the committed message). */
+function LiveStreamBlock({
+  sessionId,
+  isToolsExecuting,
+  lastTurnIsAssistant,
+}: {
+  sessionId: string
+  isToolsExecuting: boolean
+  lastTurnIsAssistant: boolean
+}) {
+  const isThisSessionLoading = useChatStore((s) => s.runningSessionIds.includes(sessionId))
+  const stream = useChatStore((s) => s.streamingBySession[sessionId])
+  // Current agent-loop stage of this session (preparing / compacting / waiting
+  // / streaming) + when it started — the "正在…" placeholder below shows the
+  // real stage instead of a generic codebase-analysis label.
+  const runPhase = useChatStore((s) => s.runPhaseBySession[sessionId])
+  // The live agent run of this session — used to show how many seconds the
+  // session has been running next to the "思考中…" pulse while it streams.
+  const activeRun = useChatStore((s) => s.activeRuns[sessionId])
+  const activeSession = useChatStore((s) => s.sessions.find((x) => x.id === sessionId) ?? null)
+  // Idle clock: last time this session's agent produced any activity (chunk /
+  // tool step / dialog). When it stays silent for > 1 min a warning badge
+  // counts up the silence so the user knows the model is still "thinking".
+  const lastActivityAt = useChatStore((s) => s.streamLastActivityBySession[sessionId])
+  const t = useI18n()
+
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!isThisSessionLoading) return
+    // Re-sync immediately on entering a run, then tick every second while the
+    // session runs. Deliberately NOT keyed on `lastActivityAt` — the stream's
+    // per-chunk activity updates (~20/s) would tear down and recreate this
+    // interval on every flush; the idleSeconds badge just reads the latest
+    // activity timestamp against the ticking clock.
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [isThisSessionLoading])
+
+  const idleSeconds = lastActivityAt ? Math.max(0, Math.floor((now - lastActivityAt) / 1000)) : 0
+  // Elapsed seconds of the live run (0 until the run record exists) — the same
+  // `now` ticker above drives it, so the counter updates every second.
+  const liveRun = activeRun ? activeSession?.agentRuns?.find((r) => r.id === activeRun.runId) : undefined
+  const runElapsed = liveRun ? Math.max(0, Math.floor((now - liveRun.startedAt) / 1000)) : 0
+  // Seconds the session has spent in its CURRENT stage (resets on each phase
+  // transition). For 'waiting' this is the model's time-to-first-token.
+  const phaseElapsed = runPhase ? Math.max(0, Math.floor((now - runPhase.since) / 1000)) : 0
+
+  if (!isThisSessionLoading || isToolsExecuting) return null
+
+  return (
+    <div className="animate-fade-in">
+      <div className="min-w-0">
+        {!lastTurnIsAssistant && (
+          <div className="flex items-center gap-2 text-xs text-nova-text-muted font-medium mb-1.5 pl-0.5">
+            <span className="font-semibold text-[13px] text-nova-text-primary">OurCode AI</span>
+            <span className="flex items-center gap-1 text-nova-accent">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border">
+                {t('chat.thinking')}…{runElapsed > 0 ? ` ${runElapsed}s` : ''}
+              </span>
+            </span>
+          </div>
+        )}
+        {/* Idle warning — no data for > 1 min, keep counting up (the
+            stream's 10-min idle timeout aborts if nothing arrives) */}
+        {idleSeconds >= 60 && (
+          <div
+            className="flex items-center gap-1 text-nova-text-muted font-mono text-[10px] px-1.5 py-0.5 rounded bg-nova-hover border border-nova-border mb-1.5 w-fit"
+            title={t('chat.idleWarning')}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            {t('chat.idleCount', { minutes: Math.floor(idleSeconds / 60), seconds: idleSeconds % 60 })}
+          </div>
+        )}
+        {/* Thinking streams collapsed — the "思考中…" pulse line shows the
+            model is working without flooding the transcript with its raw
+            monologue; click to peek. Committed turns collapse into the
+            AgentProcessBlock below. */}
+        {stream?.thinking && <ThinkingSection thinking={stream.thinking} streaming />}
+        {stream?.content ? (
+          <div className="text-sm text-nova-text-primary leading-relaxed">
+            <StreamingMarkdown content={stream.content} />
+            <span className="animate-pulse-dot text-nova-accent">▋</span>
+          </div>
+        ) : !stream?.thinking ? (
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 text-nova-text-muted text-sm">
+              <div className="flex gap-1">
+                <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485' }} />
+                <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.2s' }} />
+                <span className="w-1.5 h-1.5 rounded-full animate-think-bounce" style={{ background: '#838485', animationDelay: '0.4s' }} />
+              </div>
+              <span>{t('chat.thinking')}</span>
+            </div>
+            {/* 动作期状态反馈：真实阶段（准备上下文 / 压缩历史 / 等待模型首
+                token）+ 该阶段已耗时，而非笼统的「正在根据代码库分析…」。
+                无阶段时（理论上只有 loading 标记刚置位的瞬间）回落旧文案。 */}
+            <div className="pl-0.5 text-[11px] text-nova-text-muted/70">
+              {runPhase?.phase === 'preparing' && t('chat.phasePreparing')}
+              {runPhase?.phase === 'compacting' && t('chat.phaseCompacting')}
+              {runPhase?.phase === 'waiting' && t('chat.phaseWaiting')}
+              {(!runPhase || runPhase.phase === 'streaming') && t('chat.analyzing')}
+              {runPhase?.detail ? ` · ${runPhase.detail}` : ''}
+              {phaseElapsed > 0 ? ` ${phaseElapsed}s` : ''}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }

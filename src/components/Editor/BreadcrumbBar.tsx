@@ -16,6 +16,9 @@ const SYMBOL_SCAN_LIMIT = 2000
 export default function BreadcrumbBar() {
   const activeFilePath = useEditorStore((s) => s.activeFilePath)
   const cursorPosition = useEditorStore((s) => s.cursorPosition)
+  // Symbol chain depends only on the LINE, not the column — depending on the
+  // position object would re-run the up-to-2000-line scan on every keystroke.
+  const cursorLine = cursorPosition?.line
 
   const { dirs, fileName, symbols } = useMemo(() => {
     if (!activeFilePath) return { dirs: [], fileName: '', symbols: [] }
@@ -28,14 +31,14 @@ export default function BreadcrumbBar() {
     let chain: ReturnType<typeof findEnclosingSymbols> = []
     const editor = (window as unknown as { __monacoEditor?: { getModel: () => { getLineContent: (n: number) => string } | null } }).__monacoEditor
     const model = editor?.getModel()
-    if (model && cursorPosition) {
-      const start = Math.max(1, cursorPosition.line - SYMBOL_SCAN_LIMIT)
+    if (model && cursorLine) {
+      const start = Math.max(1, cursorLine - SYMBOL_SCAN_LIMIT)
       const lines: string[] = []
-      for (let n = start; n <= cursorPosition.line; n++) lines.push(model.getLineContent(n))
-      chain = findEnclosingSymbols(lines, cursorPosition.line - start + 1)
+      for (let n = start; n <= cursorLine; n++) lines.push(model.getLineContent(n))
+      chain = findEnclosingSymbols(lines, cursorLine - start + 1)
     }
     return { dirs: parts.slice(0, -1), fileName: name, symbols: chain }
-  }, [activeFilePath, cursorPosition])
+  }, [activeFilePath, cursorLine])
 
   if (!activeFilePath) return null
 

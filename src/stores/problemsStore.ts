@@ -70,7 +70,7 @@ async function revealInEditor(filePath: string, line: number, column: number): P
   }
 }
 
-export const useProblemsStore = create<ProblemsState>((set) => ({
+export const useProblemsStore = create<ProblemsState>((set, get) => ({
   problems: [],
   isOpen: false,
 
@@ -100,6 +100,11 @@ export const useProblemsStore = create<ProblemsState>((set) => ({
       }
       return a.line - b.line
     })
+    // Monaco fires onDidChangeMarkers even when nothing actually changed;
+    // skipping the set when the list is identical keeps every subscriber
+    // (StatusBar counts, ProblemsPanel) from re-rendering on no-op marker flushes.
+    const current = get().problems
+    if (current.length === problems.length && JSON.stringify(current) === JSON.stringify(problems)) return
     set({ problems })
   },
 

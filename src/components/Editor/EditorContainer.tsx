@@ -20,6 +20,11 @@ import { t as moduleT } from '@/i18n'
 // Files above this size get large-file editor settings (no word wrap / minimap)
 const LARGE_FILE_OPTIMIZE_BYTES = 10 * 1024 * 1024
 
+// Store writes of the cursor position are throttled to ~10 Hz — see the
+// onDidChangeCursorPosition handler below. BreadcrumbBar's symbol chain rescan
+// (up to 2000 lines) and StatusBar's line:col display both subscribe to it.
+const CURSOR_STORE_THROTTLE_MS = 100
+
 // Per-file cursor positions live outside the store so cursor movement never
 // rebuilds the `openFiles` array (which would re-render every subscriber — the
 // tab bar, status bar and the options effect — on every arrow key of a big
@@ -223,18 +228,32 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
       openCommandPalette()
     })
 
-    // Track cursor position changes
+    // Track cursor position changes. The store write is throttled: every arrow
+    // key / keystroke fires this handler, and BreadcrumbBar + StatusBar both
+    // subscribe to the position (BreadcrumbBar rescans up to 2000 lines on
+    // every change). Writing at most ~10 Hz is imperceptible for the status
+    // display but removes the per-keystroke scan from the typing path. The
+    // per-file cursor map is updated immediately — it's module state (no
+    // re-render) and the source of truth when the file is re-activated.
+    let cursorStoreTimer: ReturnType<typeof setTimeout> | null = null
+    let pendingCursor: { line: number; column: number } | null = null
+    const flushCursor = () => {
+      cursorStoreTimer = null
+      if (pendingCursor) {
+        setCursorPosition(pendingCursor)
+        pendingCursor = null
+      }
+    }
     editor.onDidChangeCursorPosition((e) => {
       const state = useEditorStore.getState()
       const panel = state.panels[panelId]
       if (panel?.activeFilePath) {
-        setCursorPosition({
-          line: e.position.lineNumber,
-          column: e.position.column,
-        })
-        // Per-file cursor lives in a module map (not the store) so arrow-key
-        // navigation on a big file doesn't rebuild `openFiles` on every move.
-        fileCursors.set(panel.activeFilePath, { line: e.position.lineNumber, column: e.position.column })
+        const pos = { line: e.position.lineNumber, column: e.position.column }
+        fileCursors.set(panel.activeFilePath, pos)
+        pendingCursor = pos
+        if (cursorStoreTimer === null) {
+          cursorStoreTimer = setTimeout(flushCursor, CURSOR_STORE_THROTTLE_MS)
+        }
       }
     })
 
@@ -276,6 +295,7 @@ export default function EditorContainer({ panelId }: EditorContainerProps) {
     })
 
     return () => {
+      if (cursorStoreTimer !== null) clearTimeout(cursorStoreTimer)
       editorInstances.delete(editor)
       updateWindowEditor()
       editor.dispose()

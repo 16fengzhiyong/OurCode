@@ -9,7 +9,9 @@ interface HistoryEditorProps {
 
 export default function HistoryEditor({ sessionId, isExpanded, onToggle }: HistoryEditorProps) {
   const session = useChatStore((s) => s.sessions.find((sess) => sess.id === sessionId))
-  const { editMessage, deleteMessage, regenerateFromMessage } = useChatStore()
+  const editMessage = useChatStore((s) => s.editMessage)
+  const deleteMessage = useChatStore((s) => s.deleteMessage)
+  const regenerateFromMessage = useChatStore((s) => s.regenerateFromMessage)
   const t = useI18n()
 
   if (!session) return null

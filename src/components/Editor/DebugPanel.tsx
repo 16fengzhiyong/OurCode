@@ -5,11 +5,27 @@ import { useI18n } from '@/i18n/useI18n'
 
 /** Minimal DAP debug panel: launch config, session controls, breakpoints, console. */
 export default function DebugPanel() {
-  const {
-    isRunning, adapterCommand, breakpoints, output, stoppedAt, error,
-    setAdapterCommand, setLaunchConfig, addBreakpoint, removeBreakpoint, clearBreakpoints,
-    clearOutput, start, stop, continue: continueSession, pause, step, toggle,
-  } = useDebugStore()
+  // Fine-grained selectors: output grows line-by-line during a debug session,
+  // but adapterCommand/breakpoints/etc. churn must not re-render the console
+  // list, and vice versa.
+  const isRunning = useDebugStore((s) => s.isRunning)
+  const adapterCommand = useDebugStore((s) => s.adapterCommand)
+  const breakpoints = useDebugStore((s) => s.breakpoints)
+  const output = useDebugStore((s) => s.output)
+  const stoppedAt = useDebugStore((s) => s.stoppedAt)
+  const error = useDebugStore((s) => s.error)
+  const setAdapterCommand = useDebugStore((s) => s.setAdapterCommand)
+  const setLaunchConfig = useDebugStore((s) => s.setLaunchConfig)
+  const addBreakpoint = useDebugStore((s) => s.addBreakpoint)
+  const removeBreakpoint = useDebugStore((s) => s.removeBreakpoint)
+  const clearBreakpoints = useDebugStore((s) => s.clearBreakpoints)
+  const clearOutput = useDebugStore((s) => s.clearOutput)
+  const start = useDebugStore((s) => s.start)
+  const stop = useDebugStore((s) => s.stop)
+  const continueSession = useDebugStore((s) => s.continue)
+  const pause = useDebugStore((s) => s.pause)
+  const step = useDebugStore((s) => s.step)
+  const toggle = useDebugStore((s) => s.toggle)
   const configRef = useRef<HTMLInputElement>(null)
   const t = useI18n()
 

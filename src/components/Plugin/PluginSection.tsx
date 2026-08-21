@@ -9,7 +9,14 @@ import { useI18n } from '@/i18n/useI18n'
  * enable-disable / permission logic is unchanged.
  */
 export default function PluginSection() {
-  const { plugins, isInstalling, error, loadPlugins, installPlugin, uninstallPlugin, togglePlugin, clearError } = usePluginStore()
+  const plugins = usePluginStore((s) => s.plugins)
+  const isInstalling = usePluginStore((s) => s.isInstalling)
+  const error = usePluginStore((s) => s.error)
+  const loadPlugins = usePluginStore((s) => s.loadPlugins)
+  const installPlugin = usePluginStore((s) => s.installPlugin)
+  const uninstallPlugin = usePluginStore((s) => s.uninstallPlugin)
+  const togglePlugin = usePluginStore((s) => s.togglePlugin)
+  const clearError = usePluginStore((s) => s.clearError)
   const t = useI18n()
 
   const [searchQuery, setSearchQuery] = useState('')

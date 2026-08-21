@@ -15,7 +15,11 @@ import MemoryAddModal from './MemoryAddModal'
  * 仍按当前项目匹配）。
  */
 export default function MemoryModal({ onClose, currentProjectPath }: { onClose: () => void; currentProjectPath: string | null }) {
-  const { memories, deleteMemory, getMemoriesByProject, getGlobalMemories, getProjectPaths } = useMemoryStore()
+  const memories = useMemoryStore((s) => s.memories)
+  const deleteMemory = useMemoryStore((s) => s.deleteMemory)
+  const getMemoriesByProject = useMemoryStore((s) => s.getMemoriesByProject)
+  const getGlobalMemories = useMemoryStore((s) => s.getGlobalMemories)
+  const getProjectPaths = useMemoryStore((s) => s.getProjectPaths)
   const [filterTab, setFilterTab] = useState<'all' | 'global' | 'project'>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showOtherProjects, setShowOtherProjects] = useState(false)

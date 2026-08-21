@@ -1,12 +1,61 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { marked } from 'marked'
-import hljs from 'highlight.js'
+import hljs from 'highlight.js/lib/core'
 import DOMPurify from 'dompurify'
 // Light code-block syntax (极简纯净版): chat code blocks are now light panels
 // in light mode; the dark theme restores github-dark colors via the
 // `:root.dark .code-block .hljs-*` rules in global.css.
 import 'highlight.js/styles/github.css'
+// Register only the languages this app actually renders (per-language modules
+// instead of the full ~190-language bundle). Anything else falls back to
+// plaintext in renderer.code below — a missing highlight is a visual degrade,
+// never an error.
+import bash from 'highlight.js/lib/languages/bash'
+import c from 'highlight.js/lib/languages/c'
+import cpp from 'highlight.js/lib/languages/cpp'
+import csharp from 'highlight.js/lib/languages/csharp'
+import css from 'highlight.js/lib/languages/css'
+import diff from 'highlight.js/lib/languages/diff'
+import dockerfile from 'highlight.js/lib/languages/dockerfile'
+import go from 'highlight.js/lib/languages/go'
+import graphql from 'highlight.js/lib/languages/graphql'
+import ini from 'highlight.js/lib/languages/ini'
+import java from 'highlight.js/lib/languages/java'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
+import kotlin from 'highlight.js/lib/languages/kotlin'
+import less from 'highlight.js/lib/languages/less'
+import makefile from 'highlight.js/lib/languages/makefile'
+import markdown from 'highlight.js/lib/languages/markdown'
+import objectivec from 'highlight.js/lib/languages/objectivec'
+import perl from 'highlight.js/lib/languages/perl'
+import php from 'highlight.js/lib/languages/php'
+import properties from 'highlight.js/lib/languages/properties'
+import python from 'highlight.js/lib/languages/python'
+import ruby from 'highlight.js/lib/languages/ruby'
+import rust from 'highlight.js/lib/languages/rust'
+import scala from 'highlight.js/lib/languages/scala'
+import scss from 'highlight.js/lib/languages/scss'
+import shell from 'highlight.js/lib/languages/shell'
+import sql from 'highlight.js/lib/languages/sql'
+import swift from 'highlight.js/lib/languages/swift'
+import typescript from 'highlight.js/lib/languages/typescript'
+import vbnet from 'highlight.js/lib/languages/vbnet'
+import xml from 'highlight.js/lib/languages/xml'
+import yaml from 'highlight.js/lib/languages/yaml'
 import { t, getLocale } from '@/i18n'
+
+const LANGUAGES: Array<[string, Parameters<typeof hljs.registerLanguage>[1]]> = [
+  ['bash', bash], ['c', c], ['cpp', cpp], ['csharp', csharp], ['css', css],
+  ['diff', diff], ['dockerfile', dockerfile], ['go', go], ['graphql', graphql],
+  ['ini', ini], ['java', java], ['javascript', javascript], ['json', json],
+  ['kotlin', kotlin], ['less', less], ['makefile', makefile], ['markdown', markdown],
+  ['objectivec', objectivec], ['perl', perl], ['php', php], ['properties', properties],
+  ['python', python], ['ruby', ruby], ['rust', rust], ['scala', scala], ['scss', scss],
+  ['shell', shell], ['sql', sql], ['swift', swift], ['typescript', typescript],
+  ['vbnet', vbnet], ['xml', xml], ['yaml', yaml],
+]
+for (const [name, def] of LANGUAGES) hljs.registerLanguage(name, def)
 
 interface MarkdownRendererProps {
   content: string
@@ -15,6 +64,13 @@ interface MarkdownRendererProps {
    *  ourcode-file:// protocol. Chat passes nothing (no file context). */
   rewriteImageSrc?: (href: string) => string
 }
+
+const escapeHtml = (s: string): string => s
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
 
 // Custom renderer
 const renderer = new marked.Renderer()
@@ -26,7 +82,13 @@ renderer.code = function (...args: any[]) {
   const text = typeof first === 'object' ? first.text : first
   const lang = typeof first === 'object' ? first.lang : args[1]
   const language = lang && hljs.getLanguage(lang) ? lang : 'plaintext'
-  const highlighted = hljs.highlight(text, { language }).value
+  // 'plaintext' is not a registered highlight.js language (it's only an internal
+  // auto-detect marker), so hljs.highlight would throw for it. For absent or
+  // unknown fence languages, escape the raw text — a missing highlight is a
+  // visual degrade, never an error.
+  const highlighted = language === 'plaintext'
+    ? escapeHtml(text)
+    : hljs.highlight(text, { language }).value
   // NOTE: no inline onclick here — blocked by CSP and an injection vector.
   // Copy is handled via event delegation in the container (see useEffect below).
   // mockup「代码块」头部：语言徽章 + 纯图标复制按钮（content_copy）。
@@ -129,6 +191,28 @@ export default function MarkdownRenderer({ content, rewriteImageSrc }: MarkdownR
  *  最终 content（不会丢尾巴）。 */
 const STREAM_MARKDOWN_THROTTLE_MS = 120
 
+/** 流式阶段的轻量渲染器：marked + DOMPurify，但不做代码块语法高亮、也不
+ *  透传模型输出的原始 HTML（后者改为转义成文本，而不是只依赖 DOMPurify）。
+ *  流式期间每 ~120ms 都要重解析整段渐增回答，`hljs.highlight`（对不断变长的
+ *  代码块整块重高亮）是其中最重的一项；去掉后单次解析从几十~上百 ms 降到个
+ *  位数 ms。该轮 commit 后由已提交消息的完整 MarkdownRenderer 接管渲染，
+ *  语法高亮会在消息落定那一刻一次性出现 —— 这里永远只是预览。 */
+const streamRenderer = new marked.Renderer()
+streamRenderer.code = function (...args: any[]) {
+  const first = args[0]
+  const text = typeof first === 'object' ? first.text : first
+  const lang = typeof first === 'object' ? first.lang : args[1]
+  const language = lang || 'plaintext'
+  return `<div class="code-block"><div class="code-header"><span class="code-lang">${escapeHtml(language)}</span></div><pre><code class="hljs language-${escapeHtml(language)}">${escapeHtml(text)}</code></pre></div>`
+}
+streamRenderer.html = function (...args: any[]) {
+  // Raw HTML in a live stream must render as TEXT — escaping here (instead of
+  // relying on DOMPurify alone) keeps the light path safe by construction.
+  const first = args[0]
+  const raw = typeof first === 'object' ? first.text : first
+  return escapeHtml(raw)
+}
+
 export function StreamingMarkdown({ content }: { content: string }) {
   const [display, setDisplay] = useState(content)
   const lastRenderAtRef = useRef(0)
@@ -147,5 +231,24 @@ export function StreamingMarkdown({ content }: { content: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content])
 
-  return <MarkdownRenderer content={display} />
+  const html = useMemo(() => {
+    try {
+      const parsed = marked.parse(display, { renderer: streamRenderer })
+      return DOMPurify.sanitize(parsed as string, {
+        ADD_TAGS: ['mark', 'kbd', 'details', 'summary'],
+        ADD_ATTR: ['open'],
+        ALLOWED_URI_REGEXP,
+      })
+    } catch {
+      // Never block the stream on a parse failure — show the raw text escaped
+      return escapeHtml(display).replace(/\n/g, '<br>')
+    }
+  }, [display])
+
+  return (
+    <div
+      className="markdown-body text-sm leading-relaxed"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  )
 }

@@ -44,7 +44,7 @@ const KNOWLEDGE_CUTOFF: Record<string, string> = {
 }
 
 export default function ModelCompareView({ onClose }: ModelCompareViewProps) {
-  const { models } = useConfigStore()
+  const models = useConfigStore((s) => s.models)
   const [selectedModels, setSelectedModels] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [showAddDropdown, setShowAddDropdown] = useState(false)

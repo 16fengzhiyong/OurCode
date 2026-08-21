@@ -51,7 +51,13 @@ function formatDuration(ms: number): string {
 
 export default function UsagePanel() {
   const t = useI18n()
-  const { summary, rangeDays, loading, error, load, setRange, clear } = useUsageStore()
+  const summary = useUsageStore((s) => s.summary)
+  const rangeDays = useUsageStore((s) => s.rangeDays)
+  const loading = useUsageStore((s) => s.loading)
+  const error = useUsageStore((s) => s.error)
+  const load = useUsageStore((s) => s.load)
+  const setRange = useUsageStore((s) => s.setRange)
+  const clear = useUsageStore((s) => s.clear)
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [clearing, setClearing] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)

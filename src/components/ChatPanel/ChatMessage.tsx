@@ -270,9 +270,6 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   const [usageOpen, setUsageOpen] = useState(false)
   const [usagePlacement, setUsagePlacement] = useState<'above' | 'below'>('above')
   const usageRef = useRef<HTMLSpanElement>(null)
-  // Live elapsed clock — ticks once a second while this run is active so the
-  // header can show how long the session has been running ("运行中 12s").
-  const [now, setNow] = useState(Date.now())
   // Close the token-usage popover on outside click or Escape (badge click toggles it).
   useEffect(() => {
     if (!usageOpen) return
@@ -338,17 +335,9 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
   // Token total for the hover-toolbar badge (kept out of the message header —
   // mainstream keeps the transcript clean and reveals power details on hover).
   const runTokens = (run?.tokensIn || 0) + (run?.tokensOut || 0)
-
-  // While the run is live, re-sync immediately (new run) and tick each second;
-  // the elapsed counter next to「运行中」stays live instead of freezing at 0s.
-  const runStartedAt = run?.startedAt
-  useEffect(() => {
-    if (!isLive || runStartedAt === undefined) return
-    setNow(Date.now())
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [isLive, runStartedAt])
-  const liveElapsed = isLive && run ? Math.max(0, Math.floor((now - run.startedAt) / 1000)) : 0
+  // The live elapsed counter lives in a self-ticking child component
+  // (LiveElapsedBadge) — a per-message 1s interval here would re-render the
+  // WHOLE message (tool rows, AgentProcessBlock) every second while live.
 
   const handleSaveEdit = () => {
     editMessage(sessionId, message.id, editContent)
@@ -532,9 +521,7 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
               <span className="flex items-center gap-1 text-nova-accent">
                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse-soft inline-block" />
                 {t('agent.runStatus.running')}
-                <span className="font-mono text-[10px] text-nova-text-muted" title={t('agent.elapsed', { seconds: liveElapsed })}>
-                  {formatDuration(liveElapsed)}
-                </span>
+                {run && <LiveElapsedBadge startedAt={run.startedAt} />}
               </span>
             )}
             {isWaitingPlan && (
@@ -772,3 +759,24 @@ function chatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps): 
 }
 
 export default memo(ChatMessageInner, chatMessagePropsEqual)
+
+/** Self-ticking "运行中 12s" elapsed counter. Standalone component so the 1 s
+ *  tick re-renders ONLY this tiny span — a parent-level interval used to
+ *  re-render the whole message (all tool rows + AgentProcessBlock) every
+ *  second while any run in the conversation was live. */
+function LiveElapsedBadge({ startedAt }: { startedAt: number }) {
+  const t = useI18n()
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    // Re-sync immediately on mount (new run), then tick each second.
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  const elapsed = Math.max(0, Math.floor((now - startedAt) / 1000))
+  return (
+    <span className="font-mono text-[10px] text-nova-text-muted" title={t('agent.elapsed', { seconds: elapsed })}>
+      {formatDuration(elapsed)}
+    </span>
+  )
+}

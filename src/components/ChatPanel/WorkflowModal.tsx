@@ -33,7 +33,9 @@ const CATEGORY_COLORS: Record<string, string> = {
 }
 
 export default function WorkflowModal({ onClose }: { onClose: () => void }) {
-  const { workflows, addWorkflow, deleteWorkflow } = useWorkflowStore()
+  const workflows = useWorkflowStore((s) => s.workflows)
+  const addWorkflow = useWorkflowStore((s) => s.addWorkflow)
+  const deleteWorkflow = useWorkflowStore((s) => s.deleteWorkflow)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [prompt, setPrompt] = useState('')

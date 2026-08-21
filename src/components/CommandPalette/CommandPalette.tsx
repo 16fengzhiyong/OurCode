@@ -32,7 +32,8 @@ const AI_COMMAND_KEYS: Record<string, TranslationKey> = {
 }
 
 export default function CommandPalette() {
-  const { isCommandPaletteOpen, closeCommandPalette } = useUIStore()
+  const isCommandPaletteOpen = useUIStore((s) => s.isCommandPaletteOpen)
+  const closeCommandPalette = useUIStore((s) => s.closeCommandPalette)
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)

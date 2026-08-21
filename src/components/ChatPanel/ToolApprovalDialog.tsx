@@ -9,7 +9,13 @@ import { useI18n } from '@/i18n/useI18n'
  * 审批状态，切换会话即切换审批对象）。
  */
 export default function ToolApprovalDialog() {
-  const { pendingApproval, approveToolCall, rejectToolCall, allowToolPermanently } = useChatStore()
+  // Fine-grained selectors, not the whole store: while a parallel session
+  // streams (~20 Hz) a whole-store subscription here would re-render the
+  // dialog on every flush even though nothing it reads changed.
+  const pendingApproval = useChatStore((s) => s.pendingApproval)
+  const approveToolCall = useChatStore((s) => s.approveToolCall)
+  const rejectToolCall = useChatStore((s) => s.rejectToolCall)
+  const allowToolPermanently = useChatStore((s) => s.allowToolPermanently)
   // With parallel conversations, only the active session's approval dialog is
   // shown — switching to the session that owns the pending call reveals it.
   const activeSessionId = useChatStore((s) => s.activeSessionId)

@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import { useUIStore } from '@/stores/uiStore'
 
 export default function ContextMenu() {
-  const { contextMenu, hideContextMenu } = useUIStore()
+  const contextMenu = useUIStore((s) => s.contextMenu)
+  const hideContextMenu = useUIStore((s) => s.hideContextMenu)
   const menuRef = useRef<HTMLDivElement>(null)
 
   // Close on click outside

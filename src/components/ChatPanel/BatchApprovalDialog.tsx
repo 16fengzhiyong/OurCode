@@ -10,7 +10,12 @@ import type { ToolCall } from '@/services/tools/types'
  * 拒绝；每行可勾选「始终允许该工具」持久化到项目白名单。
  */
 export default function BatchApprovalDialog() {
-  const { batchApproval, decideBatchApproval, allowToolPermanently } = useChatStore()
+  // Fine-grained selectors, not the whole store: while a parallel session
+  // streams (~20 Hz) a whole-store subscription here would re-render the
+  // dialog on every flush even though nothing it reads changed.
+  const batchApproval = useChatStore((s) => s.batchApproval)
+  const decideBatchApproval = useChatStore((s) => s.decideBatchApproval)
+  const allowToolPermanently = useChatStore((s) => s.allowToolPermanently)
   // Parallel conversations: the dialog only renders for the active session —
   // switching to the owning session reveals it again.
   const activeSessionId = useChatStore((s) => s.activeSessionId)

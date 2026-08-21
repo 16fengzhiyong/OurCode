@@ -18,7 +18,7 @@ interface OnboardingModalProps {
 }
 
 export default function OnboardingModal({ onComplete }: OnboardingModalProps) {
-  const { createConfigGroup } = useConfigStore()
+  const createConfigGroup = useConfigStore((s) => s.createConfigGroup)
   const t = useI18n()
 
   const [step, setStep] = useState(0)

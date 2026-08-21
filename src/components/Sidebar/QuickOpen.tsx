@@ -10,8 +10,9 @@ interface QuickOpenFile {
 }
 
 export default function QuickOpen({ rootPath }: { rootPath?: string }) {
-  const { isQuickOpenOpen, closeQuickOpen } = useUIStore()
-  const { openFile } = useEditorStore()
+  const isQuickOpenOpen = useUIStore((s) => s.isQuickOpenOpen)
+  const closeQuickOpen = useUIStore((s) => s.closeQuickOpen)
+  const openFile = useEditorStore((s) => s.openFile)
   const [query, setQuery] = useState('')
   const [files, setFiles] = useState<QuickOpenFile[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)

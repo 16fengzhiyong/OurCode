@@ -65,6 +65,8 @@ export default function MainLayout() {
   const isDebugOpen = useDebugStore((s) => s.isOpen)
   const isMemoryManagerOpen = useUIStore((s) => s.isMemoryManagerOpen)
   const closeMemoryManager = useUIStore((s) => s.closeMemoryManager)
+  const isSettingsOpen = useUIStore((s) => s.isSettingsOpen)
+  const isSkillRegistryOpen = useUIStore((s) => s.isSkillRegistryOpen)
   // The "current project" follows the ACTIVE SESSION — memory scoping (and the
   // 当前项目 label) uses the active conversation's project, not the folder
   // being browsed in the sidebar file tree.
@@ -317,12 +319,12 @@ export default function MainLayout() {
         )}
       </div>
       <StatusBar />
-      <SettingsModal />
+      {isSettingsOpen && <SettingsModal />}
       {isCommandPaletteOpen && <CommandPalette />}
       {isQuickOpenOpen && rootPath && <QuickOpen rootPath={rootPath} />}
       {isRecentFilesOpen && <RecentFilesModal />}
       {contextMenu && <ContextMenu />}
-      <SkillRegistryModal />
+      {isSkillRegistryOpen && <SkillRegistryModal />}
       {isMemoryManagerOpen && <MemoryModal onClose={closeMemoryManager} currentProjectPath={currentProjectPath} />}
       <NotificationToasts />
       <UnsavedDialog />

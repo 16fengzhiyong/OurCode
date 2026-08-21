@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useChatStore } from '@/stores/chatStore'
+import { useShallow } from 'zustand/react/shallow'
 import { useI18n } from '@/i18n/useI18n'
 import type { SubAgentProgress, TodoItem } from '@/types'
 
@@ -71,11 +72,22 @@ function subagentStatusLabel(status: SubAgentProgress['status'], t: (k: any) => 
 
 export default function AgentStatusMiniPanel({ sessionId }: { sessionId: string }) {
   const session = useChatStore((s) => s.sessions.find((x) => x.id === sessionId))
-  // 保留 toolCallId 作为行级展开的标识（subagentProgress 以父 run_subagent 的
-  // toolCallId 为 key）。
-  const subagentEntries = useChatStore((s) =>
-    Object.entries(s.subagentProgress).filter(([, p]) => p.sessionId === sessionId)
-  )
+  // 只订阅本会话的 subagent 进度。要点：selector 必须返回**稳定引用** ——
+  // Object.values 的元素是 store 里的进度对象本身（引用稳定），useShallow
+  // 按元素 Object.is 比较后引用保持不变，只在真的变化时才重渲染。绝不能对
+  // Object.entries().filter()（每次生成全新元组数组）用 useShallow：快照每次
+  // 渲染都"变了"，useSyncExternalStore 会无限强制重渲染，把整个页面卡死。
+  const sessionSubagents = useChatStore(useShallow((s) =>
+    Object.values(s.subagentProgress).filter((p) => p.sessionId === sessionId)
+  ))
+  // subagentProgress 以父 run_subagent 的 toolCallId 为 key —— 进度对象本身
+  // 不含 id，这里按引用反查 key，组装成 [id, progress] 条目（仅在本会话条目
+  // 变化时重建）。
+  const subagentEntries = useMemo(() => {
+    const idByRef = new Map<SubAgentProgress, string>()
+    for (const [id, p] of Object.entries(useChatStore.getState().subagentProgress)) idByRef.set(p, id)
+    return sessionSubagents.map((p) => [idByRef.get(p) ?? '', p] as [string, SubAgentProgress])
+  }, [sessionSubagents])
   const isRunning = useChatStore((s) => s.runningSessionIds.includes(sessionId))
   const t = useI18n()
 

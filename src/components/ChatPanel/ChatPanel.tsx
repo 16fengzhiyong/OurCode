@@ -13,6 +13,7 @@ import WaveLogo from './WaveLogo'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
+import { useShallow } from 'zustand/react/shallow'
 import { useI18n } from '@/i18n/useI18n'
 import { statusBadge } from '@/services/targetMode/targetModeService'
 import type { ChatSession } from '@/types'
@@ -106,8 +107,14 @@ export default function ChatPanel() {
   const updateSessionParams = useChatStore((s) => s.updateSessionParams)
   const setTargetMode = useChatStore((s) => s.setTargetMode)
   const targetModeStatus = useChatStore((s) => s.targetModeStatus)
-  const subagentProgress = useChatStore((s) => s.subagentProgress)
   const refreshTargetModeStatus = useChatStore((s) => s.refreshTargetModeStatus)
+  // Only the ACTIVE session's subagent entries — subscribing to the whole map
+  // re-rendered ChatPanel (and the whole conversation tree) on every subagent
+  // progress update (~150 ms apart during subagent runs). useShallow keeps the
+  // filtered array reference stable unless the relevant entries actually change.
+  const activeSessionSubagents = useChatStore(useShallow((s) =>
+    activeSession ? Object.values(s.subagentProgress).filter((p) => p.sessionId === activeSession.id) : []
+  ))
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
   const models = useConfigStore((s) => s.models)
   const activeConfigGroup = useConfigStore((s) => s.configGroups.find((g) => g.id === s.activeConfigGroupId))
@@ -134,9 +141,8 @@ export default function ChatPanel() {
   // subagent activity for this session — a running one wins over finished ones.
   const activeTargetRole = targetMode && activeSession
     ? (() => {
-        const entries = Object.values(subagentProgress).filter((p) => p.sessionId === activeSession.id)
-        if (entries.length === 0) return ''
-        return (entries.find((p) => p.status === 'running') || entries[entries.length - 1]).name
+        if (activeSessionSubagents.length === 0) return ''
+        return (activeSessionSubagents.find((p) => p.status === 'running') || activeSessionSubagents[activeSessionSubagents.length - 1]).name
       })()
     : ''
   // Same resolution as the agent loop (`session.model || group.defaultModel`) —

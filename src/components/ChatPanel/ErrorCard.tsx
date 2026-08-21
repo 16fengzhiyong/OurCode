@@ -15,7 +15,7 @@ interface ErrorCardProps {
  * error body) is only surfaced inside a collapsible "view details" area.
  */
 export default function ErrorCard({ error, onRetry }: ErrorCardProps) {
-  const { openSettings } = useUIStore()
+  const openSettings = useUIStore((s) => s.openSettings)
   const t = useI18n()
   const [showDetail, setShowDetail] = useState(false)
   const isAuth = error.type === 'auth'
