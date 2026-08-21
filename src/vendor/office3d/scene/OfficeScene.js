@@ -30,10 +30,8 @@ export class OfficeScene {
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2();
 
-    // 渲染运行开关（暂停时停止更新与渲染，并停止 rAF 自调度）
+    // 渲染运行开关（暂停时停止更新与渲染，仅保留 rAF 空转）
     this.running = true;
-    // rAF 循环是否在运行（暂停退出自调度后置 false，恢复时重新启动）
-    this.animating = false;
 
     // FPS 档位控制（60/45/30/15）与实测帧率统计
     this.targetFps = 60;
@@ -379,20 +377,15 @@ export class OfficeScene {
   animate() {
     // vendored 增补：dispose 后停止 rAF 循环（IDE 里组件可反复挂载/卸载）
     if (this.disposed) return;
-
-    // 暂停：真正停止 rAF 自调度（不再每帧空转），保留最后一帧画面；
-    // 由 setRunning(true) 重新启动。clock delta 在恢复时被下方 clamp 吸收。
-    if (!this.running) {
-      this.animating = false;
-      return;
-    }
-    this.animating = true;
     requestAnimationFrame(() => this.animate());
 
     // 按目标帧率门控渲染：未到时间片直接跳过本帧（渲染、Canvas 屏幕重绘、动画更新全部降频）
     const now = performance.now();
     const frameInterval = 1000 / this.targetFps;
     if (now - this.lastRenderTime < frameInterval) return;
+
+    // 暂停：不更新、不渲染（保留最后一帧画面）。clock delta 在恢复时会被下方 clamp 吸收
+    if (!this.running) return;
 
     const delta = Math.min(this.clock.getDelta(), 0.1); // 限制大跳帧（切后台返回）
     this.lastRenderTime = now;
@@ -418,10 +411,6 @@ export class OfficeScene {
 
   setRunning(running) {
     this.running = !!running;
-    // 恢复时若 rAF 循环已停（此前因暂停退出自调度），重新启动
-    if (this.running && !this.animating && !this.disposed) {
-      this.animate();
-    }
   }
 
   setTargetFps(fps) {
