@@ -109,6 +109,11 @@ export default function MainLayout() {
   const isCompact = windowWidth < COMPACT_BREAKPOINT
   const isNarrow = windowWidth < NARROW_BREAKPOINT
 
+  // 3D 办公室：整窗展示。注意这里**不卸载**常规工作区（编辑器/聊天/终端），
+  // 而是把工作区隐藏、在其上方盖一层办公室视图 —— 否则切回对话时整个工作区
+  // 会重建：长对话全文 markdown 重渲染 + Monaco 实例重建会卡死主线程数秒。
+  const isOfficeShown = activeSidebarTab === 'office' && isSidebarVisible
+
   // Keyboard shortcuts — resolved live from the shortcutStore so the presets /
   // custom bindings configured in Settings actually take effect.
   useEffect(() => {
@@ -225,13 +230,11 @@ export default function MainLayout() {
       <TitleBar />
       <div className="flex-1 h-full min-h-0 flex gap-2 overflow-hidden">
         <ActivityBar />
-        {activeSidebarTab === 'office' && isSidebarVisible ? (
-          /* 3D 办公室：整窗展示（替换侧栏 + 编辑器/聊天区），由 ActivityBar 切换离开 */
-          <div className="flex-1 h-full min-h-0 rounded-xl overflow-hidden glass-chrome">
-            <OfficeView />
-          </div>
-        ) : (
-          <>
+        <div className="relative flex-1 h-full min-h-0 overflow-hidden">
+          {/* 常规工作区（侧栏 + 编辑器 + 聊天 + 终端）：始终挂载。
+              办公室展示时仅 visibility:hidden，切回对话/编辑器是纯显示切换，
+              不再整体重建（见 isOfficeShown 注释）。 */}
+          <div className={`h-full min-h-0 flex gap-2 overflow-hidden ${isOfficeShown ? 'invisible' : ''}`}>
             {isSidebarVisible && !(isNarrow && isChatVisible) && (
               <div style={{ width: effectiveSidebarWidth }} className="shrink-0 relative">
                 <div className="h-full rounded-xl overflow-hidden glass-chrome"><Sidebar /></div>
@@ -315,8 +318,15 @@ export default function MainLayout() {
                 <div style={{ height: isCompact ? Math.min(terminalHeight, 180) : Math.min(terminalHeight, windowWidth < 800 ? 200 : 500) }} className="rounded-xl overflow-hidden glass-chrome shrink-0 relative z-[6]"><TerminalPanel rootPath={rootPath} /></div>
               )}
             </div>
-          </>
-        )}
+          </div>
+
+          {/* 3D 办公室整窗覆盖层：盖在工作区上方，工作区保持挂载 */}
+          {isOfficeShown && (
+            <div className="absolute inset-0 rounded-xl overflow-hidden glass-chrome z-10">
+              <OfficeView />
+            </div>
+          )}
+        </div>
       </div>
       <StatusBar />
       {isSettingsOpen && <SettingsModal />}
