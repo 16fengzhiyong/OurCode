@@ -43,6 +43,7 @@ export default function OfficeView() {
   // 目标模式状态由 ChatPanel 轮询维护；OfficeView 独立展示时自行每 5s 刷新
   useEffect(() => {
     const timer = window.setInterval(() => {
+      if (document.hidden) return // 窗口隐藏时暂停轮询
       const s = useChatStore.getState()
       const session = s.sessions.find((x) => x.id === s.activeSessionId)
       if (session?.targetMode) useChatStore.getState().refreshTargetModeStatus()
@@ -62,6 +63,16 @@ export default function OfficeView() {
       },
     })
     hostRef.current = host
+
+    // 窗口隐藏/失焦时暂停 3D 渲染循环，避免后台空转吃 CPU/GPU；恢复时继续
+    const setRunning = (running: boolean) => hostRef.current?.setRunning(running)
+    const onVisibility = () => setRunning(!document.hidden)
+    const onBlur = () => setRunning(false)
+    const onFocus = () => setRunning(true)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
+    setRunning(!document.hidden)
 
     // 悬浮标签投影循环（视图固定时降为 4Hz）
     const loop = () => {
@@ -113,6 +124,9 @@ export default function OfficeView() {
     return () => {
       cancelAnimationFrame(rafRef.current)
       detachOfficeBridge()
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
       host.dispose()
       hostRef.current = null
     }

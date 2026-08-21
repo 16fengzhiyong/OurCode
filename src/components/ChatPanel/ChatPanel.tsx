@@ -163,7 +163,10 @@ export default function ChatPanel() {
   useEffect(() => {
     if (!targetMode) return
     refreshTargetModeStatus()
-    const timer = setInterval(refreshTargetModeStatus, 5000)
+    const timer = setInterval(() => {
+      if (document.hidden) return // 窗口隐藏时暂停轮询
+      refreshTargetModeStatus()
+    }, 5000)
     return () => clearInterval(timer)
   }, [targetMode, refreshTargetModeStatus])
 

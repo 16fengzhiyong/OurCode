@@ -92,6 +92,30 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
   const initTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const activeDragRef = useRef<{ move: (e: MouseEvent) => void; up: () => void } | null>(null)
 
+  // Debounced fit + rAF coalescing for drag resizes. mousemove fires at 60–120 Hz
+  // while dragging the panel height or split ratio; without coalescing every move
+  // schedules its own 10 ms fit() (which is never cancelled) — a drag stacks
+  // dozens of concurrent xterm layout passes + IPC resizes. Now height / ratio
+  // updates are merged into one store write per animation frame, and all fits
+  // collapse into a single debounced pass once dragging pauses.
+  const fitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const heightRafRef = useRef<number | null>(null)
+  const pendingHeightRef = useRef(0)
+  const splitRafRef = useRef<number | null>(null)
+  const pendingRatioRef = useRef(0)
+
+  const scheduleFit = useCallback(() => {
+    if (fitTimerRef.current) clearTimeout(fitTimerRef.current)
+    fitTimerRef.current = setTimeout(() => {
+      fitTimerRef.current = null
+      terminalsRef.current.forEach((entry) => {
+        if (!entry.disposed) {
+          try { entry.fit.fit() } catch { /* terminal disposed */ }
+        }
+      })
+    }, 30)
+  }, [])
+
   // Drag to resize (vertical - panel height)
   const dragStartY = useRef(0)
   const dragStartHeight = useRef(0)
@@ -100,18 +124,27 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     e.preventDefault()
     dragStartY.current = e.clientY
     dragStartHeight.current = terminalHeight
+    pendingHeightRef.current = terminalHeight
 
     const handleDragMove = (ev: MouseEvent) => {
       const delta = dragStartY.current - ev.clientY
-      const newHeight = Math.max(100, Math.min(600, dragStartHeight.current + delta))
-      setTerminalHeight(newHeight)
-      // Re-fit all visible terminals
-      terminalsRef.current.forEach((entry) => {
-        setTimeout(() => { try { entry.fit.fit() } catch { /* */ } }, 10)
-      })
+      pendingHeightRef.current = Math.max(100, Math.min(600, dragStartHeight.current + delta))
+      if (heightRafRef.current === null) {
+        heightRafRef.current = requestAnimationFrame(() => {
+          heightRafRef.current = null
+          setTerminalHeight(pendingHeightRef.current)
+          scheduleFit()
+        })
+      }
     }
 
     const handleDragEnd = () => {
+      if (heightRafRef.current !== null) {
+        cancelAnimationFrame(heightRafRef.current)
+        heightRafRef.current = null
+      }
+      setTerminalHeight(pendingHeightRef.current)
+      scheduleFit()
       document.removeEventListener('mousemove', handleDragMove)
       document.removeEventListener('mouseup', handleDragEnd)
       activeDragRef.current = null
@@ -120,7 +153,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     activeDragRef.current = { move: handleDragMove, up: handleDragEnd }
     document.addEventListener('mousemove', handleDragMove)
     document.addEventListener('mouseup', handleDragEnd)
-  }, [terminalHeight, setTerminalHeight])
+  }, [terminalHeight, setTerminalHeight, scheduleFit])
 
   const createTab = useCallback(() => {
     const tabId = `term-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
@@ -224,21 +257,31 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     const primaryTab = tabs.find((t) => t.id === primaryTabId)
     if (!primaryTab) return
     const startRatio = primaryTab.splitRatio
+    pendingRatioRef.current = startRatio
 
     const handleDragMove = (ev: MouseEvent) => {
       const delta = ev.clientX - (rect.left + rect.width * startRatio)
-      const newRatio = Math.max(0.2, Math.min(0.8, startRatio + delta / rect.width))
-      setTabs((prev) =>
-        prev.map((t) => (t.id === primaryTabId ? { ...t, splitRatio: newRatio } : t))
-      )
-      // Re-fit both panes
-      const leftEntry = terminalsRef.current.get(primaryTabId)
-      const rightEntry = terminalsRef.current.get(primaryTab.splitTabId!)
-      if (leftEntry) setTimeout(() => { try { leftEntry.fit.fit() } catch { /* */ } }, 10)
-      if (rightEntry) setTimeout(() => { try { rightEntry.fit.fit() } catch { /* */ } }, 10)
+      pendingRatioRef.current = Math.max(0.2, Math.min(0.8, startRatio + delta / rect.width))
+      if (splitRafRef.current === null) {
+        splitRafRef.current = requestAnimationFrame(() => {
+          splitRafRef.current = null
+          setTabs((prev) =>
+            prev.map((t) => (t.id === primaryTabId ? { ...t, splitRatio: pendingRatioRef.current } : t))
+          )
+          scheduleFit()
+        })
+      }
     }
 
     const handleDragEnd = () => {
+      if (splitRafRef.current !== null) {
+        cancelAnimationFrame(splitRafRef.current)
+        splitRafRef.current = null
+      }
+      setTabs((prev) =>
+        prev.map((t) => (t.id === primaryTabId ? { ...t, splitRatio: pendingRatioRef.current } : t))
+      )
+      scheduleFit()
       setSplitDragActive(false)
       document.removeEventListener('mousemove', handleDragMove)
       document.removeEventListener('mouseup', handleDragEnd)
@@ -248,7 +291,7 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     activeDragRef.current = { move: handleDragMove, up: handleDragEnd }
     document.addEventListener('mousemove', handleDragMove)
     document.addEventListener('mouseup', handleDragEnd)
-  }, [tabs])
+  }, [tabs, scheduleFit])
 
   // Start renaming a tab
   const startRename = useCallback((tabId: string) => {
@@ -327,13 +370,34 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
     const cleanup: (() => void)[] = []
     let localDisposed = false
 
-    cleanup.push(() => { localDisposed = true })
+    // Batch high-frequency pty output (build logs, recursive listings) into a
+    // single term.write per ~30 ms instead of one write per IPC chunk — the main
+    // process pushes one message per chunk, which floods xterm's parser and the
+    // renderer's event loop during heavy output.
+    let pendingWrite = ''
+    let writeTimer: ReturnType<typeof setTimeout> | null = null
+    const flushWrite = () => {
+      writeTimer = null
+      const data = pendingWrite
+      pendingWrite = ''
+      if (!localDisposed && data) term.write(data)
+    }
+
+    cleanup.push(() => {
+      localDisposed = true
+      if (writeTimer !== null) clearTimeout(writeTimer)
+    })
     cleanup.push(window.electronAPI.onTermData(tabId, (data) => {
-      if (!localDisposed) term.write(data)
+      if (localDisposed) return
+      pendingWrite += data
+      if (writeTimer === null) writeTimer = setTimeout(flushWrite, 30)
     }))
 
     cleanup.push(window.electronAPI.onTermExit(tabId, () => {
-      if (!localDisposed) term.write('\r\n' + moduleT('terminal.processExited'))
+      if (localDisposed) return
+      // Flush any buffered output before the exit banner so ordering is preserved
+      flushWrite()
+      term.write('\r\n' + moduleT('terminal.processExited'))
     }))
 
     term.onData((data) => {
@@ -395,6 +459,10 @@ export default function TerminalPanel({ rootPath }: TerminalPanelProps) {
       // Clear pending init timeouts
       initTimeouts.forEach((t) => clearTimeout(t))
       initTimeouts.clear()
+      // Clear pending fit debounce + drag rAF coalescing timers
+      if (fitTimerRef.current) clearTimeout(fitTimerRef.current)
+      if (heightRafRef.current) cancelAnimationFrame(heightRafRef.current)
+      if (splitRafRef.current) cancelAnimationFrame(splitRafRef.current)
       // Remove any active drag listeners
       if (activeDragRef.current) {
         document.removeEventListener('mousemove', activeDragRef.current.move)

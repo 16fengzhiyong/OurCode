@@ -44,6 +44,19 @@ interface DebugState {
 
 let outputSeq = 0
 
+// 批量输出缓冲：DAP 每输出一行就触发一次 output 事件，狂打日志时逐行 set
+// 会让 DebugPanel 逐行全量重渲染。合并 ~100ms 内的多行后一次性写入。
+let pendingOutput: DebugOutput[] = []
+let outputFlushTimer: ReturnType<typeof setTimeout> | null = null
+
+function flushOutput(): void {
+  outputFlushTimer = null
+  if (pendingOutput.length === 0) return
+  const batch = pendingOutput
+  pendingOutput = []
+  useDebugStore.setState((s) => ({ output: [...s.output, ...batch].slice(-200) }))
+}
+
 export const useDebugStore = create<DebugState>((set, get) => ({
   isOpen: false,
   isRunning: false,
@@ -75,9 +88,17 @@ export const useDebugStore = create<DebugState>((set, get) => ({
   },
   clearBreakpoints: () => set({ breakpoints: [] }),
   appendOutput: (category, text) => {
-    set((s) => ({ output: [...s.output.slice(-199), { id: ++outputSeq, category, text }] }))
+    pendingOutput.push({ id: ++outputSeq, category, text })
+    if (outputFlushTimer === null) outputFlushTimer = setTimeout(flushOutput, 100)
   },
-  clearOutput: () => set({ output: [] }),
+  clearOutput: () => {
+    pendingOutput = []
+    if (outputFlushTimer !== null) {
+      clearTimeout(outputFlushTimer)
+      outputFlushTimer = null
+    }
+    set({ output: [] })
+  },
 
   start: async () => {
     const { adapterCommand, launchConfig, breakpoints } = get()

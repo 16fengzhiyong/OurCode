@@ -156,7 +156,10 @@ export default function McpPanel() {
   // show up without manual refreshes
   useEffect(() => {
     if (activeTab !== 'servers') return
-    const timer = setInterval(() => { void refreshServers() }, 3000)
+    const timer = setInterval(() => {
+      if (document.hidden) return // 窗口隐藏时暂停轮询
+      void refreshServers()
+    }, 3000)
     return () => clearInterval(timer)
   }, [activeTab, refreshServers])
 
