@@ -172,6 +172,11 @@ export class SQLiteStore {
     if (!sessColumns.some((c: any) => c.name === 'compaction_in_progress')) {
       this.db.exec("ALTER TABLE chat_sessions ADD COLUMN compaction_in_progress INTEGER DEFAULT 0")
     }
+    // Add the session window "mode" column if missing. 'main' = 对话窗口（默认），
+    // 'office' = 一人公司独立窗口 —— 两个窗口的会话完全隔离，互不显示。
+    if (!sessColumns.some((c: any) => c.name === 'mode')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN mode TEXT DEFAULT 'main'")
+    }
     // Add project_path column to memories if missing (project-scoped memories)
     const memColumns = this.db.prepare("PRAGMA table_info(memories)").all() as any[]
     if (!memColumns.some((c: any) => c.name === 'project_path')) {
@@ -399,8 +404,10 @@ export class SQLiteStore {
   }
 
   // Chat Sessions
-  getSessions(): ChatSession[] {
-    const sessions = this.db.prepare('SELECT * FROM chat_sessions ORDER BY updated_at DESC').all() as any[]
+  getSessions(mode?: 'main' | 'office'): ChatSession[] {
+    const sessions = (mode
+      ? this.db.prepare('SELECT * FROM chat_sessions WHERE mode = ? ORDER BY updated_at DESC').all(mode)
+      : this.db.prepare('SELECT * FROM chat_sessions ORDER BY updated_at DESC').all()) as any[]
 
     // Load all messages in one query and bucket by session, instead of one
     // query per session (N+1) — opening the sidebar with many sessions used to
@@ -507,6 +514,7 @@ export class SQLiteStore {
           : undefined,
         summary: session.summary || undefined,
         summaryMessageCount: session.summary_message_count || undefined,
+        mode: (session.mode === 'office' ? 'office' : 'main') as 'main' | 'office',
       }
     })
   }
@@ -524,7 +532,7 @@ export class SQLiteStore {
             active_branch_id = ?, branches = ?, pinned_at = ?, archived_at = ?,
             agent_mode = ?, todos = ?, plan_content = ?, plan_status = ?, agent_runs = ?, project_path = ?,
             summary = ?, summary_message_count = ?, project_edit_mode = ?, last_user_message_at = ?,
-            compaction_in_progress = ?
+            compaction_in_progress = ?, mode = ?
         WHERE id = ?
       `).run(
         session.title,
@@ -547,14 +555,15 @@ export class SQLiteStore {
         (session as any).projectEditMode || 'confirm_before_change',
         (session as any).lastUserMessageAt || 0,
         (session as any).compactionInProgress ? 1 : 0,
+        (session as any).mode === 'office' ? 'office' : 'main',
         id
       )
     } else {
       this.db.prepare(`
         INSERT INTO chat_sessions (id, title, config_group_id, model, model_params, created_at, updated_at,
           active_branch_id, branches, pinned_at, archived_at, agent_mode, todos, plan_content, plan_status, agent_runs, project_path,
-          summary, summary_message_count, project_edit_mode, last_user_message_at, compaction_in_progress)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          summary, summary_message_count, project_edit_mode, last_user_message_at, compaction_in_progress, mode)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         session.title,
@@ -577,7 +586,8 @@ export class SQLiteStore {
         (session as any).summaryMessageCount || 0,
         (session as any).projectEditMode || 'confirm_before_change',
         (session as any).lastUserMessageAt || 0,
-        (session as any).compactionInProgress ? 1 : 0
+        (session as any).compactionInProgress ? 1 : 0,
+        (session as any).mode === 'office' ? 'office' : 'main'
       )
     }
 

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { ChatSession, ChatMessage, ChatBranch, ModelParams, LLMToolCall, DEFAULT_MODEL_PARAMS, TodoItem, Checkpoint, UserQuestion, AgentRun, AgentTraceEntry, AgentToolKind, UsageEvent, SubAgentProgress, AgentRunPhase, resolveThinkingLevel } from '@/types'
 import { TOOL_ALLOWLIST_PREFIX } from '@shared/constants'
+import { IS_OFFICE, WINDOW_MODE, modeKey } from '@/utils/windowMode'
 import { useConfigStore } from './configStore'
 import { useEditorStore } from './editorStore'
 import { useMemoryStore } from './memoryStore'
@@ -79,8 +80,9 @@ const GIT_CACHE_TTL = 5_000
  *  parse budget by an order of magnitude. */
 const STREAM_FLUSH_MS = 50
 
-/** localStorage key for the last active chat session (restored on next launch) */
-const LAST_SESSION_KEY = 'lastActiveSessionId'
+/** localStorage key for the last active chat session (restored on next launch).
+ *  按窗口模式区分 key —— 对话窗口与一人公司窗口各自恢复各自的最后会话。 */
+const LAST_SESSION_KEY = modeKey('lastActiveSessionId')
 
 /** localStorage key that carries the user's last project edit mode (完全访问
  *  etc.) over to newly created sessions and NEW WINDOWS — the same cross-restart
@@ -1458,7 +1460,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   loadSessions: async () => {
     try {
-      const sessions = await window.electronAPI.getSessions()
+      // 只加载本窗口模式的会话：对话窗口 mode='main'，一人公司窗口 mode='office'。
+      const sessions = await window.electronAPI.getSessions(WINDOW_MODE)
       // 旧数据回填 lastUserMessageAt：从最后一条用户消息推导，避免升级后
       // 排序/显示时间回退到 updatedAt（会被 agent 活动刷新而跳动）。
       // agentMode 也一律归一为 'agent'——chat 模式已移除，升级前的旧会话
@@ -1469,8 +1472,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         lastUserMessageAt: s.lastUserMessageAt ?? deriveLastUserMessageAt(s),
       }))
       set({ sessions: normalized })
-      // Restore the last active session across restarts (only on the first load)
-      if (sessions.length > 0 && !get().activeSessionId) {
+      // Restore the last active session across restarts (only on the first load).
+      // 一人公司窗口不自动恢复上次会话：开公司 = 开一家新公司（白纸），旧对话
+      // 仍在左侧项目/任务列表里可手动点开，避免「开公司把之前的对话带过来」。
+      // 主窗口（对话模式）保持原样恢复上次会话。
+      if (sessions.length > 0 && !get().activeSessionId && !IS_OFFICE) {
         // Sessions of projects removed from the list ("从列表中移除") must not
         // restore as active — that would reopen a conversation of a project the
         // user deliberately hid, and the fallback below could otherwise pick it
@@ -1530,6 +1536,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       todos: [],
       planStatus: 'none',
       projectPath: rootPath || undefined,
+      // 会话所属窗口模式：一人公司窗口的会话与对话窗口完全隔离（SQLite mode 过滤）。
+      mode: WINDOW_MODE,
     }
 
     set((s) => ({

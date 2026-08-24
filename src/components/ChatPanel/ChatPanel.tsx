@@ -13,9 +13,7 @@ import WaveLogo from './WaveLogo'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
-import { useShallow } from 'zustand/react/shallow'
 import { useI18n } from '@/i18n/useI18n'
-import { statusBadge } from '@/services/targetMode/targetModeService'
 import type { ChatSession } from '@/types'
 import { resolveThinkingLevel } from '@/types'
 
@@ -105,16 +103,6 @@ export default function ChatPanel() {
   const createSession = useChatStore((s) => s.createSession)
   const setProjectEditMode = useChatStore((s) => s.setProjectEditMode)
   const updateSessionParams = useChatStore((s) => s.updateSessionParams)
-  const setTargetMode = useChatStore((s) => s.setTargetMode)
-  const targetModeStatus = useChatStore((s) => s.targetModeStatus)
-  const refreshTargetModeStatus = useChatStore((s) => s.refreshTargetModeStatus)
-  // Only the ACTIVE session's subagent entries — subscribing to the whole map
-  // re-rendered ChatPanel (and the whole conversation tree) on every subagent
-  // progress update (~150 ms apart during subagent runs). useShallow keeps the
-  // filtered array reference stable unless the relevant entries actually change.
-  const activeSessionSubagents = useChatStore(useShallow((s) =>
-    activeSession ? Object.values(s.subagentProgress).filter((p) => p.sessionId === activeSession.id) : []
-  ))
   const activeConfigGroupId = useConfigStore((s) => s.activeConfigGroupId)
   const models = useConfigStore((s) => s.models)
   const activeConfigGroup = useConfigStore((s) => s.configGroups.find((g) => g.id === s.activeConfigGroupId))
@@ -136,15 +124,9 @@ export default function ChatPanel() {
   const [view, setView] = useState<'chat' | 'trace'>('chat')
 
   const projectEditMode = activeSession?.projectEditMode || 'confirm_before_change'
+  // 目标模式开关已迁至「一人公司」（左侧 3D 办公室视图）；此处保留只读状态，
+  // 用于模式栏在目标模式运行期间隐藏 auto_edit/plan 审批选项。
   const targetMode = activeSession?.targetMode === true
-  // Current active role for the target-mode badge (v2 改动5): the newest
-  // subagent activity for this session — a running one wins over finished ones.
-  const activeTargetRole = targetMode && activeSession
-    ? (() => {
-        if (activeSessionSubagents.length === 0) return ''
-        return (activeSessionSubagents.find((p) => p.status === 'running') || activeSessionSubagents[activeSessionSubagents.length - 1]).name
-      })()
-    : ''
   // Same resolution as the agent loop (`session.model || group.defaultModel`) —
   // previously the pill fell back to nothing when session.model was empty,
   // showing "选择模型" while the conversation actually ran on the default model.
@@ -157,18 +139,6 @@ export default function ChatPanel() {
       openSettings()
     }
   }
-
-  // While target mode is active, poll implementationStatus.md so the badge in
-  // the mode bar stays in sync with the agent's own progress writes.
-  useEffect(() => {
-    if (!targetMode) return
-    refreshTargetModeStatus()
-    const timer = setInterval(() => {
-      if (document.hidden) return // 窗口隐藏时暂停轮询
-      refreshTargetModeStatus()
-    }, 5000)
-    return () => clearInterval(timer)
-  }, [targetMode, refreshTargetModeStatus])
 
   return (
     <div className="h-full flex bg-transparent chat-accent">
@@ -344,32 +314,14 @@ export default function ChatPanel() {
 
               {/* 内嵌决策区 —— 询问选择 / 工具审批 / 重新生成 / 回退全部等框
                   全部在对话面板内完成（不再弹窗），吸底展示在消息区最底部、
-                  模式栏（目标模式按钮）上方。 */}
+                  模式栏上方。 */}
               <InlineDecisionArea />
 
-              {/* Mode bar —— 左对齐单行：目标模式 / 思考等级 / 审批模式 / 轨迹。
+              {/* Mode bar —— 左对齐单行：思考等级 / 审批模式 / 轨迹。
                   对话与轨迹视图都常驻（轨迹视图靠「轨迹」按钮切回对话）。
-                  轨迹按钮原在消息区上方的独立行，现并入本行最右侧。 */}
+                  轨迹按钮原在消息区上方的独立行，现并入本行最右侧。
+                  目标模式开关已迁至「一人公司」视图（左侧活动栏入口）。 */}
               <div className="shrink-0 px-3 py-2 border-t border-nova-border flex items-center justify-start gap-1.5 bg-transparent">
-                {/* Target-mode pill: agent runs autonomously until the user
-                    stops it. Oval toggle, green + pulsing while on. */}
-                <button
-                  onClick={() => setTargetMode(activeSession.id, !targetMode)}
-                  className={`px-3 py-1 text-xs rounded-full border transition-all select-none whitespace-nowrap ${
-                    targetMode
-                      ? 'text-green-500 border-green-500/40 bg-green-500/10'
-                      : 'text-nova-text-muted border-nova-border hover:text-nova-text-primary hover:border-nova-accent/50'
-                  }`}
-                  title={t('chat.targetModeHint')}
-                >
-                  {targetMode ? t('chat.targetModeOn') : t('chat.targetModeOff')}
-                  {targetMode && statusBadge(targetModeStatus) && (
-                    <span className="ml-1 text-green-300 font-medium">{statusBadge(targetModeStatus)}</span>
-                  )}
-                  {targetMode && activeTargetRole && (
-                    <span className="ml-1 text-green-300/80 font-medium">· {activeTargetRole}</span>
-                  )}
-                </button>
                 {/* 思考档位 — 关闭/低/中/高/最高。关闭即不请求思考（reasoning
                     模型仍可能自行输出）；最高档在支持预算的 provider
                     （Anthropic/Gemini）上调满 16384 token。 */}
@@ -411,8 +363,7 @@ export default function ChatPanel() {
                     </>
                   )}
                 </select>
-                {/* 轨迹视图切换 —— 与目标模式同一行，靠最右侧；点击在对话与
-                    agent 执行日志之间切换。 */}
+                {/* 轨迹视图切换 —— 本行最右侧；点击在对话与 agent 执行日志之间切换。 */}
                 <button
                   onClick={() => setView(view === 'trace' ? 'chat' : 'trace')}
                   className={`ml-auto px-3 py-1 text-xs rounded-full transition-all ${view === 'trace' ? 'bg-nova-accent/10 text-nova-accent font-medium' : 'text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover'}`}

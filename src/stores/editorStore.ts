@@ -3,6 +3,7 @@ import { monaco, ensureLanguageService } from '@/editor/monacoSetup'
 import { useRecentFilesStore } from '@/stores/recentFilesStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useUnsavedStore } from '@/stores/unsavedStore'
+import { modeKey } from '@/utils/windowMode'
 import { OpenFile, UserPreferences, DEFAULT_PREFERENCES, LANGUAGE_MAP } from '@/types'
 import {
   getFileContent,
@@ -233,7 +234,8 @@ const syncDerivedState = (s: EditorState) => {
 // The open-tab / panel layout is mirrored to localStorage (debounced) so the
 // next launch can re-open the same files. Only the tab STRUCTURE is saved —
 // file contents are re-read from disk (or hot-exit backups) on restore.
-const SESSION_STORAGE_KEY = 'ourcode.editorSession.v1'
+// 按窗口模式区分 key —— 一人公司窗口与对话窗口各自恢复各自的打开标签。
+const SESSION_STORAGE_KEY = modeKey('ourcode.editorSession.v1')
 const SESSION_WRITE_DEBOUNCE_MS = 400
 
 interface SessionSnapshot {

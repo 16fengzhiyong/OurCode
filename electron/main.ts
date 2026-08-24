@@ -444,6 +444,45 @@ function createNewWindow(): void {
   })
 }
 
+/**
+ * 「一人公司」独立窗口：渲染进程通过 preload 暴露的 isOfficeMode 识别本窗口
+ * 模式（webPreferences.additionalArguments → process.argv），从而以 3D 办公室
+ * 视图为落地页，并使用独立的会话（mode='office'）/项目命名空间。与主对话
+ * 窗口互不干扰。
+ */
+function createOfficeWindow(): void {
+  const win = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 800,
+    minHeight: 600,
+    frame: false,
+    titleBarStyle: 'hidden',
+    backgroundColor: '#1e1e1e',
+    icon: APP_ICON,
+    webPreferences: {
+      preload: join(__dirname, 'preload.js'),
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      additionalArguments: ['--office-mode'],
+    },
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  } else {
+    win.loadFile(join(__dirname, 'renderer/index.html'))
+  }
+
+  attachWindowLifecycle(win)
+
+  allWindows.add(win)
+  win.on('closed', () => {
+    allWindows.delete(win)
+  })
+}
+
 // ── Search backends ─────────────────────────────────────────────────────────
 // search:inFiles / search:files 的三级后端：内存索引（毫秒级）→ ripgrep
 // （10-100x 快）→ Node 遍历（兜底）。调用链见 registerIpcHandlers。
@@ -1042,8 +1081,8 @@ function registerIpcHandlers(): void {
     return store.getCrypto().decryptForImport(encryptedData, password)
   })
 
-  ipcMain.handle('store:getSessions', async () => {
-    return store.getSessions()
+  ipcMain.handle('store:getSessions', async (_event, mode?: 'main' | 'office') => {
+    return store.getSessions(mode)
   })
 
   ipcMain.handle('store:saveSession', async (_event, session) => {
@@ -1151,6 +1190,11 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('window:openNewWindow', () => {
     createNewWindow()
+  })
+
+  // 「一人公司」：独立窗口（office 模式），见 createOfficeWindow。
+  ipcMain.handle('window:openOfficeWindow', () => {
+    createOfficeWindow()
   })
 
   // Terminal handlers (each terminal belongs to the window that created it)
@@ -1751,11 +1795,13 @@ function registerIpcHandlers(): void {
   // agent conversation before opening any real folder. Created lazily under the
   // user's Documents directory (idempotent); reusing an existing folder of the
   // same name is harmless.
-  ipcMain.handle('app:ensureDefaultProject', async () => {
+  // 按窗口模式分目录：对话窗口与一人公司窗口各自独立的默认项目，两边项目列表
+  // 互不「一致」——一人公司项目/工作区与对话模式彻底分开。
+  ipcMain.handle('app:ensureDefaultProject', async (_event, mode?: string) => {
     const base = (() => {
       try { return app.getPath('documents') } catch { /* ignore */ }
     })()
-    const dir = join(base || app.getPath('home'), 'OurCode')
+    const dir = join(base || app.getPath('home'), mode === 'office' ? 'OurCode-office' : 'OurCode')
     try { mkdirSync(dir, { recursive: true }) } catch { /* ignore */ }
     return dir
   })

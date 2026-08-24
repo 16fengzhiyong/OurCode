@@ -10,6 +10,10 @@ interface FileTreeProps {
   /** Bumped by the parent (tree-view header's refresh button) to force a full
    *  tree reload — re-reads the root and every expanded directory. */
   refreshSignal?: number
+  /** Called after a non-directory entry is opened in the editor (e.g. the
+   *  office view's in-panel tree uses it to also switch to the workspace so the
+   *  opened file is actually visible). */
+  onOpenFile?: (path: string) => void
 }
 
 /** Per-project expanded-directory persistence: the tree's fold/unfold state
@@ -65,7 +69,7 @@ function saveExpandedDirs(rootPath: string, dirs: Set<string>): void {
   } catch { /* ignore */ }
 }
 
-function FileTree({ rootPath, refreshSignal }: FileTreeProps) {
+function FileTree({ rootPath, refreshSignal, onOpenFile }: FileTreeProps) {
   const [files, setFiles] = useState<FileEntry[]>([])
   // The root itself is always expanded; the rest of the fold state is restored
   // from this project's last visit.
@@ -282,8 +286,9 @@ function FileTree({ rootPath, refreshSignal }: FileTreeProps) {
       toggleDir(path)
     } else {
       openFile(path)
+      onOpenFile?.(path)
     }
-  }, [toggleDir, openFile])
+  }, [toggleDir, openFile, onOpenFile])
 
   const filteredFiles = useMemo(() => searchQuery
     ? filterFiles(files, searchQuery)

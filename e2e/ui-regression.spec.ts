@@ -129,7 +129,7 @@ test('activity bar tooltips match the project panel names', async () => {
     const win = await mainWindow(app)
     await win.waitForTimeout(2000)
 
-    const fileIcon = win.locator('button[title="项目列表"]').first()
+    const fileIcon = win.locator('button[title="任务面板"], button[title="Task Panel"]').first()
     await expect(fileIcon).toBeVisible({ timeout: 5000 })
     const gitIcon = win.locator('button[title="代码管理"]').first()
     await expect(gitIcon).toBeVisible({ timeout: 3000 })

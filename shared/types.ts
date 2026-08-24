@@ -121,6 +121,9 @@ export interface ChatSession {
    *  Persisted to SQLite so a crash mid-compaction is detected and cleared on
    *  the next load (the pre-crash summary stays valid). Not user-visible. */
   compactionInProgress?: boolean
+  /** 会话所属窗口模式：'main' = 对话窗口（默认），'office' = 一人公司独立
+   *  窗口。两个模式的会话完全隔离（SQLite 按 mode 过滤），互不显示。 */
+  mode?: 'main' | 'office'
 }
 
 // Agent todo list item (managed via the manage_todo tool)

@@ -74,6 +74,26 @@ describe.skipIf(!sqliteUsable)('SQLiteStore session persistence', () => {
     expect(loaded.lastUserMessageAt).toBe(5_000)
   })
 
+  it('isolates office-mode sessions from conversation-mode sessions (mode column)', () => {
+    // 对话窗口会话（无 mode / mode='main'）与一人公司窗口会话（mode='office'）
+    // 必须互不显示 —— getSessions(mode) 按 mode 过滤。
+    store.saveSession(makeSession({ id: 'sess-main', mode: 'main', title: '对话会话' }))
+    store.saveSession(makeSession({ id: 'sess-office', mode: 'office', title: '办公室任务' }))
+
+    const mainOnly = store.getSessions('main')
+    const officeOnly = store.getSessions('office')
+    const all = store.getSessions()
+
+    expect(mainOnly.map((s) => s.id)).toEqual(['sess-main'])
+    expect(officeOnly.map((s) => s.id)).toEqual(['sess-office'])
+    // 未带 mode 保存的会话默认归为 'main'（兼容旧数据/未升级渲染进程）。
+    store.saveSession(makeSession({ id: 'sess-legacy' }))
+    expect(store.getSessions('main').some((s) => s.id === 'sess-legacy')).toBe(true)
+    expect(store.getSessions('office').some((s) => s.id === 'sess-legacy')).toBe(false)
+    // 全量读取（备份/checkpoint 清理等）仍能看到两个模式。
+    expect(all.map((s) => s.id).sort()).toEqual(['sess-legacy', 'sess-main', 'sess-office'])
+  })
+
   it('round-trips every project edit mode value', () => {
     for (const mode of ['confirm_before_change', 'auto_edit', 'plan', 'full_access'] as const) {
       store.saveSession(makeSession({ id: `sess-${mode}`, projectEditMode: mode }))

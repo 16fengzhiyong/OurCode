@@ -1251,3 +1251,18 @@ textarea[data-ai-input] {
   content-visibility: auto;
   contain-intrinsic-size: auto 120px;
 }
+
+/* 一人公司任务指示（左侧项目/任务列表）：运行中 = 彩虹渐变环旋转，
+   完成 = 纯绿实环（静止），失败/停止 = 纯红实环（静止）。
+   .oc-ring-run 需配合 Tailwind animate-spin 使用（1s 旋转）。 */
+.oc-ring-run {
+  background: conic-gradient(from 0deg, #f43f5e, #f59e0b, #22c55e, #06b6d4, #6366f1, #a855f7, #f43f5e);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+}
+.oc-ring-done {
+  border: 2px solid #16a34a;
+}
+.oc-ring-fail {
+  border: 2px solid #dc2626;
+}

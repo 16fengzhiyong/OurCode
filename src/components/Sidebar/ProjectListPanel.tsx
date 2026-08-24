@@ -5,6 +5,7 @@ import { useConfigStore } from '@/stores/configStore'
 import FileTree from './FileTree'
 import { useI18n } from '@/i18n/useI18n'
 import { useSessionMenu } from '@/components/ChatPanel/sessionMenu'
+import { IS_OFFICE } from '@/utils/windowMode'
 
 /** Project icon tiles — gradient backgrounds cycling per project (Stitch:
  *  brand blue-violet / sunset orange / green), each with a symbol. */
@@ -89,6 +90,7 @@ export default function ProjectListPanel() {
   const removedProjects = useUIStore((s) => s.removedProjects)
   const projectListView = useUIStore((s) => s.projectListView)
   const activeProjectPath = useUIStore((s) => s.activeProjectPath)
+  const rootPath = useUIStore((s) => s.rootPath)
   const enterProject = useUIStore((s) => s.enterProject)
   const backToProjectList = useUIStore((s) => s.backToProjectList)
   const setActiveSidebarTab = useUIStore((s) => s.setActiveSidebarTab)
@@ -352,14 +354,30 @@ export default function ProjectListPanel() {
   }
 
   // ───────────── VIEW: Project-internal file tree ─────────────
-  if (projectListView === 'tree' && activeProjectPath) {
+  // 办公室窗口没有「对话面板」项目列表视图：只要有工作区根（rootPath）就直接
+  // 进文件树，绝不误显示下方「任务面板」空壳（双击项目后侧栏必须稳定是文件树）；
+  // 主窗口沿用列表/树视图切换。
+  const treeRoot = projectListView === 'tree' && activeProjectPath
+    ? activeProjectPath
+    : IS_OFFICE
+      ? rootPath
+      : null
+  if (treeRoot) {
     return (
       <div className="h-full flex flex-col">
         {/* Header — back + title + actions in one row (Stitch header pattern, dim off-white) */}
         <header className="px-5 pt-5 pb-4 border-b border-glass-border/50 shrink-0 bg-slate-100/90 dark:bg-white/10">
           <div className="flex items-center justify-between">
             <button
-              onClick={() => { backToProjectList(); setActiveSidebarTab('files') }}
+              onClick={() => {
+                // 办公室窗口：没有「对话面板」项目列表 —— 返回即回到 3D 办公室视图。
+                if (IS_OFFICE) {
+                  useUIStore.getState().setActiveSidebarTab('office')
+                } else {
+                  backToProjectList()
+                  setActiveSidebarTab('files')
+                }
+              }}
               className="flex items-center gap-1.5 text-base font-semibold text-nova-text-primary group transition-colors"
             >
               <svg
@@ -368,7 +386,7 @@ export default function ProjectListPanel() {
               >
                 <polyline points="15 18 9 12 15 6" />
               </svg>
-              项目列表
+              {IS_OFFICE ? '一人公司' : '项目列表'}
             </button>
             <div className="flex items-center gap-0.5">
               <button
@@ -404,7 +422,46 @@ export default function ProjectListPanel() {
         </header>
         {/* File tree */}
         <div className="flex-1 overflow-hidden">
-          <FileTree rootPath={activeProjectPath} refreshSignal={refreshNonce} />
+          <FileTree rootPath={treeRoot} refreshSignal={refreshNonce} />
+        </div>
+      </div>
+    )
+  }
+
+  // ───────────── 办公室窗口：无活动项目（rootPath 为空）→ 项目打开引导 ─────────────
+  // 一人公司窗口的项目文件树在办公室视图左侧栏内就地打开（双击项目卡片即展开），
+  // 这里只是没有工作区根时的兜底引导页；有工作区根时上面的文件树视图接管。
+  if (IS_OFFICE) {
+    return (
+      <div className="h-full flex flex-col">
+        <header className="px-5 pt-5 pb-4 border-b border-glass-border/50 shrink-0 bg-slate-100/90 dark:bg-white/10">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-nova-text-primary">项目</h2>
+            <button
+              onClick={() => useUIStore.getState().toggleSidebar()}
+              className="w-6 h-6 flex items-center justify-center rounded text-nova-text-muted hover:text-nova-text-primary hover:bg-nova-hover transition-colors"
+              title={t('sidebar.collapse')}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+          </div>
+        </header>
+        <div className="flex-1 overflow-y-auto p-3 pb-6 bg-white/95 dark:bg-black/40">
+          <button
+            onClick={handleOpenFolder}
+            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium text-white transition-opacity hover:opacity-90"
+            style={{ background: '#0058bc' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+            </svg>
+            打开项目
+          </button>
+          <p className="text-xs text-nova-text-muted leading-relaxed mt-3">
+            在办公室视图左侧的「项目/任务」栏双击项目卡片，文件树会在办公室内就地打开。
+          </p>
         </div>
       </div>
     )

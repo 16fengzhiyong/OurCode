@@ -85,7 +85,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getConfigGroups: () => ipcRenderer.invoke(IPC_CHANNELS.STORE_GET_CONFIG_GROUPS),
   saveConfigGroup: (group: any) => ipcRenderer.invoke(IPC_CHANNELS.STORE_SAVE_CONFIG_GROUP, group),
   deleteConfigGroup: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.STORE_DELETE_CONFIG_GROUP, id),
-  getSessions: () => ipcRenderer.invoke(IPC_CHANNELS.STORE_GET_SESSIONS),
+  getSessions: (mode?: 'main' | 'office') => ipcRenderer.invoke(IPC_CHANNELS.STORE_GET_SESSIONS, mode),
   saveSession: (session: any) => ipcRenderer.invoke(IPC_CHANNELS.STORE_SAVE_SESSION, session),
   deleteSession: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.STORE_DELETE_SESSION, id),
   getPreferences: () => ipcRenderer.invoke(IPC_CHANNELS.STORE_GET_PREFERENCES),
@@ -123,6 +123,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isMaximized: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_IS_MAXIMIZED),
   openDevTools: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_DEV_TOOLS),
   openNewWindow: () => ipcRenderer.invoke('window:openNewWindow'),
+  // 「一人公司」：打开独立办公室窗口（office 模式）。
+  openOfficeWindow: () => ipcRenderer.invoke('window:openOfficeWindow'),
+  // 本窗口是否为办公室模式：主进程通过 webPreferences.additionalArguments
+  // 注入 '--office-mode'（沙箱 preload 可读 process.argv，同步可用）。
+  isOfficeMode: process.argv.includes('--office-mode'),
   onMaximized: (callback: (isMaximized: boolean) => void) => {
     const listener = (_event: any, isMaximized: boolean) => callback(isMaximized)
     ipcRenderer.on('window:maximized', listener)
@@ -244,7 +249,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // App
   getPath: (name: string) => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_PATH, name),
-  ensureDefaultProject: () => ipcRenderer.invoke('app:ensureDefaultProject'),
+  ensureDefaultProject: (mode?: string) => ipcRenderer.invoke('app:ensureDefaultProject', mode),
   getPlatform: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_PLATFORM),
   resolveEnvVar: (name: string) => ipcRenderer.invoke(IPC_CHANNELS.APP_RESOLVE_ENV_VAR, name),
   getVersion: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),

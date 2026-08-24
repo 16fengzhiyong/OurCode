@@ -57,7 +57,7 @@ export interface ElectronAPI {
   getConfigGroups: () => Promise<import('@shared/types').ApiConfigGroup[]>
   saveConfigGroup: (group: any) => Promise<import('@shared/types').ApiConfigGroup>
   deleteConfigGroup: (id: string) => Promise<void>
-  getSessions: () => Promise<import('@shared/types').ChatSession[]>
+  getSessions: (mode?: 'main' | 'office') => Promise<import('@shared/types').ChatSession[]>
   saveSession: (session: any) => Promise<import('@shared/types').ChatSession>
   deleteSession: (id: string) => Promise<void>
   getPreferences: () => Promise<import('@shared/types').UserPreferences>
@@ -83,6 +83,10 @@ export interface ElectronAPI {
   isMaximized: () => Promise<boolean>
   openDevTools: () => Promise<void>
   openNewWindow: () => Promise<void>
+  /** 打开「一人公司」独立窗口（office 模式）。 */
+  openOfficeWindow: () => Promise<void>
+  /** 本窗口是否为办公室模式（preload 同步注入，主窗口为 false）。 */
+  isOfficeMode: boolean
   onMaximized: (callback: (isMaximized: boolean) => void) => () => void
 
   // OS-level notification (session events while the window is unfocused)
@@ -170,8 +174,9 @@ export interface ElectronAPI {
 
   // App
   getPath: (name: string) => Promise<string>
-  /** Ensure the app-owned default empty project exists and return its path. */
-  ensureDefaultProject: () => Promise<string>
+  /** Ensure the app-owned default empty project exists and return its path.
+   *  按窗口模式分目录：office（一人公司窗口）与 main（对话窗口）各自独立。 */
+  ensureDefaultProject: (mode?: 'main' | 'office') => Promise<string>
   getPlatform: () => Promise<string>
   resolveEnvVar: (name: string) => Promise<string>
   getVersion: () => Promise<string>

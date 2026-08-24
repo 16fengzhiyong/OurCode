@@ -1,9 +1,11 @@
 import { create } from 'zustand'
+import { IS_OFFICE, modeKey } from '@/utils/windowMode'
 
 const DEFAULT_THEME_COLOR = '#0058bc'
 
-/** localStorage key for the last-selected project (re-opened on next launch) */
-const LAST_PROJECT_KEY = 'lastProjectState'
+/** localStorage key for the last-selected project (re-opened on next launch)。
+ *  按窗口模式区分 —— 一人公司窗口的项目/工作区与对话窗口互不干扰。 */
+const LAST_PROJECT_KEY = modeKey('lastProjectState')
 
 function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16)
@@ -187,15 +189,15 @@ export const useUIStore = create<UIState>((set, get) => ({
   sidebarWidth: 330,
   activeSidebarTab: 'files',
   rootPath: null,
-  recentProjects: (() => { try { return JSON.parse(localStorage.getItem('recentProjects') || '[]') } catch { return [] } })(),
-  recentProjectTimes: (() => { try { return JSON.parse(localStorage.getItem('recentProjectTimes') || '{}') } catch { return {} } })(),
-  removedProjects: (() => { try { return JSON.parse(localStorage.getItem('removedProjects') || '[]') } catch { return [] } })(),
+  recentProjects: (() => { try { return JSON.parse(localStorage.getItem(modeKey('recentProjects')) || '[]') } catch { return [] } })(),
+  recentProjectTimes: (() => { try { return JSON.parse(localStorage.getItem(modeKey('recentProjectTimes')) || '{}') } catch { return {} } })(),
+  removedProjects: (() => { try { return JSON.parse(localStorage.getItem(modeKey('removedProjects')) || '[]') } catch { return [] } })(),
 
   // Chat Panel — wider default since the AI panel is the primary interface
   isChatVisible: true,
   chatWidth: (() => {
     try {
-      const saved = Number(localStorage.getItem('chatWidth'))
+      const saved = Number(localStorage.getItem(modeKey('chatWidth')))
       if (saved && saved >= 250) return saved
     } catch { /* ignore */ }
     return Math.max(480, typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.38) : 520)
@@ -208,7 +210,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   // the window instead). It only becomes visible when a file is opened, or when
   // the last session's tabs are restored on launch (see editorStore).
   isEditorVisible: (() => {
-    try { return localStorage.getItem('isEditorVisible') === 'true' } catch { return false }
+    try { return localStorage.getItem(modeKey('isEditorVisible')) === 'true' } catch { return false }
   })(),
 
   // Terminal
@@ -241,7 +243,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   // Project navigation
   projectListView: 'list',
   activeProjectPath: null,
-  projectOrder: (() => { try { return JSON.parse(localStorage.getItem('projectOrder') || 'null') } catch { return null } })(),
+  projectOrder: (() => { try { return JSON.parse(localStorage.getItem(modeKey('projectOrder')) || 'null') } catch { return null } })(),
 
   // Context Menu
   contextMenu: null,
@@ -270,16 +272,16 @@ export const useUIStore = create<UIState>((set, get) => ({
         const updated = s.recentProjects.includes(path)
           ? s.recentProjects
           : [path, ...s.recentProjects].slice(0, 20) // keep last 20
-        localStorage.setItem('recentProjects', JSON.stringify(updated))
+        localStorage.setItem(modeKey('recentProjects'), JSON.stringify(updated))
         // Record when this project was (re)opened so the list can show a real
         // "last opened" time.
         const times = { ...s.recentProjectTimes, [path]: Date.now() }
-        localStorage.setItem('recentProjectTimes', JSON.stringify(times))
+        localStorage.setItem(modeKey('recentProjectTimes'), JSON.stringify(times))
         // (Re)opening a previously removed project brings it — and the sessions
         // still bound to it — back into the project list.
         const removed = s.removedProjects.filter((p) => p !== path)
         if (removed.length !== s.removedProjects.length) {
-          localStorage.setItem('removedProjects', JSON.stringify(removed))
+          localStorage.setItem(modeKey('removedProjects'), JSON.stringify(removed))
         }
         return { recentProjects: updated, recentProjectTimes: times, removedProjects: removed }
       })
@@ -288,21 +290,21 @@ export const useUIStore = create<UIState>((set, get) => ({
   removeProject: (path) => {
     set((s) => {
       const updated = s.recentProjects.filter((p) => p !== path)
-      localStorage.setItem('recentProjects', JSON.stringify(updated))
+      localStorage.setItem(modeKey('recentProjects'), JSON.stringify(updated))
       // Drop the recorded open-time too so a removed project never resurrects a stale date
       const times = { ...s.recentProjectTimes }
       delete times[path]
-      localStorage.setItem('recentProjectTimes', JSON.stringify(times))
+      localStorage.setItem(modeKey('recentProjectTimes'), JSON.stringify(times))
       // Drop from the user's drag-pinned order as well
       const order = s.projectOrder ? s.projectOrder.filter((p) => p !== path) : null
-      if (order) localStorage.setItem('projectOrder', JSON.stringify(order))
+      if (order) localStorage.setItem(modeKey('projectOrder'), JSON.stringify(order))
       // Remember the removal — sessions still bound to the project must not
       // resurrect it in the list; re-opening it (setRootPath/enterProject)
       // clears the flag and the history comes back.
       const removed = s.removedProjects.includes(path)
         ? s.removedProjects
         : [...s.removedProjects, path]
-      localStorage.setItem('removedProjects', JSON.stringify(removed))
+      localStorage.setItem(modeKey('removedProjects'), JSON.stringify(removed))
       // If removing the current project, clear rootPath too
       const newRoot = s.rootPath === path ? null : s.rootPath
       return { recentProjects: updated, recentProjectTimes: times, projectOrder: order, removedProjects: removed, rootPath: newRoot }
@@ -318,18 +320,21 @@ export const useUIStore = create<UIState>((set, get) => ({
    *  its own afterwards — only newly opened projects (unknown to the pinned
    *  order) land at the top. */
   reorderProjects: (orderedPaths) => {
-    localStorage.setItem('projectOrder', JSON.stringify(orderedPaths))
+    localStorage.setItem(modeKey('projectOrder'), JSON.stringify(orderedPaths))
     set({ projectOrder: orderedPaths })
   },
 
   toggleChat: () => set((s) => {
+    // 办公室窗口没有右侧聊天面板（对话面板由办公室任务输入代替）——聊天开关
+    // 直接失效，避免 Ctrl+L 之类的快捷键把聊天面板调出来。
+    if (IS_OFFICE) return s
     // Don't allow hiding the last visible main-area panel — that would leave a
     // blank middle area with no obvious way back (same guard as closePanel).
     if (s.isChatVisible && !s.isEditorVisible) return s
     return { isChatVisible: !s.isChatVisible }
   }),
   setChatWidth: (width) => {
-    localStorage.setItem('chatWidth', String(Math.round(width)))
+    localStorage.setItem(modeKey('chatWidth'), String(Math.round(width)))
     set({ chatWidth: width })
   },
   setChatPosition: (position) => set({ chatPosition: position }),
@@ -338,12 +343,12 @@ export const useUIStore = create<UIState>((set, get) => ({
     // Don't allow hiding the last visible main-area panel (blank screen)
     if (s.isEditorVisible && !s.isChatVisible) return s
     const next = !s.isEditorVisible
-    localStorage.setItem('isEditorVisible', String(next))
+    localStorage.setItem(modeKey('isEditorVisible'), String(next))
     return { isEditorVisible: next }
   }),
   setEditorVisible: (visible) => set((s) => {
     if (s.isEditorVisible === visible) return s
-    localStorage.setItem('isEditorVisible', String(visible))
+    localStorage.setItem(modeKey('isEditorVisible'), String(visible))
     return { isEditorVisible: visible }
   }),
 
@@ -397,13 +402,29 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   enterProject: (path) => {
     set((s) => {
+      // 打开项目 = 同时把它注册进「最近项目」列表（与 setRootPath 一致）。
+      // 否则办公室左侧「项目/任务」栏看不到刚打开的项目——新项目的会话还是
+      // 幽灵会话（未发过消息）时会被项目列表过滤掉，项目就“消失”了。
+      const updated = s.recentProjects.includes(path)
+        ? s.recentProjects
+        : [path, ...s.recentProjects].slice(0, 20)
+      const times = { ...s.recentProjectTimes, [path]: Date.now() }
+      localStorage.setItem(modeKey('recentProjects'), JSON.stringify(updated))
+      localStorage.setItem(modeKey('recentProjectTimes'), JSON.stringify(times))
       // Entering a removed project (e.g. from a session in the chat panel)
       // re-adds it to the list together with its history.
       const removed = s.removedProjects.filter((p) => p !== path)
       if (removed.length !== s.removedProjects.length) {
-        localStorage.setItem('removedProjects', JSON.stringify(removed))
+        localStorage.setItem(modeKey('removedProjects'), JSON.stringify(removed))
       }
-      return { projectListView: 'tree', activeProjectPath: path, rootPath: path, removedProjects: removed }
+      return {
+        projectListView: 'tree',
+        activeProjectPath: path,
+        rootPath: path,
+        recentProjects: updated,
+        recentProjectTimes: times,
+        removedProjects: removed,
+      }
     })
     localStorage.setItem(LAST_PROJECT_KEY, JSON.stringify({ path, view: 'tree' }))
     // Belt-and-suspenders for the allowlist (see setRootPath).
@@ -441,8 +462,9 @@ export const useUIStore = create<UIState>((set, get) => ({
     // The main process creates the folder (idempotent) and returns its path.
     // setRootPath registers it in the project list + authorize allowlist, so
     // agent mode has a workspace to operate on right after launch.
+    // 按窗口模式取独立默认项目：办公室窗口与对话窗口互不共用同一个默认项目。
     try {
-      const path = await window.electronAPI?.ensureDefaultProject?.()
+      const path = await window.electronAPI?.ensureDefaultProject?.(IS_OFFICE ? 'office' : 'main')
       if (path) get().setRootPath(path)
     } catch { /* a default project is best-effort — never block startup */ }
   },

@@ -92,3 +92,25 @@ export function envelopeRole(task: string): string | null {
   const m = /^---[\s\S]*?^to:\s*(\S+)\s*$/m.exec(task || '')
   return m ? m[1] : null
 }
+
+/** 子 Agent 角色名 → 友好中文标签（内置角色表；其余剥离 tm- 前缀与连字符）。 */
+const ROLE_LABELS: Record<string, string> = {
+  'tm-requirement-analyst': '需求分析',
+  'requirement-analyst': '需求分析',
+  'tm-ui-developer': 'UI 开发',
+  'ui-developer': 'UI 开发',
+  'tm-developer': '研发',
+  developer: '研发',
+  'tm-tester': '测试',
+  tester: '测试',
+  'code-reviewer': '代码审查',
+  'test-generator': '测试生成',
+  researcher: '调研',
+}
+
+export function roleLabel(task: string, name: string): string {
+  const raw = envelopeRole(task) || name || ''
+  if (ROLE_LABELS[raw]) return ROLE_LABELS[raw]
+  if (!raw) return '子任务'
+  return raw.replace(/^tm-/, '').replace(/[-_]/g, ' ')
+}
