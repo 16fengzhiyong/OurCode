@@ -405,9 +405,22 @@ export class SQLiteStore {
 
   // Chat Sessions
   getSessions(mode?: 'main' | 'office'): ChatSession[] {
-    const sessions = (mode
-      ? this.db.prepare('SELECT * FROM chat_sessions WHERE mode = ? ORDER BY updated_at DESC').all(mode)
-      : this.db.prepare('SELECT * FROM chat_sessions ORDER BY updated_at DESC').all()) as any[]
+    // The one-company (office) window shares its session list with the main
+    // window until the user creates at least one session tagged 'office'.
+    // Without this fallback the office window shows an empty history because
+    // every legacy session was stamped mode='main' by the column-adding
+    // migration, leaving the office-mode query with zero rows.
+    const sessions = !mode
+      ? (this.db.prepare('SELECT * FROM chat_sessions ORDER BY updated_at DESC').all() as any[])
+      : (this.db.prepare(
+          // requested mode wins; legacy 'main' rows surface in BOTH windows
+          // so old history never disappears; empty/null mode also counts as legacy
+          `SELECT * FROM chat_sessions
+             WHERE mode = ?
+                OR (mode = 'main' AND NOT EXISTS (SELECT 1 FROM chat_sessions s2 WHERE s2.mode = 'office'))
+                OR mode IS NULL OR mode = ''
+             ORDER BY updated_at DESC`
+        ).all(mode) as any[])
 
     // Load all messages in one query and bucket by session, instead of one
     // query per session (N+1) — opening the sidebar with many sessions used to
