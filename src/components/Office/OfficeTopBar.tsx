@@ -14,6 +14,7 @@ import { humanBadge } from '@/services/targetMode/goalChecklist'
 import { getBudgetUsage, initBudgetTracking } from '@/services/targetMode/budget'
 import { roleLabel } from '@/services/office/mapping'
 import { useGoalChecklist } from './useGoalChecklist'
+import { useThrottledValue } from '@/utils/useThrottledValue'
 import { MONO } from './officeTheme'
 
 function fmtTokens(v: number): string {
@@ -26,7 +27,9 @@ export default function OfficeTopBar() {
   const t = useI18n()
   const activeSessionId = useChatStore((s) => s.activeSessionId)
   const targetModeStatus = useChatStore((s) => s.targetModeStatus)
-  const subagentProgress = useChatStore((s) => s.subagentProgress)
+  // 进度表逐次推送换引用（思考节流/工具步骤），800ms 节流避免顶栏随每次推送
+  // 整块重渲染——与看板/项目栏同一节流粒度（角色分布只是「约」统计）。
+  const subagentProgress = useThrottledValue(useChatStore((s) => s.subagentProgress), 800)
   const rootPath = useUIStore((s) => s.rootPath)
   const pendingCount = useUIStore((s) => s.officePendingCount)
   const pulsePending = useUIStore((s) => s.pulseOfficePending)

@@ -5,7 +5,7 @@
  * 「对话」页签——本条只保留输入通道（发现项 #8：@角色定向发言，点名后工作台
  * 自动切到该角色）。保留 data-testid="office-chat-pane"（e2e 依赖）。
  */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
@@ -25,6 +25,15 @@ export default function OfficeChatBar() {
   const [chip, setChip] = useState<string | null>('研发')
   const [text, setText] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // 默认 chip（@研发 定向）同步为工作台选中角色：仅当用户尚未选择过角色时置位，
+  // 保证新窗口下工作台「工具/变更/终端」页签有明确的选中角色（对话页签已恒显示，
+  // 不受影响）；不覆盖用户已选的角色。
+  useEffect(() => {
+    if (useUIStore.getState().officeSelectedRole === null) {
+      useUIStore.getState().setOfficeSelectedRole('研发')
+    }
+  }, [])
 
   const openChat = () => {
     if (IS_OFFICE) {

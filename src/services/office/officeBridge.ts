@@ -133,6 +133,12 @@ function releaseSlot(key: string, slot: number, delay: number): void {
 // ───────────────────────── 子 Agent 生命周期处理 ─────────────────────────
 
 function onSubagentStart(key: string, p: SubAgentProgress): void {
+  // Terminal entries never re-enter the scene: after a finished task's slot is
+  // released (releaseSlot), the chatStore entry stays around forever, so ANY
+  // later store change would otherwise resurrect it as a stuck 'receiving'
+  // zombie (assignments re-occupied, transfer replayed, and scheduleRealStatus
+  // refuses to apply a working status onto a non-running entry).
+  if (p.status !== 'running') return
   const role = envelopeRole(p.task) || p.name
   const slot = assignSlot(role, occupied) ?? firstFreeSlot()
   if (slot == null) return // 8 个槽全忙：本次派发不进场景（走聊天进度即可）

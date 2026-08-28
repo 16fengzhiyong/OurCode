@@ -114,17 +114,20 @@ export default function OfficeWorkbench() {
         </div>
       </div>
 
-      {/* 内容区 */}
+      {/* 内容区：对话页签 = 对话流主现场，恒显示（角色选择只驱动其余三个页签）。
+          此前被 `!selectedRole || !latest` 一并门控——新窗口无选中角色、或
+          选中角色尚无执行记录（如需求澄清阶段）时，监管流式输出与审批区
+          整个不可见，用户下达指令后对话区像「没反应」一样。 */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {!selectedRole || !latest ? (
-          empty
-        ) : tab === 'chat' ? (
+        {tab === 'chat' ? (
           <div className="h-full flex flex-col min-h-0">
             <div className="flex-1 min-h-0 overflow-y-auto">
               <OfficeStream />
             </div>
             <InlineDecisionArea />
           </div>
+        ) : !selectedRole || !latest ? (
+          empty
         ) : tab === 'tools' ? (
           <div className="p-3">
             {latest.steps.length === 0 ? (

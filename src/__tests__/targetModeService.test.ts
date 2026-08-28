@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { parseStatus, statusBadge, ensureInitialized } from '@/services/targetMode/targetModeService'
+import { parseStatus, ensureInitialized } from '@/services/targetMode/targetModeService'
 import { TARGET_MODE_STATUS_INIT } from '@/services/targetMode/spec'
 
 describe('targetModeService.parseStatus', () => {
@@ -50,20 +50,6 @@ describe('targetModeService.parseStatus', () => {
     const s = parseStatus('当前轮次：2\n总体百分比：62.5%')
     expect(s.stageCurrent).toBeNull()
     expect(s.stageTotal).toBeNull()
-  })
-})
-
-describe('targetModeService.statusBadge', () => {
-  it('formats round + percent', () => {
-    expect(statusBadge({ round: 2, percent: 62.5, progressText: '', stageCurrent: null, stageTotal: null })).toBe('R2 · 63%')
-  })
-
-  it('formats round only when percent is missing', () => {
-    expect(statusBadge({ round: 0, percent: null, progressText: '', stageCurrent: null, stageTotal: null })).toBe('R0')
-  })
-
-  it('handles null status', () => {
-    expect(statusBadge(null)).toBe('')
   })
 })
 

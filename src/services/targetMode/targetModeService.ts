@@ -128,14 +128,6 @@ export function parseStatus(md: string): TargetModeStatus {
   }
 }
 
-/** Compact one-line badge for the mode bar, e.g. `R2 · 62%`. */
-export function statusBadge(status: TargetModeStatus | null): string {
-  if (!status) return ''
-  const round = status.round !== null ? `R${status.round}` : 'R?'
-  const percent = status.percent !== null ? ` · ${Math.round(status.percent)}%` : ''
-  return round + percent
-}
-
 async function safeRead(path: string): Promise<string> {
   try {
     const { content } = await window.electronAPI.readFile(path)
