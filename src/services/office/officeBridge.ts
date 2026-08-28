@@ -22,7 +22,9 @@ import {
   estimateProgress,
   summarizeTask,
   subagentStatusToOffice,
+  roleLabel,
 } from './mapping'
+import { createPhaseCheckpoint } from '@/services/targetMode/phaseCheckpoint'
 
 const MERGE_INTERVAL = 200 // 任务/进度合并窗口（ms）
 const RECEIVE_POSE_MS = 1500 // 交接飞递时长内保持 receiving 姿态
@@ -180,6 +182,12 @@ function onSubagentUpdate(key: string, p: SubAgentProgress, prev: SubAgentProgre
     markSupervisorBusy()
     applyNow(() => driver!.applyTransfer(slot, 1, () => { supervisorBusy = false }))
     releaseSlot(key, slot, COMPLETED_HOLD_MS)
+    // V12 审查 #5（SPEC 十）：子 Agent 完成即自动打 checkpoint tag，
+    // 供任务行「回滚到此」使用；非 git 仓库静默跳过。
+    const session = useChatStore.getState().sessions.find((s) => s.id === p.sessionId)
+    if (session?.projectPath) {
+      void createPhaseCheckpoint(session.projectPath, roleLabel(p.task, p.name))
+    }
   } else if (p.status === 'error' || p.status === 'stopped') {
     setSlotStatus(slot, 'error')
     setSlotTask(slot, summarizeTask(p.task), 100, [

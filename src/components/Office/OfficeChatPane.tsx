@@ -1,44 +1,32 @@
-import OfficeStream from './OfficeStream'
-import InlineDecisionArea from '../ChatPanel/InlineDecisionArea'
-import ChatInput from '../ChatPanel/ChatInput'
-import QuestionConfirmBar from '../ChatPanel/QuestionConfirmBar'
-import { MONO } from './officeTheme'
+/**
+ * 底部对话条（V12 压缩版）：@角色 chips + 输入框 + 发送。
+ *
+ * 对话流（OfficeStream）与内嵌决策区（InlineDecisionArea）已移入中央工作台
+ * 「对话」页签——本条只保留输入通道（发现项 #8：@角色定向发言，点名后工作台
+ * 自动切到该角色）。保留 data-testid="office-chat-pane"（e2e 依赖）。
+ */
+import { useRef, useState } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
-import { statusBadge } from '@/services/targetMode/targetModeService'
-import { roleLabel } from '@/services/office/mapping'
-import { useThrottledValue } from '@/utils/useThrottledValue'
+import { MONO } from './officeTheme'
 import { IS_OFFICE } from '@/utils/windowMode'
 
-/**
- * 「一人公司」右下「对话/任务输入」区（V6 对话优先，占主区 58%）：
- * - 目标模式运行中：顶部「目标状态条」（最终目标 + 等宽轮次徽章；停止入口在工具栏）
- *   + 「团队执行中」工位条（运行中的子 Agent 角色实时一览）。
- * - 对话流使用一人公司专用渲染（OfficeStream）：指令 / 汇报 结构，过程收进
- *   可展开的执行明细——与 agent 模式的全量对话区分侧重点。
- * - 目标/补充指令直接在输入框输入（开启后占位符自动切换）；审批/询问决策区吸底。
- */
-export default function OfficeChatPane() {
-  const t = useI18n()
-  const activeSession = useChatStore((s) => (s.activeSessionId ? s.sessions.find((x) => x.id === s.activeSessionId) ?? null : null))
-  const targetMode = activeSession?.targetMode === true
-  const targetModeStatus = useChatStore((s) => s.targetModeStatus)
-  // 进度表逐次推送会高频换引用（思考节流 150ms / 每个工具步骤）；工位条只是
-  // 一览，500ms 节流足够，避免整个对话面板跟着每秒重渲染多次。
-  const subagentProgress = useThrottledValue(useChatStore((s) => s.subagentProgress), 500)
+/** 目标模式 4 角色 chips（与 mapping.ROLE_LABELS 的 tm- 标签一致）。 */
+const ROLE_CHIPS = ['需求分析', '研发', 'UI 开发', '测试']
 
-  // 本会话运行中的子 Agent（团队执行中工位条）；键用父级 run_subagent 的
-  // toolCallId（subagentProgress 的原生键，天然唯一）。
-  const runningWorkers = activeSession
-    ? Object.entries(subagentProgress)
-        .filter(([, p]) => p.sessionId === activeSession.id && p.status === 'running')
-    : []
+export default function OfficeChatBar() {
+  const t = useI18n()
+  const activeSessionId = useChatStore((s) => s.activeSessionId)
+  const running = useChatStore(
+    (s) => !!s.activeSessionId && s.runningSessionIds.includes(s.activeSessionId),
+  )
+  const [chip, setChip] = useState<string | null>('研发')
+  const [text, setText] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const openChat = () => {
-    // 办公室窗口没有「对话面板」——这里直接创建一个 office 会话（或引导配置），
-    // 让目标模式输入框立即可用。
     if (IS_OFFICE) {
       const configId = useConfigStore.getState().activeConfigGroupId
       if (configId) {
@@ -51,9 +39,14 @@ export default function OfficeChatPane() {
     useUIStore.getState().setActiveSidebarTab('files')
   }
 
-  if (!activeSession) {
+  // 空会话：引导创建（与原对话面板一致）
+  if (!activeSessionId) {
     return (
-      <div data-testid="office-chat-pane" className="h-full flex items-center justify-center" style={{ background: MONO.bg }}>
+      <div
+        data-testid="office-chat-pane"
+        className="h-full flex items-center justify-center"
+        style={{ background: '#fff', borderTop: `1px solid ${MONO.hairline}` }}
+      >
         <div className="text-center max-w-[280px]">
           <div style={{ fontSize: 13, color: MONO.t2, marginBottom: 12 }}>{t('office.noActiveSession')}</div>
           <button
@@ -72,92 +65,108 @@ export default function OfficeChatPane() {
     )
   }
 
-  // 当前目标：目标模式下会话的第一条用户消息（即启动时输入的最终目标）
-  const goalText = (() => {
-    const first = activeSession.messages.find((m) => m.role === 'user')
-    const raw = (first?.content || '').replace(/\s+/g, ' ').trim()
-    return raw || '—'
-  })()
+  const send = () => {
+    const value = text.trim()
+    if (!value) return
+    // 文本内 @角色 → 自动切换定向目标 + 工作台角色
+    for (const label of ROLE_CHIPS) {
+      if (value.includes(`@${label}`)) {
+        if (chip !== label) setChip(label)
+        useUIStore.getState().setOfficeSelectedRole(label)
+        break
+      }
+    }
+    const content = chip && !value.includes(`@${chip}`) ? `@${chip} ${value}` : value
+    setText('')
+    void useChatStore.getState().sendMessage(activeSessionId, content)
+    inputRef.current?.focus()
+  }
 
-  const badge = statusBadge(targetModeStatus)
+  const placeholder = chip
+    ? t('office.chatBarPlaceholderChip', { role: chip })
+    : t('office.chatBarPlaceholder')
 
   return (
-    <div data-testid="office-chat-pane" className="h-full flex flex-col min-h-0" style={{ background: MONO.bg }}>
-      {/* V6：目标状态条 —— 最终目标 + 等宽徽章（停止入口在顶部工具栏） */}
-      {targetMode && (
-        <div
-          className="shrink-0 px-5 flex items-center gap-2.5"
-          style={{ height: 36, borderBottom: `1px solid ${MONO.hairline}`, background: MONO.bgSubtle }}
-        >
-          <span
-            className="shrink-0"
+    <div
+      data-testid="office-chat-pane"
+      className="shrink-0 flex flex-col justify-center gap-2 px-4"
+      style={{
+        minHeight: 88,
+        background: '#fff',
+        borderTop: '1px solid rgba(15,23,42,0.08)',
+      }}
+    >
+      {/* @角色 chips */}
+      <div className="flex items-center gap-1.5">
+        {ROLE_CHIPS.map((label) => (
+          <button
+            key={label}
+            onClick={() => {
+              setChip(chip === label ? null : label)
+              useUIStore.getState().setOfficeSelectedRole(chip === label ? null : label)
+            }}
+            className="transition-colors rounded-full"
             style={{
-              fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace",
-              fontSize: 10, fontWeight: 500, letterSpacing: '0.08em', color: MONO.t3,
+              fontSize: 12, padding: '2px 11px', lineHeight: 1.6,
+              color: chip === label ? '#0058BC' : MONO.t2,
+              background: chip === label ? 'rgba(0,88,188,0.08)' : MONO.bg,
+              border: `1px solid ${chip === label ? 'rgba(0,88,188,0.35)' : MONO.hairline}`,
+              cursor: 'pointer',
             }}
           >
-            {t('office.goalLabel')}
+            @{label}
+          </button>
+        ))}
+        {running && (
+          <span className="flex items-center gap-1.5 ml-auto" style={{ fontSize: 12, color: MONO.t2 }}>
+            <span className="inline-block rounded-full" style={{ width: 7, height: 7, background: '#22C55E' }} />
+            {t('office.running')}
           </span>
-          <span className="truncate min-w-0 flex-1" style={{ fontSize: 12, color: MONO.t1 }} title={goalText}>
-            {goalText}
-          </span>
-          {badge && (
-            <span
-              className="shrink-0"
-              style={{
-                fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace",
-                fontSize: 11, color: MONO.t1,
-                border: `1px solid ${MONO.hairline}`, borderRadius: 999, padding: '3px 10px', lineHeight: 1,
-                background: MONO.bg,
-              }}
-            >
-              {badge}
-            </span>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* 团队执行中工位条：运行中的子 Agent 一览（点看板/场景可看全貌） */}
-      {runningWorkers.length > 0 && (
-        <div
-          className="shrink-0 px-5 py-1.5 flex items-center gap-1.5 flex-wrap overflow-hidden"
-          style={{ maxHeight: 64, borderBottom: `1px solid ${MONO.hairline}` }}
-        >
-          <span
-            className="shrink-0 mr-1"
+      {/* 输入行 */}
+      <div className="flex items-center gap-2">
+        <input
+          ref={inputRef}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') send()
+          }}
+          placeholder={placeholder}
+          className="flex-1"
+          style={{
+            height: 36, padding: '0 12px', fontSize: 13,
+            color: MONO.t1, background: '#fff',
+            border: '1px solid rgba(15,23,42,0.12)', borderRadius: 10, outline: 'none',
+          }}
+        />
+        {running ? (
+          <button
+            onClick={() => useChatStore.getState().stopGeneration(activeSessionId)}
+            className="shrink-0 transition-colors rounded-md"
             style={{
-              fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace",
-              fontSize: 10, fontWeight: 500, letterSpacing: '0.08em', color: MONO.t3,
+              height: 36, padding: '0 14px', fontSize: 12, color: '#DC2626',
+              background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.4)',
+              cursor: 'pointer',
             }}
           >
-            {t('office.teamWorking')}
-          </span>
-          {runningWorkers.map(([toolCallId, p]) => (
-            <span
-              key={toolCallId}
-              className="flex items-center gap-1.5 shrink-0"
-              title={p.task}
-              style={{
-                fontSize: 11, color: MONO.t1,
-                border: `1px solid ${MONO.hairline}`, borderRadius: 999, padding: '3px 9px',
-                background: MONO.bgSubtle, lineHeight: 1.4,
-              }}
-            >
-              <span className="inline-block rounded-full animate-pulse-soft" style={{ width: 6, height: 6, background: '#22C55E' }} />
-              {roleLabel(p.task, p.name)}
-              <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace", fontSize: 10, color: MONO.t3 }}>
-                {p.toolCallCount}
-              </span>
-            </span>
-          ))}
-        </div>
-      )}
-
-      <OfficeStream />
-      <InlineDecisionArea />
-      {/* 一人公司专用按钮文案：派活而非「聊天发送」，运行中显式表达为「终止」 */}
-      <ChatInput idleLabelOverride="发布任务" runningLabelOverride="终止任务" />
-      <QuestionConfirmBar />
+            {t('office.stopTask')}
+          </button>
+        ) : (
+          <button
+            onClick={send}
+            className="shrink-0 transition-colors rounded-md"
+            style={{
+              width: 36, height: 36, fontSize: 14, color: '#fff',
+              background: '#0058BC', cursor: 'pointer',
+            }}
+          >
+            ➤
+          </button>
+        )}
+      </div>
     </div>
   )
 }

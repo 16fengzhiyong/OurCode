@@ -3,13 +3,17 @@ import type { CSSProperties } from 'react'
 import { useChatStore } from '@/stores/chatStore'
 import { useI18n } from '@/i18n/useI18n'
 import { readStatus, type TargetModeStatus } from '@/services/targetMode/targetModeService'
-import { readSupervisorLog, listDeliverables, type LogEntry, type Deliverable } from '@/services/targetMode/dashboardData'
+import { readSupervisorLog, type LogEntry } from '@/services/targetMode/dashboardData'
 import {
   roleLabel,
   summarizeTask,
   roleGroup,
   ROLE_GROUPS,
+  OFFICE_SLOTS,
+  computeSlotAssignments,
+  SLOT_GROUP,
   type RoleGroup,
+  type SlotStatus,
 } from '@/services/office/mapping'
 import { MONO, CANVAS, GRADIENT, roleAvatar } from './officeTheme'
 import { useThrottledValue } from '@/utils/useThrottledValue'
@@ -50,15 +54,6 @@ function summarizeArgs(args: Record<string, any>): string {
   }
 }
 
-/** HH:MM(当天) / MM-DD HH:MM(跨天) 文件时间戳(最新交付物)。 */
-function fmtFileTime(ts?: number): string {
-  if (!ts) return ''
-  const d = new Date(ts)
-  const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  if (d.toDateString() === new Date().toDateString()) return hhmm
-  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${hhmm}`
-}
-
 /**
  * 角色行状态(对齐设计稿 V_K:左侧整条色条 + 右侧中文状态药片 + 悬浮窗角标)。
  * labelKey 走 i18n,渲染处用 t() 解析。
@@ -70,14 +65,6 @@ const GROUP_STATUS = {
   idle: { dot: '#CBD5E1', text: '#94A3B8', pillBg: 'rgba(148, 163, 184, 0.14)', bar: 'transparent', labelKey: 'office.statusIdle' },
 } as const
 type GroupStatus = keyof typeof GROUP_STATUS
-
-/** 角色组主色(「AI」徽标描边/字色,与角色章渐变呼应)。 */
-const GROUP_ACCENT: Record<RoleGroup, string> = {
-  产品: '#7c3aed',
-  设计: '#db2777',
-  研发: '#0058bc',
-  测试: '#059669',
-}
 
 /** 工作记录条目(全部来自真实事件:任务开始有真实时间;工具步骤/结束态无时间戳则省略)。 */
 interface WorkEntry {
@@ -96,13 +83,30 @@ interface GroupedTask {
 /** 子 Agent 状态排序:运行中在前,其余按启动时间倒序。 */
 const rankTask = (s: SubAgentProgress['status']) => (s === 'running' ? 0 : s === 'done' ? 1 : 2)
 
+/** 工作记录/选中目标:4 大角色组或 1 号监管(架构总监,无 subagent 进度,看经营日志)。 */
+type BoardSelection = RoleGroup | '监管'
+
+/** 选中目标的展示名:监管显示工位角色名(架构总监),角色组用组名。 */
+function selectionName(sel: BoardSelection): string {
+  return sel === '监管' ? '架构总监' : sel
+}
+
+/** 团队状态栏 8 工位常驻卡的展示信息。 */
+interface SlotCard {
+  slot: (typeof OFFICE_SLOTS)[number]
+  st: SlotStatus
+  doing: string
+  selection: BoardSelection
+}
+
 /**
  * 「一人公司」看板 — 版本 K「融合采纳版」落地。
  *
  * 三栏布局(与设计稿对齐):
  *   栏 1 总任务进度:整体进度条 + 任务分组(进行中/已完成/失败/待办空态)
- *   栏 2 团队状态:产品/设计/研发/测试 四张角色卡(状态点 + 在做什么),
- *        点击角色卡 → 右侧工作记录切换为该角色
+ *   栏 2 团队状态:8 个工位角色常驻卡(与 3D 办公室工位一致,数量固定不随任务增减),
+ *        按真实状态排列(工作中 → 失败 → 已完成 → 空闲中);点击角色卡 →
+ *        右侧工作记录切换为该角色(1 号监管显示经营日志)
  *   栏 3 工作记录 · <角色>:选中角色的时间线(任务开始/工具步骤/结束态 + NOW 实时行)
  *   底部 最新状态:渐变描边汇报条(经营日志最新一条)
  *
@@ -126,18 +130,18 @@ export default function CompanyDashboard({ active = true }: { active?: boolean }
   const sessionId = activeSession?.id || ''
   const rawProgress = useChatStore((s) => s.subagentProgress)
   const subagentProgress = useThrottledValue(rawProgress, 800)
+  // 主循环运行相位(驱动 1 号监管工位的状态):与 3D 场景 officeBridge 同源
+  const phaseEntry = useChatStore((s) => (s.activeSessionId ? s.runPhaseBySession[s.activeSessionId] : undefined))
 
   const [status, setStatus] = useState<TargetModeStatus | null>(null)
   const [log, setLog] = useState<LogEntry[]>([])
-  const [deliverables, setDeliverables] = useState<Deliverable[]>([])
 
   const refresh = useCallback(async () => {
     const root = activeSession?.projectPath || ''
     if (!root) return
-    const [s, l, d] = await Promise.all([readStatus(root), readSupervisorLog(root), listDeliverables(root)])
+    const [s, l] = await Promise.all([readStatus(root), readSupervisorLog(root)])
     setStatus(s)
     setLog(l)
-    setDeliverables(d)
   }, [activeSession?.projectPath])
 
   useEffect(() => {
@@ -170,17 +174,52 @@ export default function CompanyDashboard({ active = true }: { active?: boolean }
     return map
   }, [sessionTasks])
 
-  // 默认选中:优先第一个有运行中任务的组,否则「研发」
-  const [selectedGroup, setSelectedGroup] = useState<RoleGroup>('研发')
+  // 8 工位常驻卡:子任务按角色槽位池占位(运行中优先),1 号监管由主循环相位
+  // 驱动;按状态排列(工作中 → 失败 → 已完成 → 空闲中),同状态按工位号。
+  const slotCards = useMemo<SlotCard[]>(() => {
+    const assignments = computeSlotAssignments(sessionTasks.map(([key, p]) => ({ key, p })))
+    const phase = phaseEntry?.phase
+    const cards: SlotCard[] = OFFICE_SLOTS.map((slot) => {
+      if (slot.id === 1) {
+        // 1 号监管(架构总监):主循环运行相位驱动,不参与子任务占位
+        return {
+          slot,
+          st: phase ? 'working' : 'idle',
+          doing: phase ? `监管 Agent 调度中 · ${phase}` : '待命中 · 等待派发任务',
+          selection: '监管',
+        }
+      }
+      const a = assignments[slot.id - 1]
+      const task = a.key != null ? sessionTasks.find(([k]) => k === a.key)?.[1] : undefined
+      return {
+        slot,
+        st: a.status,
+        doing: task ? summarizeTask(task.task, 30) : '待命中 · 等待派发任务',
+        selection: SLOT_GROUP[slot.id] ?? '研发',
+      }
+    })
+    const rank: Record<SlotStatus, number> = { working: 0, error: 1, completed: 2, idle: 3 }
+    return cards.sort((x, y) => rank[x.st] - rank[y.st] || x.slot.id - y.slot.id)
+  }, [sessionTasks, phaseEntry])
+
+  // 默认选中:优先第一个有运行中任务的组;选中的组没有任务时回落到第一个活跃组
+  const [selectedGroup, setSelectedGroup] = useState<BoardSelection>('研发')
   useEffect(() => {
     const running = ROLE_GROUPS.find((g) => tasksByGroup.get(g)?.some((x) => x.p.status === 'running'))
-    if (running) setSelectedGroup(running)
-  }, [tasksByGroup])
+    if (running) {
+      setSelectedGroup(running)
+      return
+    }
+    if (selectedGroup !== '监管' && (tasksByGroup.get(selectedGroup)?.length ?? 0) === 0) {
+      const firstActive = ROLE_GROUPS.find((g) => (tasksByGroup.get(g)?.length ?? 0) > 0)
+      if (firstActive) setSelectedGroup(firstActive)
+    }
+  }, [tasksByGroup, selectedGroup])
 
   // ── 团队状态角色卡悬浮窗 ─────────────────────────────────────────────────
   // 对话里的角色汇报只有一句结论；完整工作内容（任务全文、每一步工具调用与
   // 参数、错误）在悬停/点击角色卡时以悬浮窗呈现。
-  const [hoveredGroup, setHoveredGroup] = useState<RoleGroup | null>(null)
+  const [hoveredGroup, setHoveredGroup] = useState<BoardSelection | null>(null)
   const [hoverAnchor, setHoverAnchor] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   // 卡片 → 悬浮窗之间有微小间隙：离开卡片后延迟 120ms 再关闭，给鼠标跨越间隙
   // 的时间；进入悬浮窗或另一张卡片时取消挂起的关闭。
@@ -198,7 +237,7 @@ export default function CompanyDashboard({ active = true }: { active?: boolean }
       setHoveredGroup(null)
     }, 120)
   }
-  const hoveredTasks = hoveredGroup ? (tasksByGroup.get(hoveredGroup) ?? []) : []
+  const hoveredTasks = hoveredGroup && hoveredGroup !== '监管' ? (tasksByGroup.get(hoveredGroup) ?? []) : []
 
   // ── 角色组聚合状态:「在做什么」取运行中任务,无则按完成/失败/待命回落 ──
   function groupMeta(g: RoleGroup): { status: GroupStatus; doing: string } {
@@ -213,6 +252,11 @@ export default function CompanyDashboard({ active = true }: { active?: boolean }
 
   // ── 选中角色的工作记录(时间线) ────────────────────────────────────────────
   const workLog = useMemo(() => {
+    if (selectedGroup === '监管') {
+      // 1 号监管没有 subagent 进度,时间线展示经营日志(supervisor.md 真实条目)
+      const supervisorLog: WorkEntry[] = log.map((e) => ({ t: e.time, kind: 'start', title: e.text }))
+      return supervisorLog
+    }
     const tasks = tasksByGroup.get(selectedGroup) ?? []
     const out: WorkEntry[] = []
     for (const { p } of [...tasks].sort((a, b) => a.p.startedAt - b.p.startedAt)) {
@@ -247,9 +291,10 @@ export default function CompanyDashboard({ active = true }: { active?: boolean }
     // 时间线只保留最近 60 条:子任务步骤全量铺开可达上千行 DOM,看板 ~1Hz
     // 刷新时反复重建(卡顿主因之一);截断只牺牲「更早的过程」,最新进展完整。
     return out.slice(-60)
-  }, [tasksByGroup, selectedGroup])
+  }, [tasksByGroup, selectedGroup, log])
 
-  const runningInGroup = (tasksByGroup.get(selectedGroup) ?? []).find((x) => x.p.status === 'running')
+  const runningInGroup =
+    selectedGroup !== '监管' ? (tasksByGroup.get(selectedGroup) ?? []).find((x) => x.p.status === 'running') : undefined
 
   // ── 汇总指标 ───────────────────────────────────────────────────────────────
   const percent = status?.percent ?? null
@@ -282,7 +327,7 @@ export default function CompanyDashboard({ active = true }: { active?: boolean }
         </div>
       </div>
 
-      {/* 三栏看板(对齐设计稿 V_K 的 3:5:4 栏宽——团队状态列表最宽,避免角色行挤压) */}
+      {/* 三栏看板(对齐设计稿 V_K 的 3:5:4 栏宽——团队状态栏最宽,容纳一排 4 个工位小方卡) */}
       <div
         className="flex-1 min-h-0 px-4 pb-2 grid gap-3"
         style={{
@@ -436,145 +481,71 @@ export default function CompanyDashboard({ active = true }: { active?: boolean }
           </div>
         </div>
 
-        {/* ── 栏 2:团队状态(角色卡) ── */}
+        {/* ── 栏 2:团队状态(8 工位常驻) ── */}
         <div className="bg-white rounded-lg border flex flex-col overflow-hidden" style={{ borderColor: HAIRLINE, minWidth: 0 }}>
           <div style={headerStyle}>
             <h2 className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: '#0d1c2d' }}>
               <span style={{ fontSize: 15, color: MONO.t2 }}>◈</span>
               {t('office.teamStatus')}
+              <span className="shrink-0 ml-auto" style={{ fontFamily: MONO_FONT, fontSize: 9.5, fontWeight: 600, color: MONO.t3 }}>
+                {OFFICE_SLOTS.length} 工位
+              </span>
             </h2>
           </div>
-          {/* 角色列表:单列纵向行(对齐设计稿 V_K)——左侧状态色条 + 渐变角色章
-              + 「AI」徽标 + 在做什么 + 右侧中文状态药片;点击切换右侧工作记录 */}
-          <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-2" style={{ background: 'rgba(15,23,42,0.02)' }}>
-            {ROLE_GROUPS.map((g) => {
-              const meta = groupMeta(g)
-              const st = GROUP_STATUS[meta.status]
-              const selected = g === selectedGroup
-              const avatar = roleAvatar(g)
-              const working = meta.status === 'working'
+          {/* 8 工位常驻小方卡(一排 4 个、共 2 行,数量固定与 3D 办公室工位一致),极简结构:
+              状态点 + 角色名 + 状态词;按状态排列(工作中 → 失败 → 已完成 → 空闲中);
+              点击切换右侧工作记录,悬停弹完整工作内容。
+              卡片不放 overflow-hidden(会清零固有最小高度、把网格行压扁),
+              配合 auto-rows-max 行高始终按内容;高度不够由容器滚动兜底。 */}
+          <div
+            className="flex-1 min-h-0 overflow-y-auto p-3 grid grid-cols-4 auto-rows-max content-start gap-2"
+            style={{ background: 'rgba(15,23,42,0.02)' }}
+          >
+            {slotCards.map(({ slot, st, selection }) => {
+              const meta = GROUP_STATUS[st]
+              const selected = selection === selectedGroup
+              const working = st === 'working'
               return (
                 <button
-                  key={g}
-                  onClick={() => setSelectedGroup(g)}
+                  key={slot.id}
+                  onClick={() => setSelectedGroup(selection)}
                   onMouseEnter={(e) => {
                     clearHoverClose()
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
                     setHoverAnchor({ top: rect.bottom + 6, left: rect.left })
-                    setHoveredGroup(g)
+                    setHoveredGroup(selection)
                   }}
                   onMouseLeave={scheduleHoverClose}
-                  className="flex items-center gap-2.5 text-left transition-colors relative overflow-hidden"
+                  className="flex flex-col gap-1 text-left transition-colors"
                   style={{
-                    padding: '10px 12px 10px 14px',
+                    padding: '8px 10px',
                     borderRadius: 8,
                     background: '#fff',
                     border: selected ? `1.5px solid #0058bc` : `1px solid ${HAIRLINE}`,
-                    boxShadow: working ? '0 1px 3px rgba(15, 23, 42, 0.08)' : undefined,
                     cursor: 'pointer',
                   }}
-                  title={`${t('office.viewWorkLog')}: ${g}`}
+                  title={`${t('office.viewWorkLog')}: ${slot.role}`}
                 >
-                  {/* 左侧整条状态色条 */}
-                  <span className="absolute" style={{ left: 0, top: 0, bottom: 0, width: 3, background: st.bar }} />
-                  {/* 渐变角色章;运行中外套彩虹旋转环 */}
-                  <span className="relative shrink-0" style={{ width: 28, height: 28 }}>
-                    {working && (
-                      <span
-                        className="absolute"
-                        style={{ inset: -2.5, borderRadius: 9, background: GRADIENT.rainbow, animation: 'spinRing 2.4s linear infinite' }}
-                      />
-                    )}
+                  {/* 状态点 + 角色名(运行中状态点脉冲) */}
+                  <span className="flex items-center gap-1.5 min-w-0 w-full">
                     <span
-                      className="absolute flex items-center justify-center"
-                      style={{ inset: 0, borderRadius: 7, background: avatar.bg, color: '#fff', fontSize: 11, fontWeight: 700 }}
-                    >
-                      {avatar.char}
-                    </span>
-                  </span>
-                  {/* 名称 + AI 徽标 + 在做什么 */}
-                  <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 3 }}>
-                    <span className="flex items-center min-w-0" style={{ gap: 6 }}>
-                      <span className="truncate text-[12.5px] font-bold" style={{ color: selected ? '#0058bc' : '#0d1c2d' }}>
-                        {g}
-                      </span>
-                      <span
-                        className="shrink-0"
-                        style={{
-                          fontSize: 8.5, fontWeight: 700, letterSpacing: '0.04em', lineHeight: 1.5,
-                          padding: '0 5px', borderRadius: 4,
-                          border: `1px solid ${GROUP_ACCENT[g]}`, color: GROUP_ACCENT[g],
-                        }}
-                      >
-                        AI
-                      </span>
-                    </span>
-                    {/* 「在做什么」最多两行:单行 nowrap 截断在窄栏下只剩几个字,
-                        看着像文字被挤掉(竖向展示不全);两行 + title 兜底完整文案 */}
-                    <span className="line-clamp-2" style={{ fontSize: 11, color: MONO.t2, lineHeight: 1.5 }} title={meta.doing}>
-                      {meta.doing}
-                    </span>
-                  </span>
-                  {/* 右侧状态药片(浅底色 + 状态点 + 中文状态词),不随名称挤压换行 */}
-                  <span
-                    className="shrink-0 flex items-center rounded-full"
-                    style={{ gap: 5, padding: '3px 9px', background: st.pillBg, whiteSpace: 'nowrap' }}
-                  >
-                    <span
-                      className="inline-block rounded-full"
+                      className="shrink-0 inline-block rounded-full"
                       style={{
-                        width: 6, height: 6, background: st.dot,
+                        width: 6, height: 6, background: meta.dot,
                         animation: working ? 'pulseSoft 1.6s ease-in-out infinite' : undefined,
                       }}
                     />
-                    <span style={{ fontSize: 10.5, fontWeight: 600, color: st.text, lineHeight: 1.4 }}>
-                      {t(st.labelKey)}
+                    <span className="truncate text-[12px] font-bold" style={{ color: selected ? '#0058bc' : '#0d1c2d' }}>
+                      {slot.role}
                     </span>
+                  </span>
+                  {/* 状态词,左缩进与角色名对齐 */}
+                  <span className="truncate w-full" style={{ fontSize: 10, fontWeight: 600, color: meta.text, paddingLeft: 12 }}>
+                    {t(meta.labelKey)}
                   </span>
                 </button>
               )
             })}
-          </div>
-
-          {/* 最新交付物(agents/*.md 按修改时间倒序,仅真实文件,不造假) */}
-          <div className="shrink-0 border-t" style={{ borderColor: HAIRLINE, background: '#fff' }}>
-            <div className="flex items-center px-3.5 pt-2.5 pb-1.5">
-              <span className="text-[11px] font-bold flex items-center gap-1.5" style={{ color: MONO.t2 }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-                {t('office.latestDeliverables')}
-              </span>
-            </div>
-            {deliverables.length === 0 ? (
-              <div className="px-3.5 pb-3" style={{ fontSize: 10.5, color: MONO.t3 }}>
-                {t('office.noDeliverables')}
-              </div>
-            ) : (
-              <div className="px-2 pb-2 flex flex-col">
-                {deliverables.slice(0, 5).map((d) => (
-                  <div
-                    key={d.path}
-                    className="flex items-center gap-2 px-1.5 py-1 rounded-md"
-                    title={d.path}
-                  >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={MONO.t3} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                      <polyline points="14 2 14 8 20 8" />
-                    </svg>
-                    <span className="flex-1 min-w-0 truncate" style={{ fontSize: 11, color: '#424753' }}>
-                      {d.name}
-                    </span>
-                    {d.modifiedAt != null && (
-                      <span className="shrink-0" style={{ fontFamily: MONO_FONT, fontSize: 10, color: MONO.t3 }}>
-                        {fmtFileTime(d.modifiedAt)}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
 
@@ -585,7 +556,7 @@ export default function CompanyDashboard({ active = true }: { active?: boolean }
               <span style={{ fontSize: 15, color: MONO.t2 }}>◷</span>
               {t('office.workLog')}
               <span style={{ color: '#c2c6d5', fontWeight: 400, margin: '0 2px' }}>·</span>
-              {selectedGroup}
+              {selectionName(selectedGroup)}
             </h2>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto p-4 relative">
@@ -735,74 +706,103 @@ export default function CompanyDashboard({ active = true }: { active?: boolean }
           }}
         >
           <div className="sticky top-0 flex items-center justify-between px-3.5 py-2.5 border-b" style={{ borderColor: HAIRLINE, background: '#FAFAFC' }}>
-            <span className="text-[12.5px] font-bold" style={{ color: '#0d1c2d' }}>{hoveredGroup} · 工作内容</span>
+            <span className="text-[12.5px] font-bold" style={{ color: '#0d1c2d' }}>{selectionName(hoveredGroup)} · 工作内容</span>
             <span
               className="rounded-full"
               style={{
                 fontSize: 10, fontWeight: 600, padding: '2px 8px',
-                color: GROUP_STATUS[groupMeta(hoveredGroup).status].text,
-                background: GROUP_STATUS[groupMeta(hoveredGroup).status].pillBg,
+                color: (hoveredGroup === '监管'
+                  ? GROUP_STATUS[phaseEntry ? 'working' : 'idle']
+                  : GROUP_STATUS[groupMeta(hoveredGroup).status]).text,
+                background: (hoveredGroup === '监管'
+                  ? GROUP_STATUS[phaseEntry ? 'working' : 'idle']
+                  : GROUP_STATUS[groupMeta(hoveredGroup).status]).pillBg,
               }}
             >
-              {t(GROUP_STATUS[groupMeta(hoveredGroup).status].labelKey)}
+              {t((hoveredGroup === '监管'
+                ? GROUP_STATUS[phaseEntry ? 'working' : 'idle']
+                : GROUP_STATUS[groupMeta(hoveredGroup).status]).labelKey)}
             </span>
           </div>
-          {hoveredTasks.length === 0 && (
-            <div className="px-3.5 py-6 text-center" style={{ fontSize: 11.5, color: MONO.t3 }}>
-              {t('office.noWorkLog')}
-            </div>
-          )}
-          {hoveredTasks.map(({ key, p }) => (
-            <div key={key} className="px-3.5 py-3 border-b last:border-b-0" style={{ borderColor: HAIRLINE }}>
-              <div className="flex items-start gap-2">
-                <span
-                  className="shrink-0 rounded-full flex items-center justify-center mt-0.5"
-                  style={{ width: 16, height: 16, background: roleAvatar(roleLabel(p.task, p.name)).bg, color: '#fff', fontSize: 8.5, fontWeight: 700 }}
-                >
-                  {roleAvatar(roleLabel(p.task, p.name)).char}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[12px] font-semibold" style={{ color: '#0d1c2d' }}>{roleLabel(p.task, p.name)}</span>
-                    <span
-                      className="shrink-0"
-                      style={{
-                        fontFamily: MONO_FONT, fontSize: 9, fontWeight: 600,
-                        color: p.status === 'running' ? '#0058bc' : p.status === 'done' ? '#16a34a' : '#dc2626',
-                      }}
-                    >
-                      {p.status === 'running' ? 'RUNNING' : p.status === 'done' ? 'DONE' : 'FAILED'}
+          {hoveredGroup === '监管' ? (
+            log.length === 0 ? (
+              <div className="px-3.5 py-6 text-center" style={{ fontSize: 11.5, color: MONO.t3 }}>
+                {t('office.noWorkLog')}
+              </div>
+            ) : (
+              <div className="px-3.5 py-2.5 flex flex-col">
+                {log.map((e, i) => (
+                  <div key={i} className="flex items-start gap-2 py-1.5 border-b last:border-b-0" style={{ borderColor: HAIRLINE }}>
+                    <span className="shrink-0" style={{ fontFamily: MONO_FONT, fontSize: 9.5, color: MONO.t3, width: 58 }}>
+                      {e.time}
+                    </span>
+                    <span className="min-w-0 flex-1" style={{ fontSize: 11, color: '#424753', lineHeight: 1.5 }}>
+                      {e.text}
                     </span>
                   </div>
-                  <div className="mt-0.5 text-[11.5px] leading-relaxed break-words" style={{ color: '#424753' }}>
-                    {summarizeTask(p.task, 240)}
-                  </div>
-                  {p.steps.length > 0 && (
-                    <div className="mt-1.5 flex flex-col gap-1">
-                      {p.steps.map((st) => (
-                        <div key={st.id} className="flex items-start gap-1.5">
-                          <span
-                            className="shrink-0 mt-[3px] rounded-full"
-                            style={{
-                              width: 5, height: 5,
-                              background: st.status === 'success' ? '#16a34a' : st.status === 'error' ? '#dc2626' : '#0058bc',
-                            }}
-                          />
-                          <div className="min-w-0 flex-1" style={{ fontFamily: MONO_FONT, fontSize: 10, color: '#64748b' }}>
-                            <span style={{ color: '#334155', fontWeight: 500 }}>{st.name}</span>
-                            <span className="block truncate" title={summarizeArgs(st.arguments)}>{summarizeArgs(st.arguments)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {p.error && (
-                    <div className="mt-1 text-[10.5px] leading-relaxed break-words" style={{ color: '#dc2626' }}>{p.error}</div>
-                  )}
-                </div>
+                ))}
               </div>
-            </div>
-          ))}
+            )
+          ) : (
+            <>
+              {hoveredTasks.length === 0 && (
+                <div className="px-3.5 py-6 text-center" style={{ fontSize: 11.5, color: MONO.t3 }}>
+                  {t('office.noWorkLog')}
+                </div>
+              )}
+              {hoveredTasks.map(({ key, p }) => (
+                <div key={key} className="px-3.5 py-3 border-b last:border-b-0" style={{ borderColor: HAIRLINE }}>
+                  <div className="flex items-start gap-2">
+                    <span
+                      className="shrink-0 rounded-full flex items-center justify-center mt-0.5"
+                      style={{ width: 16, height: 16, background: roleAvatar(roleLabel(p.task, p.name)).bg, color: '#fff', fontSize: 8.5, fontWeight: 700 }}
+                    >
+                      {roleAvatar(roleLabel(p.task, p.name)).char}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-[12px] font-semibold" style={{ color: '#0d1c2d' }}>{roleLabel(p.task, p.name)}</span>
+                        <span
+                          className="shrink-0"
+                          style={{
+                            fontFamily: MONO_FONT, fontSize: 9, fontWeight: 600,
+                            color: p.status === 'running' ? '#0058bc' : p.status === 'done' ? '#16a34a' : '#dc2626',
+                          }}
+                        >
+                          {p.status === 'running' ? 'RUNNING' : p.status === 'done' ? 'DONE' : 'FAILED'}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-[11.5px] leading-relaxed break-words" style={{ color: '#424753' }}>
+                        {summarizeTask(p.task, 240)}
+                      </div>
+                      {p.steps.length > 0 && (
+                        <div className="mt-1.5 flex flex-col gap-1">
+                          {p.steps.map((st) => (
+                            <div key={st.id} className="flex items-start gap-1.5">
+                              <span
+                                className="shrink-0 mt-[3px] rounded-full"
+                                style={{
+                                  width: 5, height: 5,
+                                  background: st.status === 'success' ? '#16a34a' : st.status === 'error' ? '#dc2626' : '#0058bc',
+                                }}
+                              />
+                              <div className="min-w-0 flex-1" style={{ fontFamily: MONO_FONT, fontSize: 10, color: '#64748b' }}>
+                                <span style={{ color: '#334155', fontWeight: 500 }}>{st.name}</span>
+                                <span className="block truncate" title={summarizeArgs(st.arguments)}>{summarizeArgs(st.arguments)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {p.error && (
+                        <div className="mt-1 text-[10.5px] leading-relaxed break-words" style={{ color: '#dc2626' }}>{p.error}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>

@@ -4,6 +4,7 @@ import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
 import { summarizeTask, roleLabel } from '@/services/office/mapping'
+import { listPhaseCheckpoints, rollbackToPhase } from '@/services/targetMode/phaseCheckpoint'
 import { MONO, GRADIENT, roleAvatar } from './officeTheme'
 import FileTree from '../Sidebar/FileTree'
 import { useThrottledValue } from '@/utils/useThrottledValue'
@@ -57,6 +58,7 @@ export default function OfficeProjectsPanel() {
   const sessions = useChatStore((s) => s.sessions)
   // 任务行只需 ~1Hz 的进展刷新；进度表逐次推送换引用会让整棵项目树每秒重渲多次
   const subagentProgress = useThrottledValue(useChatStore((s) => s.subagentProgress), 800)
+  const pendingQuestion = useChatStore((s) => s.pendingQuestion)
   const rollActiveSessionAwayFrom = useChatStore((s) => s.rollActiveSessionAwayFrom)
   const removeProject = useUIStore((s) => s.removeProject)
   const showContextMenu = useUIStore((s) => s.showContextMenu)
@@ -195,6 +197,29 @@ export default function OfficeProjectsPanel() {
 
   const handleSelectTask = (sessionId: string) => {
     useChatStore.getState().setActiveSession(sessionId)
+  }
+
+  // V12 审查 #5：阶段级 checkpoint 回滚（SPEC 第十章）。查找该角色的最近一个
+  // checkpoint tag → 确认 → git switch 新建分支（非破坏，原分支保留）。
+  const doRollback = (label: string, session: ChatSession) => {
+    const root = session.projectPath
+    if (!root) return
+    void (async () => {
+      const tags = await listPhaseCheckpoints(root)
+      const mine = tags.find((c) => c.label === label) ?? tags[0]
+      if (!mine) {
+        useUIStore.getState().showNotification(t('office.rbNone'), 'warning')
+        return
+      }
+      const when = mine.createdAt ? `\n${mine.createdAt}` : ''
+      if (!window.confirm(`${t('office.rbConfirm', { label: mine.label })}${when}\n\n${t('office.rbWarn')}`)) return
+      const res = await rollbackToPhase(root, mine.tag)
+      if (res.ok) {
+        useUIStore.getState().showNotification(t('office.rbDone', { branch: res.branch ?? '' }), 'success')
+      } else {
+        useUIStore.getState().showNotification(res.error ?? t('office.rbFail'), 'error')
+      }
+    })()
   }
 
   // 办公室窗口没有左侧「对话面板」，项目需要从这里添加：选择任意文件夹作为
@@ -503,12 +528,16 @@ export default function OfficeProjectsPanel() {
                     const avatar = roleAvatar(label)
                     const running = p.status === 'running'
                     const done = p.status === 'done'
-                    const statusText = running ? 'RUNNING' : done ? 'DONE' : 'FAILED'
-                    const statusColor = running ? '#0058BC' : done ? '#16A34A' : '#DC2626'
+                    // V12 5 态收敛：等待输入（该会话有挂起的询问）琥珀 ⏸
+                    const waiting = running && pendingQuestion?.sessionId === session.id
+                    const statusText = waiting ? 'WAITING' : running ? 'RUNNING' : done ? 'DONE' : 'FAILED'
+                    const statusColor = waiting ? '#D97706' : running ? '#0058BC' : done ? '#16A34A' : '#DC2626'
                     return (
                       <button
                         key={id}
                         onClick={() => {
+                          // V12：点任务行 → 工作台切到该角色（立即生效，不等会话切换）
+                          useUIStore.getState().setOfficeSelectedRole(label)
                           // 单击 = 切到该任务会话（延时 250ms 区分双击）；
                           // 双击由卡片 onDoubleClick 取消本次切换并打开项目。
                           if (taskClickTimer.current != null) window.clearTimeout(taskClickTimer.current)
@@ -520,8 +549,19 @@ export default function OfficeProjectsPanel() {
                         title={`${session.title || t('chat.untitled')} · ${summarizeTask(p.task, 120)}`}
                         className="w-full flex items-start gap-2 py-1.5 px-1 text-left transition-colors hover:bg-[#F4F4F5]"
                       >
-                        {/* K 版状态指示：运行中 = conic 彩虹环旋转 / 完成 = 绿勾 / 失败 = 红叉 */}
-                        {running ? (
+                        {/* K 版状态指示：运行中 = conic 彩虹环旋转 / 等待输入 = 琥珀半环 / 完成 = 绿勾 / 失败 = 红叉 */}
+                        {waiting ? (
+                          <span
+                            className="shrink-0 rounded-full flex items-center justify-center"
+                            style={{
+                              width: 15, height: 15, marginTop: 4,
+                              border: '1.5px solid #D97706', color: '#D97706', fontSize: 9, fontWeight: 700,
+                              background: 'rgba(217,119,6,0.1)',
+                            }}
+                          >
+                            ⏸
+                          </span>
+                        ) : running ? (
                           <span
                             className="shrink-0 rounded-full animate-spin"
                             style={{ width: 15, height: 15, padding: 2, marginTop: 4, background: GRADIENT.rainbow, animationDuration: '2s' }}
@@ -573,6 +613,21 @@ export default function OfficeProjectsPanel() {
                             >
                               {statusText}
                             </span>
+                            {/* V12 审查 #5：已完成任务行 → 回滚到此 checkpoint */}
+                            {done && (
+                              <span
+                                role="button"
+                                title={t('office.rbTitle')}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  doRollback(label, session)
+                                }}
+                                className="shrink-0 transition-colors rounded"
+                                style={{ fontSize: 12, color: MONO.t3, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}
+                              >
+                                ↺
+                              </span>
+                            )}
                           </span>
                           <span className="flex items-center gap-1.5 mt-0.5 min-w-0">
                             {/* 角色小头像（渐变底 + 首字） */}

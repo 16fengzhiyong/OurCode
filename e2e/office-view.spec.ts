@@ -68,9 +68,17 @@ test('office view mounts the 3D scene in its own window', async () => {
   // 悬浮标签渲染出 8 个
   await expect(office.locator('.office3d-tag')).toHaveCount(8, { timeout: 10000 })
 
-  // 新布局：左侧项目/任务栏 + 右下对话区已挂载（3D 场景保持可见）
+  // 新布局：左侧项目/任务栏 + 底部对话条已挂载（3D 场景保持可见）
   await expect(office.locator('#office3d-root [data-testid="office-projects-panel"]')).toBeVisible()
   await expect(office.locator('#office3d-root [data-testid="office-chat-pane"]')).toBeVisible()
+
+  // V12 信任闭环：顶部状态条 + 中央工作台（4 页签）+ 右栏三卡全部挂载
+  await expect(office.locator('#office3d-root [data-testid="office-topbar"]')).toBeVisible()
+  await expect(office.locator('#office3d-root [data-testid="office-workbench"]')).toBeVisible()
+  await expect(office.locator('#office3d-root [data-testid="office-workbench"] button')).toHaveCount(4, { timeout: 10000 })
+  await expect(office.locator('#office3d-root [data-testid="office-goal-card"]')).toBeVisible()
+  await expect(office.locator('#office3d-root [data-testid="office-pending-card"]')).toBeVisible()
+  await expect(office.locator('#office3d-root [data-testid="office-artifacts-card"]')).toBeVisible()
 
   // 无 office/three/WebGL 相关报错
   const relevant = consoleErrors.filter(

@@ -102,16 +102,29 @@ export interface TargetModeStatus {
   round: number | null
   percent: number | null
   progressText: string
+  /** 实施进度里的阶段信息（如 "阶段 3/5"），宽松解析，缺省 null。 */
+  stageCurrent: number | null
+  stageTotal: number | null
 }
 
 export function parseStatus(md: string): TargetModeStatus {
   const roundMatch = md.match(/当前轮次[：:]\s*(\d+)/)
   const percentMatch = md.match(/总体百分比[：:]\s*(\d+(?:\.\d+)?)\s*%/)
   const progressMatch = md.match(/实施进度[：:]\s*([^\n]+)/)
+  const progressText = progressMatch?.[1]?.trim() || ''
+  let stageCurrent: number | null = null
+  let stageTotal: number | null = null
+  const stageMatch = progressText.match(/阶段\s*(\d+)\s*\/\s*(\d+)/)
+  if (stageMatch) {
+    stageCurrent = parseInt(stageMatch[1], 10)
+    stageTotal = parseInt(stageMatch[2], 10)
+  }
   return {
     round: roundMatch ? parseInt(roundMatch[1], 10) : null,
     percent: percentMatch ? parseFloat(percentMatch[1]) : null,
-    progressText: progressMatch?.[1]?.trim() || '',
+    progressText,
+    stageCurrent,
+    stageTotal,
   }
 }
 

@@ -106,6 +106,17 @@ interface UIState {
   showNotification: (message: string, type?: AppNotification['type'], opts?: { position?: AppNotification['position']; sessionId?: string; duration?: number }) => void
   dismissNotification: (id: number) => void
 
+  // Office（一人公司）——V12 信任闭环共享状态
+  /** 工作台当前选中的角色（左栏任务行/工位点击驱动；null = 未选择）。 */
+  officeSelectedRole: string | null
+  setOfficeSelectedRole: (role: string | null) => void
+  /** 待决中心待处理项数量（PendingCenterCard 同步；TopBar 铃铛徽章消费）。 */
+  officePendingCount: number
+  setOfficePendingCount: (count: number) => void
+  /** 待决中心聚焦脉冲（TopBar 铃铛点击 +1；PendingCenterCard 侦听后滚动闪烁）。 */
+  officePendingPulse: number
+  pulseOfficePending: () => void
+
   // Actions
   toggleSidebar: () => void
   setSidebarWidth: (width: number) => void
@@ -250,6 +261,11 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   // Notifications
   notifications: [],
+
+  // Office（一人公司）
+  officeSelectedRole: null,
+  officePendingCount: 0,
+  officePendingPulse: 0,
 
   // Actions
   toggleSidebar: () => set((s) => ({ isSidebarVisible: !s.isSidebarVisible })),
@@ -484,4 +500,9 @@ export const useUIStore = create<UIState>((set, get) => ({
     }))
   },
   dismissNotification: (id) => set((s) => ({ notifications: s.notifications.filter((n) => n.id !== id) })),
+
+  // Office（一人公司）——V12 信任闭环动作
+  setOfficeSelectedRole: (role) => set({ officeSelectedRole: role }),
+  setOfficePendingCount: (count) => set({ officePendingCount: count }),
+  pulseOfficePending: () => set((s) => ({ officePendingPulse: s.officePendingPulse + 1 })),
 }))

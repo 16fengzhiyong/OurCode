@@ -38,10 +38,17 @@ export const GRADIENT = {
 export const ROLE_AVATAR: Record<string, { bg: string; char: string }> = {
   产品: { bg: 'linear-gradient(135deg, #a855f7, #7c3aed)', char: '产' },
   需求分析: { bg: 'linear-gradient(135deg, #a855f7, #7c3aed)', char: '产' },
+  需求分析师: { bg: 'linear-gradient(135deg, #a855f7, #7c3aed)', char: '需' },
   设计: { bg: 'linear-gradient(135deg, #ec4899, #db2777)', char: '设' },
   'UI 开发': { bg: 'linear-gradient(135deg, #ec4899, #db2777)', char: '设' },
+  'UI/UX 设计师': { bg: 'linear-gradient(135deg, #ec4899, #db2777)', char: '设' },
   研发: { bg: 'linear-gradient(135deg, #3b82f6, #0058bc)', char: '研' },
+  核心架构师: { bg: 'linear-gradient(135deg, #3b82f6, #0058bc)', char: '研' },
+  '业务研发-1': { bg: 'linear-gradient(135deg, #3b82f6, #0058bc)', char: '研' },
+  '业务研发-2': { bg: 'linear-gradient(135deg, #3b82f6, #0058bc)', char: '研' },
   测试: { bg: 'linear-gradient(135deg, #34d399, #059669)', char: '测' },
+  '自动化测试-1': { bg: 'linear-gradient(135deg, #34d399, #059669)', char: '测' },
+  '性能测试-2': { bg: 'linear-gradient(135deg, #34d399, #059669)', char: '测' },
   代码审查: { bg: 'linear-gradient(135deg, #0ea5e9, #0891b2)', char: '审' },
   测试生成: { bg: 'linear-gradient(135deg, #34d399, #059669)', char: '测' },
   调研: { bg: 'linear-gradient(135deg, #f59e0b, #d97706)', char: '调' },
@@ -78,4 +85,17 @@ export function taskStateMeta(status: SubAgentProgress['status']): { dot: string
     default:
       return OFFICE_STATE_META.error
   }
+}
+
+/** 任务行 5 态收敛（V12 审查 #7）：运行中/等待输入/已完成/失败/空闲，
+ *  每态必须配文字标签，不得仅依赖颜色。新组件（工作台/右栏卡）统一使用。 */
+export const TASK_5STATE: Record<
+  'running' | 'waiting' | 'done' | 'failed' | 'idle',
+  { dot: string; text: string }
+> = {
+  running: { dot: '#0058BC', text: '#0058BC' },
+  waiting: { dot: '#D97706', text: '#D97706' },
+  done: { dot: '#16A34A', text: '#16A34A' },
+  failed: { dot: '#DC2626', text: '#DC2626' },
+  idle: { dot: '#94A3B8', text: '#64748B' },
 }

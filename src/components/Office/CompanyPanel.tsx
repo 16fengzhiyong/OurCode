@@ -4,6 +4,9 @@ import { statusMeta } from '@/vendor/office3d/data/agentsData.js'
 import '@/vendor/office3d/office3d.css'
 import { attachOfficeBridge, detachOfficeBridge, resyncOfficeBridge } from '@/services/office/officeBridge'
 import { buildInitialOfficeAgents } from '@/services/office/mapping'
+import { useChatStore } from '@/stores/chatStore'
+import { useUIStore } from '@/stores/uiStore'
+import { useI18n } from '@/i18n/useI18n'
 import type { OfficeAgentState, OfficeStatus } from '@shared/types'
 
 /** 状态图例（与 office-v3 statusMeta 颜色对齐）。 */
@@ -15,6 +18,13 @@ const LEGEND: Array<OfficeStatus> = ['working', 'thinking', 'receiving', 'transf
  * 悬浮标签投影、状态图例、右侧详情抽屉都在场景区内。
  */
 export default function CompanyPanel({ visible = true }: { visible?: boolean }) {
+  const t = useI18n()
+  // V12 审查 #13：场景 = 通知中心——有挂起的审批/询问时显示红点入口，
+  // 点击直达右栏待决中心（用户问题不携带角色信息，工位级红点无法归属）。
+  const pendingApproval = useChatStore((s) => s.pendingApproval)
+  const pendingQuestion = useChatStore((s) => s.pendingQuestion)
+  const pulsePending = useUIStore((s) => s.pulseOfficePending)
+  const pendingCount = (pendingApproval ? 1 : 0) + (pendingQuestion ? 1 : 0)
   const stageRef = useRef<HTMLDivElement>(null)
   const tagsRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<OfficeSceneHost | null>(null)
@@ -205,6 +215,26 @@ export default function CompanyPanel({ visible = true }: { visible?: boolean }) 
           )
         })}
       </div>
+
+      {/* V12 审查 #13：待决红点入口（场景 → 待决中心） */}
+      {pendingCount > 0 && (
+        <button
+          onClick={pulsePending}
+          title={t('office.scenePendingTip')}
+          className="absolute right-3 top-3 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full transition-colors hover:bg-[#F4F4F5]"
+          style={{
+            background: '#fff', color: '#DC2626', fontSize: 11,
+            border: '1px solid rgba(220,38,38,0.35)',
+            boxShadow: '0 2px 8px rgba(15,23,42,0.08)', cursor: 'pointer',
+          }}
+        >
+          <span
+            className="inline-block rounded-full animate-pulse-soft"
+            style={{ width: 7, height: 7, background: '#DC2626' }}
+          />
+          {t('office.scenePending', { n: pendingCount })}
+        </button>
+      )}
 
       {/* 右侧详情抽屉 */}
       <div
