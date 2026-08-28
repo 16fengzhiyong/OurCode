@@ -26,6 +26,12 @@ function fmtTokens(v: number): string {
 export default function OfficeTopBar() {
   const t = useI18n()
   const activeSessionId = useChatStore((s) => s.activeSessionId)
+  // 停止按钮的状态基准：**正在运行**（含等待审批/提问期间——runAgentLoop 在
+  // 等待时 runningSessionIds 仍保留本会话）。仅 activeSessionId 不足以决定
+  // 「停止」是否可用——会话存在 ≠ 有任务在跑。
+  const running = useChatStore(
+    (s) => !!s.activeSessionId && s.runningSessionIds.includes(s.activeSessionId),
+  )
   const targetModeStatus = useChatStore((s) => s.targetModeStatus)
   // 进度表逐次推送换引用（思考节流/工具步骤），800ms 节流避免顶栏随每次推送
   // 整块重渲染——与看板/项目栏同一节流粒度（角色分布只是「约」统计）。
@@ -223,13 +229,14 @@ export default function OfficeTopBar() {
 
       <button
         onClick={stop}
-        disabled={!activeSessionId}
+        disabled={!running}
+        title={running ? t('office.stopTaskHint') : t('office.stopTaskIdle')}
         className="whitespace-nowrap transition-colors rounded-md"
         style={{
           fontSize: 12, color: '#DC2626', padding: '4px 12px',
           background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.4)',
-          opacity: activeSessionId ? 1 : 0.4,
-          cursor: activeSessionId ? 'pointer' : 'default',
+          opacity: running ? 1 : 0.4,
+          cursor: running ? 'pointer' : 'default',
         }}
       >
         {t('office.stopGoal')}
