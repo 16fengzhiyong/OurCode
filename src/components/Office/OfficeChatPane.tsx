@@ -70,15 +70,20 @@ export default function OfficeChatBar() {
   const send = () => {
     const value = text.trim()
     if (!value) return
-    // 文本内 @角色 → 自动切换定向目标 + 工作台角色
+    // 定向目标解析：文本内 @角色 优先（同时切换 chip 与工作台角色）；
+    // 否则用当前选中的 chip。文本内的 @角色 标记会被剥掉、统一由前缀表达，
+    // 避免「已选 @研发 + 文本写 @需求分析」时拼出双前缀/前缀角色错乱。
+    let target: string | null = chip
     for (const label of ROLE_CHIPS) {
       if (value.includes(`@${label}`)) {
+        target = label
         if (chip !== label) setChip(label)
         useUIStore.getState().setOfficeSelectedRole(label)
         break
       }
     }
-    const content = chip && !value.includes(`@${chip}`) ? `@${chip} ${value}` : value
+    const clean = target ? value.replace(new RegExp(`@${target}`, 'g'), '') : value
+    const content = target ? `@${target} ${clean}`.trim() : value
     setText('')
     void useChatStore.getState().sendMessage(activeSessionId, content)
     inputRef.current?.focus()
