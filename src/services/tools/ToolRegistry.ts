@@ -552,9 +552,10 @@ export function createToolRegistry(): Tool[] {
         },
         required: ['url'],
       },
-      execute: async (args) => {
+      execute: async (args, context) => {
         const { readUrl } = await import('@/services/tools/helpers')
-        return readUrl(args.url, typeof args.prompt === 'string' && args.prompt.trim() ? args.prompt : undefined)
+        // context.sessionId → 提取走会话自己的配置组/模型，避免跨组错配 400
+        return readUrl(args.url, typeof args.prompt === 'string' && args.prompt.trim() ? args.prompt : undefined, context?.sessionId)
       },
       timeoutMs: 45_000,
     },

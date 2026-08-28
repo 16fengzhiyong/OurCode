@@ -617,8 +617,10 @@ export async function webSearch(query: string): Promise<string> {
 /** Fetch a URL and return its readable text content. With an optional `prompt`
  *  the page is answered by an LLM instead (bounded input/output); on any
  *  failure — no API config, no default model, empty or errored answer — it
- *  degrades to the raw text, so read_url never breaks on a missing key. */
-export async function readUrl(url: string, prompt?: string): Promise<string> {
+ *  degrades to the raw text, so read_url never breaks on a missing key.
+ *  `sessionId` 用于把配置组/模型解析到「发起调用的那个会话」——用全局活动组
+ *  会把会话组 B 的模型名发到活动组 A 的端点 → 400 "Unsupported model"。 */
+export async function readUrl(url: string, prompt?: string, sessionId?: string): Promise<string> {
   const res = await window.electronAPI.webFetch(url, { timeoutMs: 20000, maxBytes: 2 * 1024 * 1024 })
   if (!res.ok || !res.text) {
     return `Failed to fetch ${url}: ${res.error || `HTTP ${res.status}`}`
@@ -630,13 +632,13 @@ export async function readUrl(url: string, prompt?: string): Promise<string> {
   if (!prompt) {
     return `Content of ${url}:\n\n${text.slice(0, 8000)}`
   }
-  return extractWithLLM(url, prompt, text)
+  return extractWithLLM(url, prompt, text, sessionId)
 }
 
 /** LLM extraction for read_url with a prompt — same non-streaming pattern as
- *  memory condensation (active config group's default model). Pure client-side
- *  call: it cannot re-enter the agent loop, so there is no recursion risk. */
-async function extractWithLLM(url: string, prompt: string, pageText: string): Promise<string> {
+ *  memory condensation. Pure client-side call: it cannot re-enter the agent
+ *  loop, so there is no recursion risk. */
+async function extractWithLLM(url: string, prompt: string, pageText: string, sessionId?: string): Promise<string> {
   // No page text — nothing to extract from; skip the LLM call entirely rather
   // than risk a hallucinated answer from an empty source.
   if (!pageText.trim()) {
@@ -644,8 +646,19 @@ async function extractWithLLM(url: string, prompt: string, pageText: string): Pr
   }
   const { sendLLMRequest } = await import('@/services/llm/LLMClient')
   const { useConfigStore } = await import('@/stores/configStore')
-  const group = useConfigStore.getState().getActiveConfigGroup()
-  const model = (group?.defaultModel || '').trim()
+  // 组与模型同一来源：有会话时取会话绑定的配置组与其模型（tools 调用必然
+  // 属于某个 agent/子智能体循环）；无会话上下文时才回退到全局活动组。
+  let group = useConfigStore.getState().getActiveConfigGroup()
+  let model = (group?.defaultModel || '').trim()
+  if (sessionId) {
+    const { useChatStore } = await import('@/stores/chatStore')
+    const session = useChatStore.getState().sessions.find((s) => s.id === sessionId)
+    const own = useConfigStore.getState().getConfigGroupFor(session?.configGroupId)
+    if (own) {
+      group = own
+      model = (session?.model || own.defaultModel || '').trim()
+    }
+  }
   if (!group || !model) {
     return `Content of ${url}:\n\n${pageText.slice(0, 8000)}`
   }

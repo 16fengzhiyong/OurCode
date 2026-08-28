@@ -8,6 +8,7 @@ import {
   OFFICE_SLOTS,
   assignSlot,
   buildInitialOfficeAgents,
+  computeSlotStates,
   envelopeRole,
   estimateProgress,
   subagentStatusToOffice,
@@ -131,5 +132,42 @@ type: task
   })
   it('无信封时返回 null', () => {
     expect(envelopeRole('普通任务描述')).toBeNull()
+  })
+})
+
+describe('office/mapping: computeSlotStates', () => {
+  it('无运行角色且监管空闲 → 全部 idle', () => {
+    expect(computeSlotStates([], false)).toEqual(Array(8).fill('idle'))
+  })
+
+  it('监管生成中 → Director-01 working，其余 idle', () => {
+    expect(computeSlotStates([], true)).toEqual([
+      'working', 'idle', 'idle', 'idle', 'idle', 'idle', 'idle', 'idle',
+    ])
+  })
+
+  it('运行中角色按槽位池占位，未占用工位保持 idle', () => {
+    // developer → 槽 4；tester → 槽 7；需求分析 → 槽 2
+    expect(computeSlotStates(['tm-developer', 'tm-tester', 'tm-requirement-analyst'], false)).toEqual([
+      'idle', 'working', 'idle', 'working', 'idle', 'idle', 'working', 'idle',
+    ])
+  })
+
+  it('同池多角色依序占槽，池满后溢出角色不占位', () => {
+    // 三个 developer 占 4/5/6，第四个无处可去（不挤占其他池）
+    expect(computeSlotStates(['tm-developer', 'tm-developer', 'tm-developer', 'tm-developer'], false)).toEqual([
+      'idle', 'idle', 'idle', 'working', 'working', 'working', 'idle', 'idle',
+    ])
+  })
+
+  it('监管工位不被子 Agent 覆盖：developer 只进 4-6 池', () => {
+    const states = computeSlotStates(['tm-developer'], true)
+    expect(states[0]).toBe('working')
+    expect(states[3]).toBe('working')
+    expect(states.filter((s) => s === 'working')).toHaveLength(2)
+  })
+
+  it('未知角色不影响既有工位状态', () => {
+    expect(computeSlotStates(['unknown-role'], false)).toEqual(Array(8).fill('idle'))
   })
 })

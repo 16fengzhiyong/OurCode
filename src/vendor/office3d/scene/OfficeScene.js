@@ -50,10 +50,12 @@ export class OfficeScene {
     this._lastHoverTime = 0;
 
     // 固定取景状态：投影宽高比冻结 + letterbox 画布偏移。取景在首次获得真实
-    // 尺寸时确定一次，之后拖动/改尺寸只整体缩放画面，绝不重新构图（相机不动）。
+    // 尺寸时确定一次，之后宽高比漂移超阈值时防抖重取景（handleResize），
+    // 阈值内的拖动只整体缩放（相机不动）。
     this._framingApplied = false;
     this.fixedAspect = null;
     this._letterbox = { x: 0, y: 0, w: 0, h: 0 };
+    this._reframeTimer = null;
 
     this.initThree();
     this.initSubsystems();
@@ -267,36 +269,63 @@ export class OfficeScene {
   /**
    * 固定取景：让人物变大、裁掉两侧空旷黑墙，但**保证 8 个工位全部入镜**。
    * 保持正视视角方向与瞄准点（defaultCameraTarget）不变，仅沿视线调整相机距离：
-   * - 纵向约束（主）：后排脚部→前排头部 屏幕纵向跨度约 3.75 世界单位，按
-   *   2·tan(vFOV/2)·dist 留 ~45% 边距，8 人必然全见；
-   * - 横向约束：窄画布下至少装下 4 工位横向跨度（11.4 的一半）；
-   * - MIN_DIST 兜底：不过度推近（否则近大远小透视过强、后排遮挡前排）。
-   * **只在首次获得真实尺寸时调用一次**（applyRenderSize 内的 _framingApplied
-   * 守卫）——之后无论窗口/分割怎么拖，相机距离都保持不变，仅 aspect 裁切变化。
+   * - 纵向约束（主）：后排脚部→前排头部 屏幕纵向跨度约 3.75 世界单位，
+   *   按留边系数放大后装下（余量同时覆盖悬浮在头顶上方的标签）；
+   * - 横向约束：按「工位中心跨度 11.4 + 桌体半宽余量」的全跨度计算，
+   *   窄画布下允许相机退到比基准更远（不再被 base 距离截断）——
+   *   截断曾导致窄面板下两侧工位被裁掉；
+   * - MIN_DIST / MAX_DIST 兜底：避免过近的透视变形与过远的无限缩小。
+   * 取景在首次获得真实尺寸时确定一次；之后容器**宽高比漂移超过阈值**时
+   * （handleResize 内防抖触发）会重新取景，保证任何窗口/分割形状下 8 工位
+   * 都完整入镜；漂移阈值内的拖动只做 letterbox 整体缩放，构图不跳变。
    */
   setCameraFraming() {
     if (!this.camera || !this.container) return;
+    // 杀掉进行中的相机复位补丁动画（setCameraView），避免旧目标点把刚重取景的
+    // 相机又拽回去。
+    gsap.killTweensOf(this.camera.position);
+    gsap.killTweensOf(this.cameraTarget);
     const aspect = this.container.clientWidth / Math.max(1, this.container.clientHeight);
     const halfTan = Math.tan((this.camera.fov / 2) * (Math.PI / 180)); // tan(17°)
-    const maxDist = this.baseCameraPos.distanceTo(this.defaultCameraTarget);
+    const baseDist = this.baseCameraPos.distanceTo(this.defaultCameraTarget);
     const V_SPAN = 3.75; // 8 人纵向屏幕跨度（世界单位）
-    const V_MARGIN = 1.45; // 纵向留边 45%，8 人从容入镜
-    const MIN_DIST = 9.5; // 取景下限：离场景稍远，避免近大远小透视变形、裁人
+    const V_MARGIN = 1.6; // 纵向留边 ~60%：8 人 + 头顶悬浮标签从容入镜
+    const H_HALF = 7.0; // 横向半跨度：工位中心 ±5.7 再加桌体半宽余量
+    const MIN_DIST = 9.5; // 取景下限：离场景稍远，避免近大远小透视过强、裁人
+    const MAX_DIST = baseDist * 2.5; // 上限兜底：极端窄画布下不至于无限拉远
     let dist = (V_SPAN * V_MARGIN) / (2 * halfTan);
     dist = Math.max(dist, MIN_DIST);
-    dist = Math.max(dist, 5.7 / (halfTan * aspect)); // 横向至少装下 4 工位
-    dist = Math.min(dist, maxDist);
+    dist = Math.max(dist, H_HALF / (halfTan * aspect)); // 横向装下全部工位（含桌体）
+    dist = Math.min(dist, MAX_DIST);
     const dir = this.baseCameraPos.clone().sub(this.defaultCameraTarget).normalize();
     const framed = this.defaultCameraTarget.clone().add(dir.multiplyScalar(dist));
     this.defaultCameraPos.copy(framed);
     this.camera.position.copy(framed);
-    // 冻结投影宽高比：之后容器尺寸变化只做 letterbox 缩放，不改变取景。
+    // 冻结投影宽高比：之后容器尺寸变化先做 letterbox 缩放，比例漂移过大再重构图。
     this.fixedAspect = aspect;
     this.camera.aspect = aspect;
     this.camera.updateProjectionMatrix();
   }
 
   handleResize() {
+    // 防抖重取景：拖动分割条/窗口过程中只做 letterbox 缩放（不跳变）；
+    // 停止 220ms 后若宽高比相对冻结值漂移超过 20%，重新取景一次——
+    // 保证任何窗口形状下场景都完整、且尽量充满可视区。
+    if (this._reframeTimer != null) clearTimeout(this._reframeTimer);
+    this._reframeTimer = setTimeout(() => {
+      this._reframeTimer = null;
+      if (this.disposed || !this.camera || !this.container) return;
+      const w = this.container.clientWidth;
+      const h = this.container.clientHeight;
+      if (!w || !h) return;
+      const aspect = w / h;
+      const frozen = this.fixedAspect || aspect;
+      if (this._framingApplied && Math.abs(aspect / frozen - 1) > 0.2) {
+        this.setCameraFraming();
+        this._framingApplied = true;
+      }
+      this.applyRenderSize();
+    }, 220);
     this.applyRenderSize();
   }
 
@@ -311,8 +340,9 @@ export class OfficeScene {
     const height = this.container.clientHeight;
     if (width === 0 || height === 0) return;
 
-    // 取景（相机位置 + 投影宽高比）只在首次获得真实尺寸时固定一次——之后无论
-    // 窗口/分割怎么拖，构图都不变（只做 letterbox 整体缩放）。
+    // 取景（相机位置 + 投影宽高比）在首次获得真实尺寸时确定；之后容器宽高比
+    // 漂移超过阈值时由 handleResize 防抖重取景，阈值内的变化只做 letterbox
+    // 整体缩放（构图不变）。
     if (!this._framingApplied) {
       this.setCameraFraming();
       this._framingApplied = true;
@@ -507,6 +537,10 @@ export class OfficeScene {
   dispose() {
     // vendored 增补：置位 disposed 让 animate 循环退出
     this.disposed = true;
+    if (this._reframeTimer != null) {
+      clearTimeout(this._reframeTimer);
+      this._reframeTimer = null;
+    }
     if (this.resizeObserver) this.resizeObserver.disconnect();
     this.renderer.dispose();
     // 清理容器内残留的 canvas（避免重复挂载时堆积）

@@ -21,7 +21,7 @@ import type { ToolCall } from '@/services/tools/types'
 import { captureCheckpoint } from '@/services/checkpointService'
 import { buildSkillIndex, listSkills } from '@/services/skills/skillManager'
 import { loadAgentDefinition, SubagentGuard, resolveAllowedRoot } from '@/services/subagents/subagentDefinitions'
-import { subagentStatusLabel, mergeWriteScopes, resolveSubagentModel } from '@/services/subagents/subagentReport'
+import { subagentStatusLabel, mergeWriteScopes, resolveSubagentModel, sanitizeModelName } from '@/services/subagents/subagentReport'
 import { useChatStore } from '@/stores/chatStore'
 import { useConfigStore } from '@/stores/configStore'
 import { useEditorStore } from '@/stores/editorStore'
@@ -127,8 +127,27 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
   const session = useChatStore.getState().sessions.find((s) => s.id === opts.sessionId)
   const configGroup = useConfigStore.getState().configGroups.find((g) => g.id === session?.configGroupId)
   // Model override (v2 §13.2): the target-mode envelope may pin a per-role
-  // model; otherwise resolve from the session exactly as before.
-  const model = resolveSubagentModel(opts.model, session?.model, configGroup?.defaultModel)
+  // model; otherwise resolve from the session exactly as before. 最后一道保险：
+  // 传入该配置组已知的可用模型列表——信封里写错的模型名会被跳过，回退到会话
+  // /默认模型，而不是直接发给 API 拿 400 "Unsupported model"。
+  const configState = useConfigStore.getState()
+  // knownModels 只取「会话所属配置组」自己的域：该组的模型列表缓存
+  // + （活动组恰好就是该组时的）已拉取列表 + 同 provider 的自定义模型
+  // + 会话/默认模型本身（用户配置即已知可用）。
+  // 不能用全局 configState.models —— 那是「当前活动配置组」的列表，
+  // 一人公司等独立窗口里常为空或属于另一组；把其他组/其他 provider 的名字
+  // 混进来只会让校验形同虚设（看似合法、实际 400 "Unsupported model"）。
+  const knownModels = Array.from(new Set([
+    ...(configState.modelsCache[configGroup?.id || '']?.models || []),
+    ...(configState.activeConfigGroupId === configGroup?.id ? configState.models.map((m) => m.id) : []),
+    ...configState.customModels.filter((m) => !configGroup || m.provider === configGroup.provider).map((m) => m.id),
+    ...[session?.model, configGroup?.defaultModel].filter((m): m is string => !!m),
+  ])).map((m) => m.trim()).filter(Boolean)
+  const model = resolveSubagentModel(opts.model, session?.model, configGroup?.defaultModel, knownModels.length > 0 ? knownModels : undefined)
+  // 透明度：信封指定的模型名清洗后存在、但没被采用（不在该组已知列表/无法验证），
+  // 在报告里写明实际用了哪个模型，方便排查「角色怎么没用我指定的模型」。
+  const requestedModel = sanitizeModelName(opts.model)
+  const ignoredEnvelopeModel = requestedModel && requestedModel !== model ? requestedModel : undefined
 
   const executor = new ToolExecutor()
   await executor.refreshMcpTools()
@@ -165,6 +184,17 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
   // No config group / model → cannot run
   if (!configGroup || !model) {
     recordEvent({ ok: false, error: '未配置模型，无法运行子智能体', durationMs: Date.now() - startedAt })
+    // 也要留下一条 FAILED 进度记录：此前这里直接 return，任务在项目栏 / 看板的
+    // 「活动任务」里完全不可见——派发发生后 UI 像「没刷新」一样毫无变化。
+    pushProgress({
+      status: 'error',
+      sessionId: opts.sessionId,
+      name: opts.name,
+      task: opts.task,
+      description: opts.description,
+      startedAt,
+      error: '未配置模型：会话未绑定有效的 API 配置或模型',
+    })
     return `Error: 无法运行子智能体「${opts.name}」— 会话未绑定有效的 API 配置或模型。`
   }
 
@@ -386,6 +416,7 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
       `## 子智能体「${opts.name}」执行报告`,
       opts.description ? `**任务背景**: ${opts.description}` : '',
       `**工具调用**: ${toolCallCount} 次 · **修改文件**: ${changedPaths.size} 个${tokensUsed ? ` · **消耗 token**: ${tokensUsed}` : ''}`,
+      ignoredEnvelopeModel ? `**模型说明**: 信封指定的 \`${ignoredEnvelopeModel}\` 未通过该配置组的可用模型校验，本次实际使用 \`${model}\`` : '',
       changedPaths.size > 0 ? `**涉及文件**:\n${Array.from(changedPaths).map((p) => `- ${p}`).join('\n')}` : '',
       '',
       `**结果**:`,
@@ -404,6 +435,7 @@ export async function runSubAgent(opts: SubAgentOptions): Promise<string> {
       return [
         statusLineText,
         `**摘要**: 子智能体「${opts.name}」任务${statusLabel === '完成' ? '完成' : `未完全完成（${statusLabel}）`}，工具调用 ${toolCallCount} 次，修改 ${changedPaths.size} 个文件${tokensUsed ? `，消耗 ${tokensUsed} tokens` : ''}。`,
+        ignoredEnvelopeModel ? `**模型**: 信封指定的 \`${ignoredEnvelopeModel}\` 未通过该配置组的可用模型校验，已改用 \`${model}\`；后续派发请省略 model 字段（默认用会话模型）。` : '',
         `**报告全文**: ${resolved}`,
       ].filter((l) => l !== '').join('\n')
     }

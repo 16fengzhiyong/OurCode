@@ -113,6 +113,20 @@ describe.skipIf(!sqliteUsable)('SQLiteStore session persistence', () => {
     expect(loaded.lastUserMessageAt).toBe(9_000)
   })
 
+  it('persists targetMode across save/load (INSERT and UPDATE)', () => {
+    // INSERT path：目标模式标志必须落盘——办公室会话重启后不能回退成普通 agent 对话。
+    store.saveSession(makeSession({ id: 'tm-1', mode: 'office', targetMode: true }))
+    expect(store.getSessions('office').find((s) => s.id === 'tm-1')?.targetMode).toBe(true)
+    // 非目标模式会话不落标志
+    store.saveSession(makeSession({ id: 'tm-2', mode: 'main' }))
+    expect(store.getSessions('main').find((s) => s.id === 'tm-2')?.targetMode).toBeUndefined()
+
+    // UPDATE path：关闭目标模式后重新保存必须清掉标志。
+    const [loaded] = store.getSessions('office')
+    store.saveSession({ ...loaded, targetMode: false })
+    expect(store.getSessions('office').find((s) => s.id === 'tm-1')?.targetMode).toBeUndefined()
+  })
+
   it('falls back to the default mode when the renderer omits it, and keeps the sort anchor unset', () => {
     const session = makeSession()
     delete (session as any).projectEditMode

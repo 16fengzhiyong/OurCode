@@ -1328,3 +1328,77 @@ describe('checkpoint reload across session switches (issue: box disappears on re
     expect(useChatStore.getState().checkpoints[0].id).toBe('cp1')
   })
 })
+
+describe('chatStore window-mode isolation (一人公司与普通 agent 模式)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useChatStore.setState({
+      ...initialState,
+      sessions: [],
+      activeSessionId: null,
+      undoStack: [],
+      queuedMessagesBySession: {},
+    })
+  })
+
+  it('importSession stamps the CURRENT window mode, ignoring the file mode', () => {
+    // 测试环境 WINDOW_MODE='main'：导入一个 mode='office' 的备份，会话必须落到
+    // 当前窗口的命名空间，否则同一对话会同时出现在两个窗口（交融/重复的根源）。
+    const imported = {
+      id: 'imported-id',
+      title: '备份对话',
+      configGroupId: 'cfg-1',
+      model: 'm',
+      modelParams: {},
+      mode: 'office',
+      messages: [{ id: 'm1', role: 'user', content: 'hi', sortOrder: 0, createdAt: 1 }],
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    useChatStore.getState().importSession(JSON.stringify(imported))
+    const session = useChatStore.getState().getActiveSession()!
+    expect(session.mode).toBe('main')
+    // 落盘时同样按当前窗口 mode 写入（SQLite 侧按 mode 过滤）
+    const saved = mockApi.saveSession.mock.calls[0][0]
+    expect(saved.mode).toBe('main')
+    expect(saved.messages).toHaveLength(1)
+  })
+
+  it('createBranchFromMessage carries the source session window mode', () => {
+    makeSession('s1')
+    addUser('s1', 'a')
+    addAssistant('s1', 'b')
+    // 模拟办公室会话（office 模式）在主流程之外被分叉的场景
+    useChatStore.setState((st) => ({
+      sessions: st.sessions.map((x) => (x.id === 's1' ? { ...x, mode: 'office' } : x)),
+    }))
+    const msgId = useChatStore.getState().getActiveSession()!.messages[1].id
+    useChatStore.getState().createBranchFromMessage('s1', msgId)
+    const forked = useChatStore.getState().getActiveSession()!
+    expect(forked.id).not.toBe('s1')
+    expect(forked.mode).toBe('office')
+    // 落盘 payload 同样带 office mode——否则 saveSession 会把它写成 main
+    const saved = mockApi.saveSession.mock.calls[0][0]
+    expect(saved.mode).toBe('office')
+  })
+
+  it('saveSession never persists a never-used ghost session (no DB accumulation)', async () => {
+    makeSession('s1') // 新建的空会话
+    await useChatStore.getState().saveSession('s1')
+    expect(mockApi.saveSession).not.toHaveBeenCalled()
+  })
+
+  it('saveSession persists once the session has real content, and keeps persisting after clear', async () => {
+    makeSession('s1')
+    addUser('s1', 'hello')
+    await useChatStore.getState().saveSession('s1')
+    expect(mockApi.saveSession).toHaveBeenCalledTimes(1)
+    // 清空全部消息后仍要落盘——「删除全部消息」必须跨重启生效（clearMessages
+    // 自身会保存一次，这里再显式保存也绝不能因会话变空而被跳过）
+    useChatStore.getState().clearMessages('s1')
+    await useChatStore.getState().saveSession('s1')
+    expect(mockApi.saveSession).toHaveBeenCalledTimes(3)
+    const lastSaved = mockApi.saveSession.mock.calls[2][0]
+    expect(lastSaved.messages).toHaveLength(0)
+  })
+})

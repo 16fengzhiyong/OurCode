@@ -328,3 +328,15 @@ export function detachOfficeBridge(): void {
   driver?.applyReset()
   driver = null
 }
+
+/**
+ * 场景重新可见时同步最新公司状态：React 侧 agents 全量重放 + 各工位状态推给
+ * 宿主。CompanyPanel 隐藏期间增量驱动被可见性门控跳过（见 CompanyPanel 的
+ * driver 实现），桥接内部 slots 仍在推进——恢复可见时必须一次性补齐，否则
+ * 切回场景会看到过期状态。
+ */
+export function resyncOfficeBridge(): void {
+  if (!driver) return
+  driver.applyInit(snapshotAgents())
+  for (const s of slots) driver.applyStatus(s.id, s.status)
+}

@@ -97,7 +97,16 @@ function dragHasFiles(dt: DataTransfer | null): boolean {
   return Array.from(dt.types).includes('Files') || dt.files.length > 0 || Array.from(dt.items).some((i) => i.kind === 'file')
 }
 
-export default function ChatInput() {
+export default function ChatInput({
+  // Office 模式专用按钮文案覆盖：默认空字符串时沿用 i18n 默认（发送/结束）。
+  // OfficeChatPane 在 IS_OFFICE=true 时传「发布任务 / 终止任务」，与一人公司
+  // 的"派活"语义对齐；agent 模式不传 → 行为完全保持不变。
+  idleLabelOverride,
+  runningLabelOverride,
+}: {
+  idleLabelOverride?: string
+  runningLabelOverride?: string
+} = {}) {
   const [input, setInput] = useState('')
   const [contextFiles, setContextFiles] = useState<string[]>([])
   /** path → isDirectory, resolved lazily via fs:stat (in-workspace only) so
@@ -790,7 +799,7 @@ export default function ChatInput() {
                   onClick={() => activeSessionId && stopGeneration(activeSessionId)}
                   className="px-3.5 py-1.5 text-xs text-white font-medium rounded-md transition-colors bg-error hover:opacity-90"
                 >
-                  {t('chat.stop')}
+                  {runningLabelOverride || t('chat.stop')}
                 </button>
               ) : (
                 <button
@@ -798,7 +807,7 @@ export default function ChatInput() {
                   disabled={(!input.trim() && contextFiles.length === 0) || !activeConfigGroupId}
                   className="text-white text-xs font-medium px-4 py-1.5 rounded-md transition-all hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed bg-nova-accent"
                 >
-                  {t('chat.send')}
+                  {idleLabelOverride || t('chat.send')}
                 </button>
               )}
             </div>

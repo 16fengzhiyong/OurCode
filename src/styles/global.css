@@ -1155,6 +1155,11 @@ textarea[data-ai-input] {
   animation: pulseSoft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* 一人公司看板:运行中角色章/任务环的彩虹 conic 环旋转 */
+@keyframes spinRing {
+  to { transform: rotate(360deg); }
+}
+
 /* User message bubble — 极简纯净版: quiet light-gray bubble (#f1f5f9, matches
    the design's rounded-[20px] rounded-br-[4px]); no electric-blue edge, no
    glass blur. The theme-aware tokens keep it receding behind the AI answer.

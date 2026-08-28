@@ -139,9 +139,11 @@ const TITLE_SYSTEM_PROMPT = `你是对话标题生成器。根据用户的第一
  * config, provider error, empty reply) so callers fall back to the heuristic.
  * Exported for unit tests.
  */
-export async function generateAiSessionTitle(userContent: string, preferredModel?: string): Promise<string> {
+export async function generateAiSessionTitle(userContent: string, preferredModel?: string, configGroupId?: string): Promise<string> {
   try {
-    const group = useConfigStore.getState().getActiveConfigGroup()
+    // 取会话自己的配置组（preferredModel 通常来自该会话）——用活动组会把
+    // 会话组 B 的模型名发到活动组 A 的端点 → 400 "Unsupported model"。
+    const group = useConfigStore.getState().getConfigGroupFor(configGroupId)
     if (!group) return ''
     const model = (preferredModel || group.defaultModel || '').trim()
     if (!model) return ''
@@ -510,6 +512,28 @@ const PLAN_TOOLS = new Set([
 
 // Write tools get a checkpoint snapshot before they run
 const CHECKPOINT_TOOLS = new Set(['write_file', 'edit_file', 'delete_file', 'create_directory', 'multi_edit_file'])
+
+// ── 目标模式监管 Agent 工具硬约束（v2 多 Agent 协作）────────────────────────
+// 提示词只说「监管不直接写业务代码」，弱模型会无视并自己 npm install / 改码
+// （团队看板全 IDLE、supervisor.md 无派发记录）。这里是工具层硬约束：
+// 1) 下列工具对监管直接隐藏（不出现在 toolDefinitions）；
+// 2) runAgentLoop 里再挂 guard 兜底（模型幻觉调用时返回引导性错误，
+//    教它改用 run_subagent 派发），guard 只作用于监管会话本身——
+//    子 Agent 用独立 executor 实例，不受影响。
+// 监管保留：读/搜/web/git 只读/manage_todo/ask/run_subagent 等；
+// write_file / create_directory / delete_file 仅限 .ourcode/targemode/ 下的文档。
+const TARGET_MODE_SUPERVISOR_DENIED = new Set([
+  'run_command',            // 安装/构建/测试命令 → tm-developer / tm-tester
+  'edit_file',              // 业务代码修改 → tm-developer / tm-ui-developer
+  'multi_edit_file',
+  'git_add', 'git_commit', 'git_push', 'git_split_commit', // 变更类 git 操作不归监管
+])
+
+/** 监管可写路径门禁：仅允许目标模式状态目录（规划/状态/日志/信封文档）。 */
+function isTargemodePath(p: unknown): boolean {
+  const s = String(p || '').replace(/\\/g, '/').toLowerCase()
+  return s.includes('.ourcode/targemode/')
+}
 
 // 计划模式防空转 — 计划模式只暴露只读工具；当用户请求明显需要写操作/命令
 // （提交/推送/安装/执行…）而 agent 连续多轮纯只读探索（读文件/搜索）且不提交
@@ -1006,6 +1030,15 @@ function formatPlanText(planContent: string): string {
 // Singleton tool executor
 const toolExecutor = new ToolExecutor()
 
+/**
+ * 已经真正写入过磁盘的会话 id。幽灵会话（0 消息、标题未改、未置顶/归档）默认
+ * 不落盘——否则每次开办公室/切换编辑模式/改模型都会在 SQLite 里沉淀一条空白
+ * 「新对话」，重启后全部加载回来（office 窗口的启动兜底会话每次都新建一条）。
+ * 一旦会话真正保存过一次（首条消息、重命名、置顶…），即使之后清空全部消息
+ * 也继续落盘——「删除全部消息」必须跨重启生效，不能因为会话变空而跳过。
+ */
+const _persistedSessionIds = new Set<string>()
+
 // Pending approval resolves — keyed by session so parallel conversations can
 // each wait on their own dialog without clobbering each other.
 const _approvalResolves = new Map<string, (approved: boolean) => void>()
@@ -1471,6 +1504,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         agentMode: 'agent' as const,
         lastUserMessageAt: s.lastUserMessageAt ?? deriveLastUserMessageAt(s),
       }))
+      // 加载出来的都是已落盘会话——记入集合，后续即使被清空消息也要继续保存
+      // （删除全部消息必须跨重启生效）。
+      for (const s of normalized) _persistedSessionIds.add(s.id)
       set({ sessions: normalized })
       // Restore the last active session across restarts (only on the first load).
       // 一人公司窗口不自动恢复上次会话：开公司 = 开一家新公司（白纸），旧对话
@@ -1508,13 +1544,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   createSession: (configGroupId, projectPath) => {
-    const id = uuidv4()
     // The project binding is captured at creation so the session shows up under
     // its project in the left sidebar. Callers may pass an explicit project
     // (e.g. the "新建对话" button on a project list item) — otherwise fall back
     // to the current project (the active session's project, since the current
     // project follows the conversation), then the folder being browsed.
     const rootPath = projectPath || getCurrentProjectPath() || document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
+    // 一人公司排他：办公室建会话走 targetMode 直置（见下），绕过了 setTargetMode
+    // 的「同项目仅一个目标模式会话」门禁。同项目已有一家公司在运营时，直接激活
+    // 既有会话而不是再开一家——否则两个监管会对同一项目双跑（状态文件互相覆盖、
+    // 预算分别记账）。
+    if (IS_OFFICE && rootPath) {
+      const running = get().sessions.find(
+        (s) => s.targetMode === true && s.projectPath === rootPath,
+      )
+      if (running) {
+        set({ activeSessionId: running.id })
+        get().loadCheckpoints(running.id)
+        useUIStore.getState().showNotification(t('office.companyAlreadyRunning'), 'info')
+        return running.id
+      }
+    }
+    const id = uuidv4()
     const session: ChatSession = {
       id,
       title: DEFAULT_SESSION_TITLE,
@@ -1538,6 +1589,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       projectPath: rootPath || undefined,
       // 会话所属窗口模式：一人公司窗口的会话与对话窗口完全隔离（SQLite mode 过滤）。
       mode: WINDOW_MODE,
+      // 一人公司窗口的会话一律默认进入目标模式：办公室的对话就是「派活给公司」，
+      // 而非普通 agent 对话。此前只有 App 启动兜底会话被置位 targetMode，其余
+      // 入口（双击项目/打开文件夹/新建任务对话）建出的会话都是普通 agent 模式——
+      // 在办公室右下对话区看起来就是一条普通对话（无目标条/无监管调度）。
+      // 主窗口会话保持默认关闭。
+      targetMode: IS_OFFICE || undefined,
     }
 
     set((s) => ({
@@ -1580,6 +1637,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })
     window.electronAPI.deleteSession(sessionId)
     window.electronAPI.checkpointDelete(sessionId)
+    _persistedSessionIds.delete(sessionId)
     // Remove the session's spilled tool-output files (best-effort cache cleanup)
     void window.electronAPI.spillDeleteSession(sessionId).catch(() => {})
     // Drop the executor's per-session read-tracking (read-before-write guard)
@@ -1831,6 +1889,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       thinking: msg.thinking,
       toolCalls: msg.toolCalls,
       toolResults: msg.toolResults,
+      error: msg.error,
       createdAt: Date.now(),
       runId: msg.runId,
       requestStartedAt: msg.requestStartedAt,
@@ -2026,7 +2085,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const autoTitle = generateSessionTitle(content)
       if (autoTitle) get().renameSession(sessionId, autoTitle)
       void (async () => {
-        const aiTitle = await generateAiSessionTitle(content, session?.model)
+        const aiTitle = await generateAiSessionTitle(content, session?.model, session?.configGroupId)
         if (!aiTitle) return
         const s = get().sessions.find((x) => x.id === sessionId)
         // Overwrite only if the user hasn't renamed in the meantime.
@@ -2145,6 +2204,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       todos: [],
       planStatus: 'none',
       projectPath: session.projectPath,
+      // 分支继承原会话的窗口模式（缺失时按当前窗口）——否则分支会以无 mode 状态
+      // 落盘，sqlite 的 saveSession 会把无 mode 一律写成 'main'，办公室窗口里
+      // 分叉出的会话就静默流入了普通对话窗口。
+      mode: session.mode ?? WINDOW_MODE,
       // Carry over only the agent runs referenced by the carried messages so
       // the token badges on those messages keep working.
       agentRuns: session.agentRuns?.filter((r) => forkMessages.some((m) => m.runId === r.id)),
@@ -2249,6 +2312,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         agentMode: 'agent',
         todos: [],
         planStatus: 'none',
+        // 导入的会话必须归属当前窗口模式——备份文件里可能混有另一模式的会话
+        // （导出是全量备份），保留文件里的 mode 会让办公室窗口导入的 main 会话
+        // 同时出现在两个窗口（SQLite 按原 mode 落盘），正是「一人公司与普通
+        // agent 模式交融、对话重复」的来源之一。
+        mode: WINDOW_MODE,
       }
 
       set((s) => ({
@@ -2256,6 +2324,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeSessionId: session.id,
       }))
 
+      // 导入是显式操作：直接落盘，并记入已落盘集合（导入的空会话也保持持久化）。
+      _persistedSessionIds.add(session.id)
       window.electronAPI.saveSession(session)
     } catch (error) {
       console.error('导入会话失败:', error)
@@ -2264,9 +2334,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   saveSession: async (sessionId) => {
     const session = get().sessions.find((s) => s.id === sessionId)
-    if (session) {
-      await window.electronAPI.saveSession(session)
-    }
+    if (!session) return
+    // 幽灵会话（新建后没发消息的空对话）不落盘：一旦真正写过一次才持续保存。
+    // 见 _persistedSessionIds 注释——这同时堵住了「删除全部消息后重启又回来」
+    // 的隐患（已落盘的会话不受影响）。
+    if (isGhostSession(session) && !_persistedSessionIds.has(sessionId)) return
+    _persistedSessionIds.add(sessionId)
+    await window.electronAPI.saveSession(session)
   },
 
   updateSessionModel: (sessionId, model, configGroupId) => {
@@ -2309,6 +2383,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       clearInterval(_gitBranchInterval)
       _gitBranchInterval = null
     }
+    _persistedSessionIds.clear()
     localStorage.removeItem(LAST_SESSION_KEY)
     set({
       sessions: [],
@@ -2507,6 +2582,8 @@ async function runAgentLoop(
 
   let runId: string | undefined
   const usageEvents: UsageEvent[] = []
+  // 已增量上报的事件数（目标模式每轮 flush 一次，见循环尾部的增量 flush）
+  let flushedUsageCount = 0
   // Accumulated real token usage for the agent run record (badge shows it once
   // the run finishes). Providers may omit usage — the totals just stay 0.
   let runTokensIn = 0
@@ -2525,6 +2602,33 @@ async function runAgentLoop(
   // finally below can unregister this run's approval/checkpoint hooks.
   let disposeApprovalHook: () => void = () => {}
   let disposeCheckpointHook: () => void = () => {}
+  let disposeSupervisorGuard: () => void = () => {}
+
+  // 目标模式监管 guard（见 TARGET_MODE_SUPERVISOR_DENIED 注释）：工具清单里
+  // 已隐藏禁用工具，这里兜底拦截幻觉调用，并给 write/create/delete 加
+  // targemode 路径门禁。拒绝文案要「教它下一步怎么做」→ 改用 run_subagent。
+  if (targetMode) {
+    disposeSupervisorGuard = toolExecutor.registerGuard((tc, ctx) => {
+      if (ctx.sessionId !== sessionId) return undefined
+      if (TARGET_MODE_SUPERVISOR_DENIED.has(tc.name)) {
+        const dispatch =
+          tc.name === 'run_command'
+            ? 'tm-developer（实现/构建）或 tm-tester（验证/测试）'
+            : 'tm-developer / tm-ui-developer（按改动类型）'
+        return (
+          `目标模式：监管 Agent 不允许直接${tc.name === 'run_command' ? '执行命令' : tc.name.startsWith('git_') ? '做变更类 git 操作' : '修改业务代码'}（系统已拦截）。` +
+          `请改用 run_subagent 派发 ${dispatch}，prompt 按任务信封模板构造（frontmatter 声明 files_to_modify / acceptance）。`
+        )
+      }
+      if ((tc.name === 'write_file' || tc.name === 'create_directory' || tc.name === 'delete_file') && !isTargemodePath(tc.arguments?.path)) {
+        return (
+          `目标模式：监管 Agent 只能写 .ourcode/targemode/ 下的文档（规划/状态/日志/信封），当前路径越界（系统已拦截）。` +
+          `业务代码的新增/修改/删除请通过 run_subagent 派发 tm-developer / tm-ui-developer 完成。`
+        )
+      }
+      return undefined
+    })
+  }
 
   try {
     // Refresh dynamic tools (MCP servers + workspace skills) before building the tool list.
@@ -2575,7 +2679,31 @@ async function runAgentLoop(
     stableSystemPrompt += '\n\n' + opts.extraSystemText
   }
 
-  const model = session.model || configGroup.defaultModel
+  let model = (session.model || configGroup.defaultModel || '').trim()
+
+  // 空模型不发请求：provider 必然回 400 "Unsupported model (model=\"\")"，
+  // 且用户看到的是一张难以理解的错误卡。这里提前给出可操作的失败提示。
+  if (!model) {
+    const msg = '未配置模型，无法开始对话。请在「设置 → API 配置」中为当前配置组填写模型，或使用对话顶部的模型选择器选择模型。'
+    chatStore.addMessage(sessionId, { role: 'assistant', content: msg, error: { type: 'unknown', message: msg } })
+    return
+  }
+
+  // 已知模型列表可用时校验：会话里存着的模型名可能已失效（换过提供商/删过
+  // 自定义模型），直接发出去就是 400 "Unsupported model"。列表命中不了时回退
+  // 到配置组默认模型；默认模型也不在列表则保留原值（列表可能过期，由 API 报错兜底）。
+  {
+    const configState = useConfigStore.getState()
+    const known = Array.from(new Set([
+      ...configState.models.map((m) => m.id),
+      ...configState.customModels.map((m) => m.id),
+      ...(configState.modelsCache[configGroup.id]?.models || []),
+    ])).filter((m) => m.trim())
+    if (known.length > 0 && !known.includes(model)) {
+      const def = (configGroup.defaultModel || '').trim()
+      if (def && known.includes(def)) model = def
+    }
+  }
 
   // Build messages from full history (system + all session messages). When a
   // compaction summary exists, the pre-boundary history is replaced by it in
@@ -2893,7 +3021,7 @@ async function runAgentLoop(
       // The auto-memory tool is opt-in — hide it when the user disabled it
       const toolDefinitions = (usePlanTools
         ? toolExecutor.getToolDefinitions((name) => PLAN_TOOLS.has(name))
-        : toolExecutor.getToolDefinitions())
+        : toolExecutor.getToolDefinitions(targetMode ? (name) => !TARGET_MODE_SUPERVISOR_DENIED.has(name) : undefined))
         .filter((d) => useEditorStore.getState().preferences.aiAutoMemory || d.function.name !== 'remember')
 
       // Cache-break diagnostics: sign the byte-stable prefix (system + tools)
@@ -3568,6 +3696,14 @@ async function runAgentLoop(
         clearStream()
       }
 
+      // 目标模式：每轮增量上报 token 消耗 —— 此前 usage 只在循环结束时统一
+      // flush，长跑期间预算看板恒显 0.00M、熔断也看不到消耗。增量 flush 后
+      // 预算/触顶熔断实时生效（子 Agent 的消耗本就由 subagentRunner 实时上报）。
+      if (targetMode && usageEvents.length > flushedUsageCount) {
+        flushUsageEvents(usageEvents.slice(flushedUsageCount))
+        flushedUsageCount = usageEvents.length
+      }
+
       // Reset streaming state for next iteration
       set((s) => ({
         streamingBySession: { ...s.streamingBySession, [sessionId]: { content: '', thinking: '' } },
@@ -3637,6 +3773,7 @@ async function runAgentLoop(
     // sessions, so a stale hook would prompt for another run's tool calls.
     disposeApprovalHook()
     disposeCheckpointHook()
+    disposeSupervisorGuard()
     // Finalize the agent run record (status / counts) for the tasks panel
     if (runId) {
       // Don't let the finally block downgrade an errored run back to 'done' —
@@ -3695,7 +3832,8 @@ async function runAgentLoop(
     chatStore.saveSession(sessionId)
 
     // Persist this run's token/timing events into the usage dashboard
-    flushUsageEvents(usageEvents)
+    // （目标模式下循环内已增量上报过，这里只补 flush 尾差，避免重复累计）
+    flushUsageEvents(usageEvents.slice(flushedUsageCount))
 
     // Process queued messages (type-ahead while the agent was working) — the
     // queue is per session, so a queue drain can never send into the session

@@ -149,32 +149,22 @@ export class GroqAdapter implements LLMAdapter {
   }
 
   async fetchModels(config: ApiConfigGroup, signal?: AbortSignal): Promise<string[]> {
-    try {
-      const url = buildModelsUrl(config.baseUrl, 'openai')
-      if (!url) return ['llama3-70b-8192', 'llama3-8b-8192', 'mixtral-8x7b-32768', 'gemma-7b-it', 'llama-3.3-70b-versatile']
-      const response = await llmFetch(url, {
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`,
-          ...config.customHeaders,
-        },
-        signal,
-      }, { skipTlsVerify: !!config.skipTlsVerify })
+    const url = buildModelsUrl(config.baseUrl, 'openai')
+    if (!url) return []
+    const response = await llmFetch(url, {
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        ...config.customHeaders,
+      },
+      signal,
+    }, { skipTlsVerify: !!config.skipTlsVerify })
 
-      if (response.ok) {
-        const data = await response.json()
-        return data.data?.map((m: { id: string }) => m.id) || []
-      }
-    } catch {
-      // Fall through to hardcoded list
+    if (!response.ok) {
+      throw new Error(`获取模型列表失败 (${response.status}): ${response.statusText}`)
     }
 
-    return [
-      'llama3-70b-8192',
-      'llama3-8b-8192',
-      'mixtral-8x7b-32768',
-      'gemma-7b-it',
-      'llama-3.3-70b-versatile',
-    ]
+    const data = await response.json()
+    return data.data?.map((m: { id: string }) => m.id) || []
   }
 }
 

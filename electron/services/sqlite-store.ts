@@ -177,6 +177,15 @@ export class SQLiteStore {
     if (!sessColumns.some((c: any) => c.name === 'mode')) {
       this.db.exec("ALTER TABLE chat_sessions ADD COLUMN mode TEXT DEFAULT 'main'")
     }
+    // Persist the per-session target-mode flag（一人公司会话跨重启保持目标模式）。
+    // 此前 targetMode 只在内存里，重启后所有办公室会话回退成普通 agent 对话——
+    // 在办公室切到项目看到的又是「普通 agent 模式的对话」。
+    if (!sessColumns.some((c: any) => c.name === 'target_mode')) {
+      this.db.exec("ALTER TABLE chat_sessions ADD COLUMN target_mode INTEGER DEFAULT 0")
+      // 一次性回填：既有 office 会话本来就是目标模式跑出来的（监管+子 Agent 派发），
+      // 升级后应保持公司形态，而不是退化成普通对话。
+      this.db.exec("UPDATE chat_sessions SET target_mode = 1 WHERE mode = 'office'")
+    }
     // Add project_path column to memories if missing (project-scoped memories)
     const memColumns = this.db.prepare("PRAGMA table_info(memories)").all() as any[]
     if (!memColumns.some((c: any) => c.name === 'project_path')) {
@@ -405,22 +414,22 @@ export class SQLiteStore {
 
   // Chat Sessions
   getSessions(mode?: 'main' | 'office'): ChatSession[] {
-    // The one-company (office) window shares its session list with the main
-    // window until the user creates at least one session tagged 'office'.
-    // Without this fallback the office window shows an empty history because
-    // every legacy session was stamped mode='main' by the column-adding
-    // migration, leaving the office-mode query with zero rows.
+    // 一人公司与对话模式完全隔离:office 窗口只看到 mode='office' 的会话,
+    // main 窗口只看到 mode='main' / 无模式(升级前的旧会话)的会话。
+    // 开公司不会把普通 agent 模式的对话带过来;反之 main 窗口也看不到公司会话。
     const sessions = !mode
       ? (this.db.prepare('SELECT * FROM chat_sessions ORDER BY updated_at DESC').all() as any[])
-      : (this.db.prepare(
-          // requested mode wins; legacy 'main' rows surface in BOTH windows
-          // so old history never disappears; empty/null mode also counts as legacy
-          `SELECT * FROM chat_sessions
-             WHERE mode = ?
-                OR (mode = 'main' AND NOT EXISTS (SELECT 1 FROM chat_sessions s2 WHERE s2.mode = 'office'))
-                OR mode IS NULL OR mode = ''
-             ORDER BY updated_at DESC`
-        ).all(mode) as any[])
+      : mode === 'office'
+        ? (this.db.prepare(
+            `SELECT * FROM chat_sessions
+               WHERE mode = 'office'
+               ORDER BY updated_at DESC`
+          ).all() as any[])
+        : (this.db.prepare(
+            `SELECT * FROM chat_sessions
+               WHERE mode = 'main' OR mode IS NULL OR mode = ''
+               ORDER BY updated_at DESC`
+          ).all() as any[])
 
     // Load all messages in one query and bucket by session, instead of one
     // query per session (N+1) — opening the sidebar with many sessions used to
@@ -528,6 +537,7 @@ export class SQLiteStore {
         summary: session.summary || undefined,
         summaryMessageCount: session.summary_message_count || undefined,
         mode: (session.mode === 'office' ? 'office' : 'main') as 'main' | 'office',
+        targetMode: session.target_mode ? true : undefined,
       }
     })
   }
@@ -545,7 +555,7 @@ export class SQLiteStore {
             active_branch_id = ?, branches = ?, pinned_at = ?, archived_at = ?,
             agent_mode = ?, todos = ?, plan_content = ?, plan_status = ?, agent_runs = ?, project_path = ?,
             summary = ?, summary_message_count = ?, project_edit_mode = ?, last_user_message_at = ?,
-            compaction_in_progress = ?, mode = ?
+            compaction_in_progress = ?, mode = ?, target_mode = ?
         WHERE id = ?
       `).run(
         session.title,
@@ -569,14 +579,15 @@ export class SQLiteStore {
         (session as any).lastUserMessageAt || 0,
         (session as any).compactionInProgress ? 1 : 0,
         (session as any).mode === 'office' ? 'office' : 'main',
+        (session as any).targetMode ? 1 : 0,
         id
       )
     } else {
       this.db.prepare(`
         INSERT INTO chat_sessions (id, title, config_group_id, model, model_params, created_at, updated_at,
           active_branch_id, branches, pinned_at, archived_at, agent_mode, todos, plan_content, plan_status, agent_runs, project_path,
-          summary, summary_message_count, project_edit_mode, last_user_message_at, compaction_in_progress, mode)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          summary, summary_message_count, project_edit_mode, last_user_message_at, compaction_in_progress, mode, target_mode)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         session.title,
@@ -600,7 +611,8 @@ export class SQLiteStore {
         (session as any).projectEditMode || 'confirm_before_change',
         (session as any).lastUserMessageAt || 0,
         (session as any).compactionInProgress ? 1 : 0,
-        (session as any).mode === 'office' ? 'office' : 'main'
+        (session as any).mode === 'office' ? 'office' : 'main',
+        (session as any).targetMode ? 1 : 0
       )
     }
 

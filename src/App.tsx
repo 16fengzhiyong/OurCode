@@ -70,17 +70,13 @@ export default function App() {
       }
       // 办公室窗口：确保存在一个活动的 office 会话——无会话时办公室视图右下角
       // 的目标输入框不可见，用户会卡在「打开对话」上；有会话即可直接启动目标模式。
+      // createSession 已为办公室会话默认置位 targetMode（一人公司 = 目标模式），
+      // 启动兜底会话无需再手动补位；不显式走 setTargetMode —— 后者会弹实验性
+      // 提示并把尚未发消息的空会话落盘（每次开公司累积一条空会话）。
       if (IS_OFFICE && !useChatStore.getState().activeSessionId) {
         const configId = useConfigStore.getState().activeConfigGroupId
         if (configId) {
-          const sessionId = useChatStore.getState().createSession(configId, useUIStore.getState().rootPath || undefined)
-          // 一人公司落地即默认进入目标模式：不再显示「未开启目标模式 · 展示待命
-          // 工位」的空转状态。这里直接置位而非走 setTargetMode —— 后者会弹实验性
-          // 提示并把尚未发消息的空会话落盘（每次开公司累积一条空会话）。
-          // 开启后右下输入框占位符切换为「请输入最终目标…」，用户直接输入目标即可。
-          useChatStore.setState((s) => ({
-            sessions: s.sessions.map((x) => (x.id === sessionId ? { ...x, targetMode: true } : x)),
-          }))
+          useChatStore.getState().createSession(configId, useUIStore.getState().rootPath || undefined)
         }
       }
       // Restore the tabs open when the app last closed (hides the editor when

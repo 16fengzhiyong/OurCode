@@ -392,7 +392,7 @@ function ChatMessageInner({ message, sessionId, isSelectMode, isSelected, onTogg
     setIsRemembering(true)
     try {
       // Condense first, then let the user review/edit before writing to memory.
-      const condensed = await condenseMemory(conversation, projectPath, session?.model)
+      const condensed = await condenseMemory(conversation, projectPath, session?.model, session?.configGroupId)
       setPreviewMemory({ content: condensed, projectPath })
     } catch (error) {
       useUIStore.getState().showNotification(

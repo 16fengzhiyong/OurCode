@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createOfficeSceneHost, type OfficeSceneHost } from '@/vendor/office3d/OfficeSceneHost'
 import { statusMeta } from '@/vendor/office3d/data/agentsData.js'
 import '@/vendor/office3d/office3d.css'
-import { attachOfficeBridge, detachOfficeBridge } from '@/services/office/officeBridge'
+import { attachOfficeBridge, detachOfficeBridge, resyncOfficeBridge } from '@/services/office/officeBridge'
 import { buildInitialOfficeAgents } from '@/services/office/mapping'
 import type { OfficeAgentState, OfficeStatus } from '@shared/types'
 
@@ -14,12 +14,29 @@ const LEGEND: Array<OfficeStatus> = ['working', 'thinking', 'receiving', 'transf
  * 由 officeBridge 把目标模式的子 Agent / 主循环实时状态驱动到 8 个工位。
  * 悬浮标签投影、状态图例、右侧详情抽屉都在场景区内。
  */
-export default function CompanyPanel() {
+export default function CompanyPanel({ visible = true }: { visible?: boolean }) {
   const stageRef = useRef<HTMLDivElement>(null)
   const tagsRef = useRef<HTMLDivElement>(null)
   const hostRef = useRef<OfficeSceneHost | null>(null)
   const rafRef = useRef(0)
   const lastTagSyncRef = useRef(0)
+  // Tab 被切走 / 面板被收起时（visible=false）暂停 3D 渲染与标签投影——
+  // display:none 挡不住 RAF 循环，此前切到看板 Tab 场景仍在全速空转。
+  // 标签投影循环同时做到「不可见时完全不调度新帧」：不再只是每帧空转退出，
+  // 避免隐藏面板持续以 60fps 唤醒渲染进程（见 tagTick / ensureTagLoop）。
+  const visibleRef = useRef(visible)
+  const applyRunningRef = useRef<() => void>(() => {})
+  // 标签投影循环恢复入口（由挂载 effect 定义，visible / visibilitychange 调用）
+  const ensureTagLoopRef = useRef<() => void>(() => {})
+
+  useEffect(() => {
+    visibleRef.current = visible
+    applyRunningRef.current()
+    ensureTagLoopRef.current()
+    // 从隐藏恢复：全量重放公司状态（隐藏期间桥接仍推进内部 slots，React
+    // agents 因可见性门控被跳过，这里补齐，避免切回场景看到过期状态）。
+    if (visible) resyncOfficeBridge()
+  }, [visible])
 
   const [agents, setAgents] = useState<OfficeAgentState[]>(() => buildInitialOfficeAgents())
   const [selectedId, setSelectedId] = useState<number>(5)
@@ -40,24 +57,23 @@ export default function CompanyPanel() {
     })
     hostRef.current = host
 
-    // 窗口隐藏/失焦时暂停 3D 渲染循环，避免后台空转吃 CPU/GPU；恢复时继续
-    const setRunning = (running: boolean) => hostRef.current?.setRunning(running)
-    const onVisibility = () => setRunning(!document.hidden)
-    const onBlur = () => setRunning(false)
-    const onFocus = () => setRunning(true)
-    document.addEventListener('visibilitychange', onVisibility)
-    window.addEventListener('blur', onBlur)
-    window.addEventListener('focus', onFocus)
-    setRunning(!document.hidden)
-
-    // 悬浮标签投影循环（视图固定时降为 4Hz）
-    const loop = () => {
-      rafRef.current = requestAnimationFrame(loop)
+    // 悬浮标签投影循环（视图固定时降为 4Hz）。不可见/窗口隐藏时**不调度
+    // 下一帧**（tagTick 入口直接退出），由 visible 变化 / visibilitychange
+    // 经 ensureTagLoop 恢复——隐藏面板不再以 60fps 空转唤醒渲染进程。
+    // 注意：必须定义在 applyRunning 之前——后者会调用 ensureTagLoop，
+    // const 声明前调用会触发 TDZ（Cannot access before initialization）。
+    const tagTick = () => {
+      rafRef.current = 0
+      if (!visibleRef.current || document.hidden) return
       const h = hostRef.current
       const tagsEl = tagsRef.current
       if (!h || !tagsEl || !tagsEl.isConnected) return
       const now = performance.now()
-      if (!h.viewDirtyCheck() && now - lastTagSyncRef.current < 250) return
+      if (!h.viewDirtyCheck() && now - lastTagSyncRef.current < 250) {
+        // 节流：本帧无事可做，下帧继续检查
+        rafRef.current = requestAnimationFrame(tagTick)
+        return
+      }
       lastTagSyncRef.current = now
       const positions = h.getProjectedAgentPositions()
       for (const pos of positions) {
@@ -66,22 +82,45 @@ export default function CompanyPanel() {
         if (pos.visible) {
           el.style.display = 'flex'
           el.style.left = `${pos.screenX}px`
-          el.style.top = `${pos.screenY}px`
+          // 标签以 translate(-50%, -100%) 锚在头顶上方：把锚点钳在容器顶部
+          // 之下（≥ 标签高度），避免后排工位贴近画布上缘时标签被裁掉一半。
+          el.style.top = `${Math.max(30, pos.screenY)}px`
         } else {
           el.style.display = 'none'
         }
       }
+      rafRef.current = requestAnimationFrame(tagTick)
     }
-    rafRef.current = requestAnimationFrame(loop)
+    const ensureTagLoop = () => {
+      if (!visibleRef.current || document.hidden || rafRef.current !== 0) return
+      rafRef.current = requestAnimationFrame(tagTick)
+    }
+    ensureTagLoopRef.current = ensureTagLoop
 
-    // 桥接驱动：状态/任务/交接 → 场景 + React 状态
+    // 面板不可见 / 窗口隐藏 / 失焦时暂停 3D 渲染循环，避免空转吃 CPU/GPU；恢复时继续
+    const applyRunning = () => {
+      hostRef.current?.setRunning(visibleRef.current && !document.hidden && document.hasFocus())
+      ensureTagLoop()
+    }
+    applyRunningRef.current = applyRunning
+    document.addEventListener('visibilitychange', applyRunning)
+    window.addEventListener('blur', applyRunning)
+    window.addEventListener('focus', applyRunning)
+    applyRunning()
+    ensureTagLoop()
+
+    // 桥接驱动：状态/任务/交接 → 场景 + React 状态。
+    // 增量更新（applyStatus/applyTask/applyTransfer）在面板隐藏时跳过 React
+    // 写入与动画——场景已暂停且不可见，不应持续重渲染；桥接内部 slots 照常
+    // 推进，恢复可见时由 resyncOfficeBridge 一次性补齐。
     attachOfficeBridge({
       applyInit: (list) => setAgents(list),
       applyStatus: (id, status) => {
-        setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)))
+        if (visibleRef.current) setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)))
         host.setAgentStatus(id, status)
       },
       applyTask: (id, task, progress, logs) => {
+        if (!visibleRef.current) return
         setAgents((prev) =>
           prev.map((a) => {
             if (a.id !== id) return a
@@ -91,18 +130,24 @@ export default function CompanyPanel() {
         )
       },
       applyTransfer: (fromId, toId, onComplete) => {
+        // 隐藏期间不启动交接动画（恢复时状态由 resync 补齐；supervisorBusy
+        // 有 3s 兜底计时不会卡死）
+        if (!visibleRef.current) return
         setAgents((prev) => prev.map((a) => (a.id === fromId ? { ...a, status: 'transfer' } : a)))
         host.launchTaskTransfer(fromId, toId, onComplete)
       },
-      applyReset: () => setAgents(buildInitialOfficeAgents()),
+      applyReset: () => {
+        if (visibleRef.current) setAgents(buildInitialOfficeAgents())
+      },
     })
 
     return () => {
       cancelAnimationFrame(rafRef.current)
+      rafRef.current = 0
       detachOfficeBridge()
-      document.removeEventListener('visibilitychange', onVisibility)
-      window.removeEventListener('blur', onBlur)
-      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', applyRunning)
+      window.removeEventListener('blur', applyRunning)
+      window.removeEventListener('focus', applyRunning)
       host.dispose()
       hostRef.current = null
     }

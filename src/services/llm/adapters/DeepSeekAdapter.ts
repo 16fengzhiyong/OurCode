@@ -157,30 +157,22 @@ export class DeepSeekAdapter implements LLMAdapter {
   }
 
   async fetchModels(config: ApiConfigGroup, signal?: AbortSignal): Promise<string[]> {
-    try {
-      const url = buildModelsUrl(config.baseUrl, 'openai')
-      if (!url) return ['deepseek-chat', 'deepseek-coder', 'deepseek-reasoner']
-      const response = await llmFetch(url, {
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`,
-          ...config.customHeaders,
-        },
-        signal,
-      }, { skipTlsVerify: !!config.skipTlsVerify })
+    const url = buildModelsUrl(config.baseUrl, 'openai')
+    if (!url) return []
+    const response = await llmFetch(url, {
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        ...config.customHeaders,
+      },
+      signal,
+    }, { skipTlsVerify: !!config.skipTlsVerify })
 
-      if (response.ok) {
-        const data = await response.json()
-        return data.data?.map((m: { id: string }) => m.id) || []
-      }
-    } catch {
-      // Fall through to hardcoded list
+    if (!response.ok) {
+      throw new Error(`获取模型列表失败 (${response.status}): ${response.statusText}`)
     }
 
-    return [
-      'deepseek-chat',
-      'deepseek-coder',
-      'deepseek-reasoner',
-    ]
+    const data = await response.json()
+    return data.data?.map((m: { id: string }) => m.id) || []
   }
 }
 

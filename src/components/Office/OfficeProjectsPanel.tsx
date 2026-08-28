@@ -3,66 +3,33 @@ import { useChatStore, isGhostSession, sessionLastUserActivity } from '@/stores/
 import { useConfigStore } from '@/stores/configStore'
 import { useUIStore } from '@/stores/uiStore'
 import { useI18n } from '@/i18n/useI18n'
-import { summarizeTask, estimateProgress, roleLabel } from '@/services/office/mapping'
+import { summarizeTask, roleLabel } from '@/services/office/mapping'
+import { MONO, GRADIENT, roleAvatar } from './officeTheme'
 import FileTree from '../Sidebar/FileTree'
+import { useThrottledValue } from '@/utils/useThrottledValue'
 import { IS_OFFICE } from '@/utils/windowMode'
 import type { ChatSession, SubAgentProgress } from '@shared/types'
 
-/** 任务行前导圆形状态图标：运行中 = 彩虹渐变环旋转；完成 = 纯绿实环；失败/停止 = 纯红实环。 */
-function TaskStatusRing({ status, size = 24 }: { status: SubAgentProgress['status']; size?: number }) {
-  const inner = size / 24
-  if (status === 'running') {
-    return (
-      <span className="relative shrink-0 rounded-full flex items-center justify-center" style={{ width: size, height: size, background: '#ffffff', border: '1px solid rgba(15,23,42,0.08)' }}>
-        <span className="oc-ring-run animate-spin absolute inset-0 rounded-full" />
-        <span className="relative rounded-full" style={{ width: 1.5 * inner, height: 1.5 * inner, background: '#0058bc' }} />
-      </span>
-    )
-  }
-  const done = status === 'done'
+/** 项目行前导图标：发丝线描边文件夹（Monolith 极简，替代原渐变瓷砖）。 */
+function FolderIcon({ color = MONO.t3 }: { color?: string }) {
   return (
-    <span className="relative shrink-0 rounded-full flex items-center justify-center" style={{ width: size, height: size, background: '#ffffff', border: '1px solid rgba(15,23,42,0.08)' }}>
-      <span className={`${done ? 'oc-ring-done' : 'oc-ring-fail'} absolute inset-0 rounded-full`} />
-      <svg className="relative" width={10 * inner} height={10 * inner} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: done ? '#16a34a' : '#dc2626' }}>
-        {done
-          ? <path d="M20 6 9 17l-5-5" />
-          : <path d="M18 6 6 18M6 6l12 12" />}
-      </svg>
-    </span>
-  )
-}
-
-/** 任务状态 → 状态文案 key（running / done / failed）。 */
-function statusKey(status: SubAgentProgress['status']): 'running' | 'done' | 'failed' {
-  if (status === 'running') return 'running'
-  if (status === 'done') return 'done'
-  return 'failed'
-}
-
-const STATUS_COLOR: Record<'running' | 'done' | 'failed', string> = {
-  running: '#0058bc',
-  done: '#16a34a',
-  failed: '#dc2626',
-}
-
-/** 项目渐变瓷砖（与 agent 侧项目列表同款，暗色版）。 */
-const PROJECT_TILES = [
-  { bg: 'linear-gradient(135deg, #0ea5e9, #6366f1, #a855f7)', icon: 'bolt' },
-  { bg: 'linear-gradient(135deg, #f97316, #fb7185)', icon: 'terminal' },
-  { bg: 'linear-gradient(135deg, #10b981, #34d399)', icon: 'language' },
-]
-
-function TileIcon({ name }: { name: string }) {
-  const paths: Record<string, React.ReactNode> = {
-    bolt: <path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z" />,
-    terminal: <path d="M4 17l6-6-6-6M12 19h8" />,
-    language: <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1 2.1A8 8 0 0 0 4.2 11H7a16 16 0 0 1 4-6.9zM13 4.1a16 16 0 0 1 4 6.9h2.8A8 8 0 0 0 13 4.1zM11 13H4.2A8 8 0 0 0 11 20zM13 13v6.9a8 8 0 0 0 6.8-6.9z" />,
-  }
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      {paths[name]}
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth="1.4" className="shrink-0">
+      <path d="M1.5 4.5A1 1 0 0 1 2.5 3.5h3L7 5h6.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z" />
     </svg>
   )
+}
+
+/** 历史对话的紧凑相对时间：今天 HH:MM / 昨天 / N 天前 / M月D日。 */
+function fmtRelative(ts: number): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const now = new Date()
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const dayDiff = Math.round((startOfDay(now) - startOfDay(d)) / 86400000)
+  if (dayDiff === 0) return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  if (dayDiff === 1) return '昨天'
+  if (dayDiff < 7) return `${dayDiff}天前`
+  return `${d.getMonth() + 1}月${d.getDate()}日`
 }
 
 interface TaskItem {
@@ -72,10 +39,12 @@ interface TaskItem {
 }
 
 /**
- * 「一人公司」左侧「项目/任务」栏：
+ * 「一人公司」左侧「项目/任务」栏（版本 K 落地）：
  * - 项目列表复用 agent 侧项目列表的归组逻辑（recentProjects + 会话 projectPath）。
- * - 每个项目下列出该项目下**目标模式子任务**（subagentProgress，会话 targetMode 为真），
- *   不含 agent 侧任务（agentRuns）。
+ * - 每个项目下只列出该项目下**目标模式子任务**（subagentProgress，会话 targetMode 为真），
+ *   不含 agent 侧任务（agentRuns），也不含历史会话分区——项目下的子项都是任务。
+ * - 任务行带 K 版状态指示：运行中 = conic 彩虹环旋转；完成 = 绿勾；失败 = 红叉，
+ *   行尾角色小头像 + 等宽状态词（RUNNING / DONE / FAILED）。
  * - **双击项目卡片 → 就在本栏内就地打开该项目的文件树**（不退出办公室、不跳工作区）；
  *   单击任务 → 切到对应对话。文件树里双击文件 → 进工作区编辑器编辑。
  */
@@ -86,8 +55,11 @@ export default function OfficeProjectsPanel() {
   const removedProjects = useUIStore((s) => s.removedProjects)
   const projectOrder = useUIStore((s) => s.projectOrder)
   const sessions = useChatStore((s) => s.sessions)
-  const subagentProgress = useChatStore((s) => s.subagentProgress)
-
+  // 任务行只需 ~1Hz 的进展刷新；进度表逐次推送换引用会让整棵项目树每秒重渲多次
+  const subagentProgress = useThrottledValue(useChatStore((s) => s.subagentProgress), 800)
+  const rollActiveSessionAwayFrom = useChatStore((s) => s.rollActiveSessionAwayFrom)
+  const removeProject = useUIStore((s) => s.removeProject)
+  const showContextMenu = useUIStore((s) => s.showContextMenu)
   const currentProjectPath = useChatStore((s) => s.sessions.find((x) => x.id === s.activeSessionId)?.projectPath ?? null)
 
   // 左侧栏内部视图：'projects'（项目/任务列表）| 'tree'（项目文件树，就地打开）。
@@ -95,6 +67,8 @@ export default function OfficeProjectsPanel() {
   const [view, setView] = useState<'projects' | 'tree'>('projects')
   const [treePath, setTreePath] = useState<string | null>(null)
   const [treeRefresh, setTreeRefresh] = useState(0)
+  // 用户手动折叠的项目（任务不展开显示）
+  const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(new Set())
 
   // 任务行「单击 = 切到该任务会话 / 双击 = 打开项目」的区分计时器：
   // 单击延时 250ms 再切换，双击到达时取消切换并交给卡片打开项目——
@@ -176,6 +150,30 @@ export default function OfficeProjectsPanel() {
     return map
   }, [subagentProgress, sessions])
 
+  // 历史对话：该项目下非 ghost 的 office 会话（按最近用户活跃降序）。任务区的
+  // 条目是运行时子 Agent 进度（瞬态，重启即清空）；历史区是会话本体（SQLite 持久
+  // 化），发布过的任务/对话在这里回看。正在任务区展示的会话不重复出现。
+  const historyByProject = useMemo(() => {
+    const activeSessionIds = new Set<string>()
+    for (const arr of tasksByProject.values()) for (const { session } of arr) activeSessionIds.add(session.id)
+    const map = new Map<string, ChatSession[]>()
+    for (const s of sessions) {
+      if (isGhostSession(s) || !s.projectPath) continue
+      if (activeSessionIds.has(s.id)) continue
+      const arr = map.get(s.projectPath)
+      if (arr) arr.push(s)
+      else map.set(s.projectPath, [s])
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => sessionLastUserActivity(b) - sessionLastUserActivity(a))
+    }
+    return map
+  }, [sessions, tasksByProject])
+
+  // 项目下历史对话默认展开条数；「展开更多对话」后显示全部
+  const [showMoreSessions, setShowMoreSessions] = useState<Set<string>>(new Set())
+  const HISTORY_VISIBLE_DEFAULT = 5
+
   const handleEnterProject = (path: string) => {
     const latest = sessions
       .filter((s) => s.projectPath === path && !isGhostSession(s))
@@ -228,6 +226,48 @@ export default function OfficeProjectsPanel() {
     if (configId) useChatStore.getState().createSession(configId, treePath)
   }
 
+  /** 「新建任务对话」：为项目创建一个 office 会话并立即激活（输入框可直接派活）。 */
+  const handleNewSessionForProject = (projectPath: string) => {
+    const configId = useConfigStore.getState().activeConfigGroupId
+    if (configId) useChatStore.getState().createSession(configId, projectPath)
+    else useUIStore.getState().openSettings()
+  }
+
+  /** 移除项目：只从办公室项目列表隐藏（会话仍绑定、重开项目即回来）；
+   *  若当前激活会话正属于该项目，把激活会话让给最近活跃的其它会话。 */
+  const handleRemoveProject = (projectPath: string) => {
+    removeProject(projectPath)
+    rollActiveSessionAwayFrom(projectPath)
+    // 正在树视图里看这个项目的话，一并退回列表
+    if (treePath === projectPath) {
+      setTreePath(null)
+      setView('projects')
+    }
+  }
+
+  /** 项目行右键 / 悬停 ⋯ 菜单：打开项目 / 新建任务对话 / 从列表中移除。 */
+  const handleProjectMenu = (e: React.MouseEvent, projectPath: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    showContextMenu(e.clientX, e.clientY, [
+      { label: t('project.open'), icon: '📂', action: () => handleEnterProject(projectPath) },
+      { label: t('office.newTaskChat'), icon: '💬', action: () => handleNewSessionForProject(projectPath) },
+      { separator: true, label: '' },
+      { label: t('project.removeFromList'), icon: '🗑️', action: () => handleRemoveProject(projectPath) },
+    ])
+  }
+
+  /** 项目行展开/折叠任务列表（点击箭头，不触发行的双击打开）。 */
+  const toggleCollapse = (e: React.MouseEvent, projectPath: string) => {
+    e.stopPropagation()
+    setCollapsedPaths((prev) => {
+      const next = new Set(prev)
+      if (next.has(projectPath)) next.delete(projectPath)
+      else next.add(projectPath)
+      return next
+    })
+  }
+
   // ── 文件树视图：双击项目 / 打开项目后，就在本栏内就地展示项目文件树，
   //    不退出办公室视图、不跳到工作区的「任务面板」。点文件 = 进工作区编辑器编辑。
   if (view === 'tree' && treePath) {
@@ -236,24 +276,24 @@ export default function OfficeProjectsPanel() {
         data-testid="office-projects-panel"
         className="shrink-0 flex flex-col min-h-0"
         style={{
-          width: 280,
-          background: '#ffffff',
-          borderRight: '1px solid rgba(15,23,42,0.08)',
+          width: 232,
+          background: MONO.bg,
+          borderRight: `1px solid ${MONO.hairline}`,
         }}
       >
-        <div className="p-2 border-b shrink-0 flex items-center justify-between" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
+        <div className="p-2 border-b shrink-0 flex items-center justify-between" style={{ borderColor: MONO.hairline }}>
           <div className="flex items-center gap-1 min-w-0">
             <button
               onClick={() => setView('projects')}
               title={t('office.backToProjects')}
-              className="flex items-center justify-center w-6 h-6 rounded-md shrink-0 transition-colors hover:bg-nova-hover"
-              style={{ color: '#64748b', background: 'transparent', border: 'none', cursor: 'pointer' }}
+              className="flex items-center justify-center w-6 h-6 rounded-md shrink-0 transition-colors hover:bg-[#F4F4F5]"
+              style={{ color: MONO.t2, background: 'transparent', border: 'none', cursor: 'pointer' }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="15 18 9 12 15 6" />
               </svg>
             </button>
-            <span className="text-xs font-semibold truncate min-w-0" style={{ color: '#0f172a' }} title={treePath}>
+            <span className="text-xs font-medium truncate min-w-0" style={{ color: MONO.t1 }} title={treePath}>
               {treePath.split(/[/\\]/).pop() || treePath}
             </span>
           </div>
@@ -261,8 +301,8 @@ export default function OfficeProjectsPanel() {
             <button
               onClick={() => setTreeRefresh((n) => n + 1)}
               title={t('office.refreshTree')}
-              className="flex items-center justify-center w-6 h-6 rounded-md transition-colors hover:bg-nova-hover"
-              style={{ color: '#64748b', background: 'transparent', border: 'none', cursor: 'pointer' }}
+              className="flex items-center justify-center w-6 h-6 rounded-md transition-colors hover:bg-[#F4F4F5]"
+              style={{ color: MONO.t2, background: 'transparent', border: 'none', cursor: 'pointer' }}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="23 4 23 10 17 10" />
@@ -271,9 +311,9 @@ export default function OfficeProjectsPanel() {
             </button>
             <button
               onClick={handleNewSessionForTree}
-              title={t('chat.newChat')}
-              className="flex items-center justify-center w-6 h-6 rounded-md transition-colors hover:bg-nova-hover"
-              style={{ color: '#64748b', background: 'transparent', border: 'none', cursor: 'pointer' }}
+              title={t('office.newTaskChat')}
+              className="flex items-center justify-center w-6 h-6 rounded-md transition-colors hover:bg-[#F4F4F5]"
+              style={{ color: MONO.t2, background: 'transparent', border: 'none', cursor: 'pointer' }}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M12 5v14M5 12h14" />
@@ -293,93 +333,178 @@ export default function OfficeProjectsPanel() {
       data-testid="office-projects-panel"
       className="shrink-0 flex flex-col overflow-y-auto"
       style={{
-        width: 280,
-        background: '#ffffff',
-        borderRight: '1px solid rgba(15,23,42,0.08)',
+        width: 232,
+        background: MONO.bg,
+        borderRight: `1px solid ${MONO.hairline}`,
       }}
     >
-      <div className="p-3 border-b" style={{ borderColor: 'rgba(15,23,42,0.08)' }}>
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] uppercase tracking-widest font-semibold" style={{ color: '#64748b' }}>
-            {t('office.projectsPanelTitle')}
+      {/* PROJECTS 分区头（label-caps）+ K 版渐变「打开项目」按钮 */}
+      <div className="p-3 pb-2.5 border-b shrink-0 flex flex-col gap-2" style={{ borderColor: MONO.hairline }}>
+        <div className="flex items-center justify-between gap-2">
+          <span
+            style={{
+              fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace",
+              fontSize: 10, fontWeight: 500, letterSpacing: '0.08em', color: MONO.t3,
+            }}
+          >
+            {t('office.projectsPanelTitle').toUpperCase()}
+            <span className="ml-1.5">{displayedProjects.length}</span>
           </span>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px]" style={{ color: '#94a3b8' }}>{displayedProjects.length}</span>
-            <button
-              onClick={handleOpenFolder}
-              title={t('office.openProject')}
-              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors hover:bg-nova-hover"
-              style={{ color: '#0058bc', border: '1px solid rgba(0,88,188,0.3)', background: 'rgba(0,88,188,0.06)', cursor: 'pointer' }}
-            >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
-              {t('office.openProject')}
-            </button>
-          </div>
+          <button
+            onClick={handleOpenFolder}
+            title={t('office.openProject')}
+            className="w-5 h-5 flex items-center justify-center rounded transition-colors hover:bg-[#F4F4F5]"
+            style={{ color: MONO.t2, background: 'transparent', border: 'none', cursor: 'pointer' }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
         </div>
+        <button
+          onClick={handleOpenFolder}
+          className="w-full flex items-center justify-center gap-1.5 rounded-md transition-opacity hover:opacity-90"
+          style={{
+            padding: '7px 12px', fontSize: 12, fontWeight: 500, color: '#fff',
+            background: 'linear-gradient(90deg, #0058BC, #3B82F6)',
+            boxShadow: '0 1px 2px rgba(0,88,188,0.25)', border: 'none', cursor: 'pointer',
+          }}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+          {t('office.openProject')}
+        </button>
       </div>
 
-      <div className="flex-1 p-2 flex flex-col gap-1.5">
+      <div className="flex-1 pt-1 pb-3 flex flex-col">
         {displayedProjects.length === 0 && (
-          <div className="text-xs text-center py-8" style={{ color: '#94a3b8' }}>{t('office.noProjects')}</div>
+          <div className="text-xs text-center py-8" style={{ color: MONO.t3 }}>{t('office.noProjects')}</div>
         )}
-        {displayedProjects.map((project, idx) => {
+        {displayedProjects.map((project) => {
           const isCurrent = currentProjectPath === project.path
           const tasks = tasksByProject.get(project.path) || []
-          const tile = PROJECT_TILES[idx % PROJECT_TILES.length]
+          const history = historyByProject.get(project.path) || []
+          // 项目有子内容（运行时任务或历史对话）才显示展开箭头
+          const hasChildren = tasks.length > 0 || history.length > 0
+          const collapsed = collapsedPaths.has(project.path)
+          const runningCount = tasks.filter(({ p }) => p.status === 'running').length
+          const doneCount = tasks.filter(({ p }) => p.status === 'done').length
+          const countColor = runningCount > 0 ? '#0058BC' : doneCount === tasks.length ? '#16A34A' : MONO.t3
           return (
             <div
               key={project.path}
+              className="group"
               onDoubleClick={() => {
                 // 双击 = 打开项目。先取消挂起的任务行单击切换（否则双击任务行会先
                 // 切到长对话再开项目，中间那次重渲染就是「巨卡」的来源）。
                 cancelPendingTaskClick()
                 handleEnterProject(project.path)
               }}
-              title={t('office.doubleClickHint')}
-              className="rounded-xl p-2 cursor-pointer select-none transition-colors hover:bg-nova-hover"
-              style={{
-                background: isCurrent ? 'rgba(0,88,188,0.06)' : '#ffffff',
-                border: isCurrent ? '1px solid rgba(0,88,188,0.25)' : '1px solid rgba(15,23,42,0.08)',
-                borderLeft: isCurrent ? '3px solid #0058bc' : '1px solid rgba(15,23,42,0.08)',
-                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
-              }}
+              onContextMenu={(e) => handleProjectMenu(e, project.path)}
+              title={`${project.path} · ${t('office.doubleClickHint')}`}
             >
-              <div className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: tile.bg, color: '#fff' }}>
-                  <TileIcon name={tile.icon} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-semibold truncate" style={{ color: '#0f172a' }}>{project.name}</span>
-                    {isCurrent && (
-                      <span
-                        className="px-1.5 py-px rounded-full text-[9px] font-medium shrink-0"
-                        style={{ color: '#0058bc', background: 'rgba(0,88,188,0.08)', border: '1px solid rgba(0,88,188,0.3)' }}
-                      >
-                        {t('office.currentProject')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[10px] truncate" style={{ color: '#94a3b8' }}>{project.path}</div>
-                </div>
+              {/* 项目行：折叠箭头 + 文件夹 + 名称 + 任务计数 + 悬停操作（新建任务对话 / ⋯）
+                  右键 = 项目菜单（打开项目 / 新建任务对话 / 从列表中移除） */}
+              <div
+                className="flex items-center gap-1 cursor-pointer select-none transition-colors"
+                style={{
+                  padding: '7px 10px',
+                  background: isCurrent ? MONO.hover : 'transparent',
+                  borderLeft: `2px solid ${isCurrent ? MONO.ink : 'transparent'}`,
+                }}
+              >
+                {/* 折叠/展开任务列表 */}
+                <button
+                  onClick={(e) => toggleCollapse(e, project.path)}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  title={collapsed ? t('office.expandProject') : t('office.collapseProject')}
+                  className="shrink-0 flex items-center justify-center rounded transition-colors hover:bg-black/5"
+                  style={{ width: 16, height: 16, color: MONO.t3, background: 'transparent', border: 'none', cursor: 'pointer' }}
+                >
+                  <svg
+                    width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                    strokeLinecap="round" strokeLinejoin="round"
+                    style={{ transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform .15s' }}
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+                <span className="shrink-0 flex" style={{ color: isCurrent ? '#0058BC' : MONO.t3 }}>
+                  <FolderIcon color={isCurrent ? '#0058BC' : MONO.t3} />
+                </span>
+                <span
+                  className="truncate flex-1 min-w-0"
+                  style={{ fontSize: 13, fontWeight: isCurrent ? 500 : 400, color: isCurrent ? MONO.t1 : MONO.t2 }}
+                >
+                  {project.name}
+                </span>
                 {tasks.length > 0 && (
                   <span
-                    className="px-1.5 py-0.5 rounded-full text-[9.5px] font-semibold shrink-0"
-                    style={{ color: '#fff', background: '#0058bc' }}
-                    title={t('office.projectsPanelTitle')}
+                    className="shrink-0 flex items-center gap-1"
+                    style={{ fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace", fontSize: 9.5, color: countColor }}
+                    title={`${tasks.length} ${t('office.taskCount')}`}
                   >
+                    {runningCount > 0 && (
+                      <span className="inline-block rounded-full animate-pulse" style={{ width: 5, height: 5, background: '#0058BC' }} />
+                    )}
                     {tasks.length}
                   </span>
                 )}
+                {/* 悬停：新建任务对话 */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleNewSessionForProject(project.path) }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  title={t('office.newTaskChat')}
+                  className="shrink-0 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#F4F4F5]"
+                  style={{ width: 18, height: 18, color: MONO.t2, background: 'transparent', border: 'none', cursor: 'pointer' }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+                {/* 悬停：⋯ 项目菜单 */}
+                <button
+                  onClick={(e) => handleProjectMenu(e, project.path)}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  title={t('chat.moreActions')}
+                  className="shrink-0 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-[#F4F4F5]"
+                  style={{ width: 18, height: 18, color: MONO.t2, background: 'transparent', border: 'none', cursor: 'pointer' }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="5" r="1.8" />
+                    <circle cx="12" cy="12" r="1.8" />
+                    <circle cx="12" cy="19" r="1.8" />
+                  </svg>
+                </button>
               </div>
 
-              {/* 一人公司任务（目标模式子任务） */}
-              {tasks.length > 0 ? (
-                <div className="mt-1.5 ml-[6px] border-l pl-2 flex flex-col" style={{ borderColor: 'rgba(15,23,42,0.1)' }}>
-                  {tasks.map(({ id, p, session }) => {
-                    const sk = statusKey(p.status)
+              {/* 项目子内容：活动任务（运行时子 Agent 进度） + 历史对话（持久化会话） */}
+              {hasChildren && !collapsed && (
+                <div className="ml-5 pl-2 flex flex-col pb-1" style={{ borderLeft: `1px solid ${MONO.hairline}` }}>
+                  {/* ── 活动任务 ── */}
+                  {tasks.length > 0 && (
+                    <>
+                      <div className="flex items-center gap-1.5 pt-1.5 pb-0.5 px-1">
+                        <span
+                          style={{
+                            fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace",
+                            fontSize: 9.5, fontWeight: 500, letterSpacing: '0.08em', color: MONO.t3,
+                          }}
+                        >
+                          {t('office.tasksSection').toUpperCase()}
+                        </span>
+                        <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace", fontSize: 9, color: MONO.t3 }}>
+                          {tasks.length}
+                        </span>
+                      </div>
+                      {tasks.map(({ id, p, session }) => {
+                    const label = roleLabel(p.task, p.name)
+                    const avatar = roleAvatar(label)
+                    const running = p.status === 'running'
+                    const done = p.status === 'done'
+                    const statusText = running ? 'RUNNING' : done ? 'DONE' : 'FAILED'
+                    const statusColor = running ? '#0058BC' : done ? '#16A34A' : '#DC2626'
                     return (
                       <button
                         key={id}
@@ -393,25 +518,159 @@ export default function OfficeProjectsPanel() {
                           }, 250)
                         }}
                         title={`${session.title || t('chat.untitled')} · ${summarizeTask(p.task, 120)}`}
-                        className="w-full flex items-center gap-2 py-1 px-1 rounded-lg text-left transition-colors hover:bg-nova-hover"
+                        className="w-full flex items-start gap-2 py-1.5 px-1 text-left transition-colors hover:bg-[#F4F4F5]"
                       >
-                        <TaskStatusRing status={p.status} size={22} />
+                        {/* K 版状态指示：运行中 = conic 彩虹环旋转 / 完成 = 绿勾 / 失败 = 红叉 */}
+                        {running ? (
+                          <span
+                            className="shrink-0 rounded-full animate-spin"
+                            style={{ width: 15, height: 15, padding: 2, marginTop: 4, background: GRADIENT.rainbow, animationDuration: '2s' }}
+                          >
+                            <span className="block w-full h-full rounded-full" style={{ background: '#fff' }} />
+                          </span>
+                        ) : done ? (
+                          <span
+                            className="shrink-0 rounded-full flex items-center justify-center"
+                            style={{
+                              width: 15, height: 15, marginTop: 4,
+                              border: '1.5px solid #16A34A', color: '#16A34A', fontSize: 9, fontWeight: 700,
+                              background: 'rgba(22,163,74,0.08)',
+                            }}
+                          >
+                            ✓
+                          </span>
+                        ) : (
+                          <span
+                            className="shrink-0 rounded-full flex items-center justify-center"
+                            style={{
+                              width: 15, height: 15, marginTop: 4,
+                              border: '1.5px solid #DC2626', color: '#DC2626', fontSize: 9, fontWeight: 700,
+                              background: 'rgba(220,38,38,0.06)',
+                            }}
+                          >
+                            ✕
+                          </span>
+                        )}
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-medium truncate" style={{ color: '#0f172a' }}>{roleLabel(p.task, p.name)}</span>
-                            <span className="text-[9px] shrink-0" style={{ color: STATUS_COLOR[sk] }}>
-                              {sk === 'running' ? t('office.taskRunning') : sk === 'done' ? t('office.taskDone') : t('office.taskFailed')}
-                              {sk === 'running' ? ` · ${estimateProgress(p)}%` : ''}
+                            <span
+                              className="truncate font-medium"
+                              style={{
+                                fontSize: 11.5,
+                                color: running ? '#0058BC' : MONO.t1,
+                                textDecoration: done ? 'line-through' : undefined,
+                                opacity: done ? 0.55 : 1,
+                              }}
+                            >
+                              {label}
+                            </span>
+                            <span
+                              className="shrink-0 uppercase"
+                              style={{
+                                fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace",
+                                fontSize: 9, letterSpacing: '0.05em', color: statusColor,
+                              }}
+                            >
+                              {statusText}
                             </span>
                           </span>
-                          <span className="block text-[10px] truncate" style={{ color: '#64748b' }}>{summarizeTask(p.task, 40)}</span>
+                          <span className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                            {/* 角色小头像（渐变底 + 首字） */}
+                            <span
+                              className="shrink-0 rounded-full flex items-center justify-center"
+                              style={{
+                                width: 13, height: 13,
+                                background: avatar.bg, color: '#fff', fontSize: 8, fontWeight: 700,
+                              }}
+                            >
+                              {avatar.char}
+                            </span>
+                            <span className="block truncate" style={{ fontSize: 10, color: MONO.t3 }}>
+                              {summarizeTask(p.task, 34)}
+                            </span>
+                          </span>
                         </span>
                       </button>
                     )
                   })}
+                    </>
+                  )}
+
+                  {/* ── 历史对话（该项目的持久化会话；重启后任务区清空，这里回看） ── */}
+                  {history.length > 0 && (
+                    <>
+                      <div className="flex items-center gap-1.5 pt-1.5 pb-0.5 px-1">
+                        <span
+                          style={{
+                            fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace",
+                            fontSize: 9.5, fontWeight: 500, letterSpacing: '0.08em', color: MONO.t3,
+                          }}
+                        >
+                          {t('office.historySection').toUpperCase()}
+                        </span>
+                        <span style={{ fontFamily: "'JetBrains Mono', ui-monospace, Consolas, monospace", fontSize: 9, color: MONO.t3 }}>
+                          {history.length}
+                        </span>
+                      </div>
+                      {history
+                        .slice(0, showMoreSessions.has(project.path) ? undefined : HISTORY_VISIBLE_DEFAULT)
+                        .map((s) => (
+                          <button
+                            key={s.id}
+                            onClick={() => {
+                              // 单击 = 切到该历史会话（延时 250ms 区分双击，与任务行同机制）
+                              if (taskClickTimer.current != null) window.clearTimeout(taskClickTimer.current)
+                              taskClickTimer.current = window.setTimeout(() => {
+                                taskClickTimer.current = null
+                                handleSelectTask(s.id)
+                              }, 250)
+                            }}
+                            title={`${s.title || t('chat.untitled')} · ${s.messages.length} ${t('office.messagesCount')}`}
+                            className="w-full flex items-center gap-2 py-1.5 px-1 text-left transition-colors hover:bg-[#F4F4F5]"
+                          >
+                            <span className="shrink-0 flex" style={{ color: MONO.t3 }}>
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                              </svg>
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate" style={{ fontSize: 11.5, color: MONO.t1 }}>
+                                {s.title || t('chat.untitled')}
+                              </span>
+                              <span className="block truncate" style={{ fontSize: 10, color: MONO.t3 }}>
+                                {fmtRelative(sessionLastUserActivity(s))} · {s.messages.length} {t('office.messagesCount')}
+                              </span>
+                            </span>
+                          </button>
+                        ))}
+                      {history.length > HISTORY_VISIBLE_DEFAULT && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setShowMoreSessions((prev) => {
+                              const next = new Set(prev)
+                              if (next.has(project.path)) next.delete(project.path)
+                              else next.add(project.path)
+                              return next
+                            })
+                          }}
+                          className="flex items-center gap-1 pt-1.5 pl-1 pb-0.5 transition-colors hover:text-[#111827]"
+                          style={{ fontSize: 10, color: MONO.t3, background: 'transparent', border: 'none', cursor: 'pointer' }}
+                        >
+                          {showMoreSessions.has(project.path)
+                            ? t('office.collapseSessions')
+                            : t('office.showMoreSessions', { count: history.length - HISTORY_VISIBLE_DEFAULT })}
+                          <svg
+                            width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                            style={{ transform: showMoreSessions.has(project.path) ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}
+                          >
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
-              ) : (
-                <div className="mt-1.5 ml-1 text-[10px]" style={{ color: '#94a3b8' }}>{t('office.noTasks')}</div>
               )}
             </div>
           )

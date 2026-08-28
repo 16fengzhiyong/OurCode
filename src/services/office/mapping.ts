@@ -114,3 +114,56 @@ export function roleLabel(task: string, name: string): string {
   if (!raw) return '子任务'
   return raw.replace(/^tm-/, '').replace(/[-_]/g, ' ')
 }
+
+/**
+ * 看板「团队」格：按运行中的子 Agent 角色推导 8 工位状态。
+ * 与 3D 场景共用同一套 ROLE_SLOTS 槽位池（assignSlot）：监管（Director-01）
+ * 在目标模式会话生成中时视为 working；运行中角色按传入顺序占各自池里的
+ * 空闲工位；其余工位保持 idle。纯函数，无副作用。
+ */
+export function computeSlotStates(runningRoles: string[], supervisorActive: boolean): OfficeStatus[] {
+  const states: OfficeStatus[] = Array(8).fill('idle')
+  const occupied = new Set<number>()
+  if (supervisorActive) {
+    states[0] = 'working'
+    occupied.add(1)
+  }
+  for (const name of runningRoles) {
+    const slot = assignSlot(name, occupied)
+    if (slot != null) {
+      states[slot - 1] = 'working'
+      occupied.add(slot)
+    }
+  }
+  return states
+}
+
+/** 看板 4 大角色组的展示顺序与固定成员(产品/设计/研发/测试)。 */
+export const ROLE_GROUPS = ['产品', '设计', '研发', '测试'] as const
+export type RoleGroup = (typeof ROLE_GROUPS)[number]
+
+/** 角色标签/角色名 → 看板角色组(聚合 8 工位为 4 张角色卡)。 */
+const ROLE_GROUP_MAP: Record<string, RoleGroup> = {
+  产品: '产品',
+  需求分析: '产品',
+  'tm-requirement-analyst': '产品',
+  'requirement-analyst': '产品',
+  设计: '设计',
+  'UI 开发': '设计',
+  'tm-ui-developer': '设计',
+  'ui-developer': '设计',
+  研发: '研发',
+  developer: '研发',
+  'tm-developer': '研发',
+  测试: '测试',
+  '测试生成': '测试',
+  tester: '测试',
+  'tm-tester': '测试',
+  'test-generator': '测试',
+}
+
+/** 子 Agent → 看板角色组;无法识别时按名称/标签兜底到「研发」。 */
+export function roleGroup(task: string, name: string): RoleGroup {
+  const label = roleLabel(task, name)
+  return ROLE_GROUP_MAP[label] ?? ROLE_GROUP_MAP[name] ?? '研发'
+}

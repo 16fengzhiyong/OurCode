@@ -63,7 +63,7 @@ describe.skipIf(!sqliteUsable)('SQLiteStore.getSessions — one-company history 
     expect(store.getSessions()).toHaveLength(0)
   })
 
-  it('legacy main sessions surface in BOTH windows until the user creates an office session', () => {
+  it('legacy main sessions stay in the main window only — office is a fresh namespace', () => {
     // Simulate a user who has used the app for a while in the main window
     // (every legacy session got mode='main' stamped by the column-add migration).
     store.saveSession(makeSession({ id: 'legacy-1', title: '昨天的对话', mode: 'main' }))
@@ -73,20 +73,20 @@ describe.skipIf(!sqliteUsable)('SQLiteStore.getSessions — one-company history 
     const mainIds = store.getSessions('main').map((s) => s.id)
     expect(mainIds).toEqual(expect.arrayContaining(['legacy-1', 'legacy-2']))
 
-    // Office window ALSO sees them — the user's history must not vanish.
+    // Opening a company must NOT drag the main-window conversations along —
+    // office window starts from a clean slate.
     const officeIds = store.getSessions('office').map((s) => s.id)
-    expect(officeIds).toEqual(expect.arrayContaining(['legacy-1', 'legacy-2']))
+    expect(officeIds).toHaveLength(0)
   })
 
-  it('once an office session exists, strict isolation kicks in: main does not see office and vice-versa', () => {
+  it('main and office sessions are strictly isolated in both directions', () => {
     store.saveSession(makeSession({ id: 'legacy-1', title: '历史', mode: 'main' }))
     store.saveSession(makeSession({ id: 'office-new', title: '新公司任务', mode: 'office' }))
 
     const mainIds = store.getSessions('main').map((s) => s.id)
     const officeIds = store.getSessions('office').map((s) => s.id)
 
-    // Strict isolation now — legacy 'main' rows no longer leak into office,
-    // and the brand-new 'office' row only shows up in its own window.
+    // 一人公司与对话模式互不互通:main 看不到公司会话,office 也看不到 main 会话。
     expect(mainIds).toEqual(['legacy-1'])
     expect(officeIds).toEqual(['office-new'])
   })

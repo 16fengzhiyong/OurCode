@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, net, session, Notification, protocol, type WebContents, type IpcMainInvokeEvent } from 'electron'
 import { join, resolve, dirname, sep, relative, isAbsolute, extname } from 'path'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { is } from '@electron-toolkit/utils'
 import { exec, execFile, spawn } from 'child_process'
@@ -31,6 +31,31 @@ const APP_ICON = join(__dirname, '..', 'build', 'icon.png')
 // Files larger than this are skipped by search:inFiles (reading + splitting a
 // multi-hundred-MB file to search it would block the main process)
 const SEARCH_MAX_FILE_BYTES = 50 * 1024 * 1024
+
+// ── 崩溃/异常留痕 ─────────────────────────────────────────────────────────────
+// 此前主进程没有 uncaughtException 处理：任何未捕获异常都会让应用无声退出，
+// 用户只看到「崩溃了」却没有任何可诊断的信息。这里把主进程异常、未处理的
+// Promise 拒绝与渲染进程死亡统一追加到 userData/crash.log（保留现场供排查），
+// 主进程不再因单个异常直接退出。
+const CRASH_LOG_PATH = () => join(app.getPath('userData'), 'crash.log')
+
+function appendCrashLog(kind: string, info: unknown): void {
+  const line =
+    `\n[${new Date().toISOString()}] ${kind}\n` +
+    (info instanceof Error ? `${info.stack || info.message}` : typeof info === 'string' ? info : JSON.stringify(info)) +
+    '\n'
+  try {
+    appendFileSync(CRASH_LOG_PATH(), line, 'utf-8')
+  } catch {
+    // 日志写入失败不能再抛（否则就是新的崩溃源）
+  }
+  console.error(`[crash:${kind}]`, info)
+}
+
+process.on('uncaughtException', (err) => appendCrashLog('uncaughtException', err))
+process.on('unhandledRejection', (reason) => appendCrashLog('unhandledRejection', reason))
+// 渲染进程/GPU 等子进程死亡（白屏、闪退的现场）也留痕
+app.on('child-process-gone', (_event, details) => appendCrashLog('child-process-gone', details))
 
 /**
  * Paths the renderer is allowed to touch. Populated from the dialogs that the
