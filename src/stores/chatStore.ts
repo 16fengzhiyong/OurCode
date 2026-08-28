@@ -1551,12 +1551,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // project follows the conversation), then the folder being browsed.
     const rootPath = projectPath || getCurrentProjectPath() || document.getElementById('file-tree-root')?.getAttribute('data-root-path') || useUIStore.getState().rootPath || ''
     // 一人公司排他：办公室建会话走 targetMode 直置（见下），绕过了 setTargetMode
-    // 的「同项目仅一个目标模式会话」门禁。同项目已有一家公司在运营时，直接激活
-    // 既有会话而不是再开一家——否则两个监管会对同一项目双跑（状态文件互相覆盖、
-    // 预算分别记账）。
+    // 的「同项目仅一个目标模式会话」门禁。这里只拦「正在运行」的公司——同项目
+    // 有目标模式会话在运行时，直接激活既有会话而不是再开一家，防止两个监管对
+    // 同一项目双跑（状态文件互相覆盖、预算分别记账）。**未在运行的既有会话不
+    // 占位**：新建任务 = 新会话（干净上下文），旧会话保留在历史区回看；否则会
+    // 出现「我没在跑任务，却提示已有公司在运营」的误导（会话存在 ≠ 在运营）。
     if (IS_OFFICE && rootPath) {
       const running = get().sessions.find(
-        (s) => s.targetMode === true && s.projectPath === rootPath,
+        (s) =>
+          s.targetMode === true &&
+          s.projectPath === rootPath &&
+          get().runningSessionIds.includes(s.id),
       )
       if (running) {
         set({ activeSessionId: running.id })
@@ -2497,6 +2502,25 @@ async function runAgentLoop(
   const agentMode = opts?.agentModeOverride || 'agent'
   // Target mode: the agent runs the autonomous .ourcode/targemode/ workflow
   const targetMode = session.targetMode === true
+
+  // 一人公司防双跑兜底：新建会话已不再被「同项目存在目标模式会话」拦截（见
+  // createSession），同一项目可并存多个目标模式会话（历史 + 新建）。两个监管
+  // 同时跑会互相覆盖 .ourcode/targemode 状态文件、预算分别记账——启动前检查
+  // 同项目是否已有另一个**正在运行**的目标模式会话，有则阻止本次启动。
+  // 仅目标模式路径生效（普通 chat / agent 会话不经过）。
+  if (targetMode && session.projectPath) {
+    const peerRunning = chatStore.sessions.some(
+      (s) =>
+        s.targetMode === true &&
+        s.projectPath === session.projectPath &&
+        s.id !== sessionId &&
+        chatStore.runningSessionIds.includes(s.id),
+    )
+    if (peerRunning) {
+      useUIStore.getState().showNotification(t('chat.targetModePeerRunning'), 'warning')
+      return
+    }
+  }
 
   // Agent mode operates on the workspace, so a *currently selected* project
   // must be open. A session's historical projectPath does NOT count — without a

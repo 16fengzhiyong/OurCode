@@ -210,7 +210,7 @@ export const enUS: Record<TranslationKey, string> = {
   'office.statusDone': 'Done',
   'office.statusError': 'Failed',
   'office.statusIdle': 'Idle',
-  'office.companyAlreadyRunning': 'A company is already running for this project — switched to it',
+  'office.companyAlreadyRunning': 'A task is already running for this project — switched to it',
 
   // ── One-person company V12 trust loop (top bar / workbench / right cards / chat bar) ──
   'office.company': 'One-Person Company',
@@ -457,6 +457,7 @@ export const enUS: Record<TranslationKey, string> = {
   'chat.targetModeExclusive': 'Target mode is already running for this project — close it before enabling another',
   'chat.targetModePlaceholder': 'Enter your final goal or thoughts',
   'chat.targetModeBudgetExceeded': 'Target-mode global budget reached — auto-resume stopped',
+  'chat.targetModePeerRunning': 'A task is already running for this project — wait for it or stop it before starting another',
   'chat.arenaCompare': 'Arena Model Comparison',
   'chat.workflows': 'Workflows',
   'chat.memory': 'Memories',

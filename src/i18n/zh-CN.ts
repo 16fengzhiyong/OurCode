@@ -207,7 +207,7 @@ export const zhCN = {
   'office.statusDone': '已完成',
   'office.statusError': '失败',
   'office.statusIdle': '空闲中',
-  'office.companyAlreadyRunning': '该项目已有公司在运营，已为你切换',
+  'office.companyAlreadyRunning': '该项目有任务正在运行，已为你切换',
 
   // ── 一人公司 V12 信任闭环（状态条/工作台/右栏三卡/对话条） ──────────────
   'office.company': '一人公司',
@@ -454,6 +454,7 @@ export const zhCN = {
   'chat.targetModeExclusive': '同一项目下已有目标模式在运行，请先关闭后再开启',
   'chat.targetModePlaceholder': '请输入最终目标或你的想法',
   'chat.targetModeBudgetExceeded': '目标模式全局预算已触顶，已停止自主续跑',
+  'chat.targetModePeerRunning': '该项目已有任务正在运行，请等待其完成或先停止，再开始新任务',
   'chat.arenaCompare': 'Arena 模型对比',
   'chat.workflows': '工作流',
   'chat.memory': '记忆管理',
